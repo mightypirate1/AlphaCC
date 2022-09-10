@@ -1,5 +1,9 @@
 ### Misc:
 .vscode
+.github
+
+### Python:
+.venv
 
 ### Rust:
 
