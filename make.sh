@@ -24,7 +24,7 @@ function target_env_create () {
 }
 
 function target_build () {
-  (venv_is_active || . .venv/bin/activate) && bash -c "cd alpha-cc && maturin develop"
+  (venv_is_active || . .venv/bin/activate) && (cd alpha-cc && maturin develop)
 }
 
 function target_install () {
