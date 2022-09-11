@@ -15,8 +15,7 @@ class RunTime:
     def __init__(
         self,
         board: Board,
-        agents: Tuple[BaseAgent,
-        BaseAgent],
+        agents: Tuple[BaseAgent, BaseAgent],
         config: Optional[RunTimeConfig] = None,
     ):
         self.board = board
