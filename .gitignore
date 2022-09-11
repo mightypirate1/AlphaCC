@@ -28,6 +28,8 @@ Cargo.lock
 ### Python:
 .venv
 */__pycache__/
+
+### From github (for python):
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
