@@ -24,8 +24,7 @@ function target_env_create () {
 }
 
 function target_build () {
-  venv_is_active || (echo "Error: virtual environment is NOT activated" && exit 1)
-  bash -c "cd alpha-cc && maturin develop"
+  (venv_is_active || . .venv/bin/activate) && bash -c "cd alpha-cc && maturin develop"
 }
 
 function target_install () {
@@ -33,7 +32,7 @@ function target_install () {
 }
 
 function target_test () {
-  (venv_is_active && pytest tests) || (. .venv/bin/activate && pytest tests)
+  (venv_is_active || . .venv/bin/activate) && pytest tests
 }
 
 #######

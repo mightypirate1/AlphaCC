@@ -20,7 +20,6 @@ env-delete:
 	@bash make.sh env-delete
 
 build:
-	source .venv/bin/activate
 	@bash make.sh build
 
 env-activate:
