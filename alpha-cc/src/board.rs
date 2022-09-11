@@ -135,7 +135,7 @@ impl Board {
             panic!("invalid coord for set state")
         }
     }
-    fn next_player(&mut self){
+    fn next_player(&mut self) {
         self.current_player += 1;
         if self.current_player > self.n_players {
             self.current_player = (self.current_player as i32 - self.n_players as i32) as usize;
