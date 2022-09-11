@@ -17,6 +17,12 @@ impl Move {
     }
 }
 
+impl Move {
+    pub fn another_function(self) {
+        println!("det gick!");
+    }
+}
+
 
 fn main() {
     let x: HexCoordinate = HexCoordinate::create(0,0);

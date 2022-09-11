@@ -1,6 +1,9 @@
+extern crate pyo3;
+use pyo3::prelude::*;
 use std::vec::Vec;
 
 #[derive(Copy, Clone, Eq, Debug)]
+#[pyclass]
 pub struct HexCoordinate {
     pub x: i32,
     pub y: i32,
@@ -12,6 +15,7 @@ impl PartialEq for HexCoordinate {
     }
 }
 
+// #[pymethods]
 impl HexCoordinate{
     pub fn create(x: i32, y: i32) -> HexCoordinate {
         return HexCoordinate {x: x, y: y};

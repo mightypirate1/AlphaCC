@@ -1,8 +1,11 @@
+extern crate pyo3;
+use pyo3::prelude::*;
 use crate::moves::Move;
 use std::vec::Vec;
 use ndarray::{s, Array2};
 use crate::hexcoordinate::HexCoordinate;
 
+#[pyclass]
 pub struct Board {
     current_player: usize,
     n_players: usize,
@@ -11,8 +14,11 @@ pub struct Board {
     pub allow_place_moves: bool,
 }
 
+#[pyclass]
 pub struct BoardInfo {
+    #[pyo3(get)]
     current_player: usize,
+    #[pyo3(get)]
     winner: usize,
 }
 
@@ -28,8 +34,7 @@ impl Default for Board {
     }
 }
 
-impl Board{
-    // Constructor
+impl Board {
     pub fn create(size: usize) -> Board {
         let mut board = Board {
             matrix: Array2::zeros((size, size)),
@@ -81,46 +86,6 @@ impl Board{
                 }
             }
         }
-    }
-
-    /////////
-    // RL: //
-    /////////
-
-    pub fn reset(mut self) -> Board {
-        // Resets board to starting position, randomizes starting player, and returns state
-        let size: usize = self.matrix.shape()[0];
-        self.matrix = Array2::zeros((size, size));
-        self.initialize_board();
-        self.calculated_moves = Vec::new();
-        self.current_player = if rand::random() {1} else {2};
-        return self;
-    }
-
-    pub fn get_all_possible_next_states(mut self) -> Vec<Board> {
-        // IMPORTANT: This is being set here so that we can have an action space that
-        // is just a usize; namely the index in this list.
-        self.calculated_moves = self.get_all_legal_moves_for_current_player();
-        let mut next_boards: Vec<Board> = Vec::new();
-        let mut next_board: Board;
-        for a_move in &self.calculated_moves {
-            next_board = a_move.apply(self.copy());
-            next_boards.push(next_board);
-        }
-        return next_boards;
-    }
-
-    pub fn perform_move(mut self, move_index: usize) -> bool {
-        if move_index >= 0 && move_index < self.calculated_moves.len() {
-            self.calculated_moves[move_index].apply(self);
-            return true;
-        }
-        println!("Invalid move index {move_index}: valid choices are {:?}", [0..self.calculated_moves.len()]);
-        return false;
-    }
-
-    pub fn get_board_info(&self) -> BoardInfo {
-        return BoardInfo { current_player: self.current_player, winner: self.current_win_status() }
     }
 
     //////////////
@@ -249,13 +214,14 @@ impl Board{
         }
         return 0;
     }
-
     fn player_one_has_won(&self) -> bool {
+        println!("player_one_has_won?");
         let home_size: usize = self.get_home_size();
+        let board_size: usize = self.get_board_size();
         for ((y, x), value) in self.matrix.slice(
-            s![0..home_size, 0..home_size]
+            s![board_size-home_size.., board_size-home_size..]  // Player2's home, i.e. player1's destination!
         ).indexed_iter() {
-            if self.coord_is_in_home_of_player(2, HexCoordinate::from_usize(x, y))
+            if self.coord_is_in_home_of_player(2, HexCoordinate::from_usize(x+board_size-home_size, y+board_size-home_size))
                 && *value != 1 {
                     return false;
                 }
@@ -263,10 +229,10 @@ impl Board{
         return true;
     }
     fn player_two_has_won(&self) -> bool {
+        println!("player_two_has_won?");
         let home_size: usize = self.get_home_size();
-        let board_size: usize = self.get_board_size();
         for ((y, x), value) in self.matrix.slice(
-            s![board_size-home_size.., board_size-home_size..]
+            s![0..home_size, 0..home_size] // Player1's home, i.e. player2's destination!
         ).indexed_iter() {
             if self.coord_is_in_home_of_player(1, HexCoordinate::from_usize(x, y))
                 && *value != 2 {
@@ -339,5 +305,66 @@ impl Board{
             }
         }
         return jump_moves;
+    }
+}
+
+/////////
+// RL: //
+/////////
+
+#[pymethods]
+impl Board {
+    // Constructor
+    #[new]
+    pub fn pycreate(size: usize) -> PyResult<Self> {
+        return Ok(Board::create(size));
+    }
+    pub fn reset(mut slf: PyRefMut<'_, Self>) -> Board {
+        // Resets board to starting position, randomizes starting player, and returns state
+        let size: usize = slf.matrix.shape()[0];
+        slf.matrix = Array2::zeros((size, size));
+        slf.initialize_board();
+        slf.calculated_moves = Vec::new();
+        slf.current_player = if rand::random() {1} else {2};
+        return slf.copy();
+    }
+
+    pub fn get_all_possible_next_states(& mut self) -> Vec<Board> {
+        // IMPORTANT: This is being set here so that we can have an action space that
+        // is just a usize; namely the index in this list.
+        self.calculated_moves = self.get_all_legal_moves_for_current_player();
+        let mut next_boards: Vec<Board> = Vec::new();
+        let mut next_board: Board;
+        for a_move in &self.calculated_moves {
+            next_board = a_move.apply(self.copy());
+            next_boards.push(next_board);
+        }
+        return next_boards;
+    }
+
+    pub fn perform_move(slf: PyRef<'_, Self>, move_index: usize) -> Board {
+        let mut new_board_state: Board;
+        if move_index < slf.calculated_moves.len() {
+            new_board_state = slf.calculated_moves[move_index].apply(slf.copy());
+            new_board_state.next_player();
+            return new_board_state;
+        }
+        panic!("Invalid move index {move_index}: valid choices are {:?}", [0..slf.calculated_moves.len()]);
+    }
+
+    pub fn render(&self) {
+        self.print();
+    }
+
+    pub fn get_matrix(&self) -> Vec<Vec<i32>> {
+        let mut mtx: Vec<Vec<i32>> = Vec::new();
+        for col in self.matrix.outer_iter() {
+            mtx.push(col.to_vec());
+        }
+        return mtx;
+    }
+
+    pub fn get_board_info(&self) -> BoardInfo {
+        return BoardInfo { current_player: self.current_player, winner: self.current_win_status()}
     }
 }

@@ -14,7 +14,6 @@ impl Move {
             Move::WalkMove{to, from} => board = self.move_stone(board, to, from),
             Move::JumpMove{to, from} => board = self.move_stone(board, to, from),
             Move::PlaceMove{coord}   => board = self.place_at(board, coord),
-            // _ => panic!("How did you even??"),
         }
         return board;
     }
@@ -36,7 +35,6 @@ impl Move {
                 return false;
             },
             Move::PlaceMove{coord}   => {return board.coord_is_empty(&coord)},
-            // _ => panic!("How did you even??"),
         };
     }
     fn place_at(self, mut board: Board, coord: HexCoordinate) -> Board {
@@ -51,9 +49,5 @@ impl Move {
         board.clear(from);
         board.place(to);
         return board;
-    }
-    fn move_stone_inplace(self, board: &mut Board, to: HexCoordinate, from: HexCoordinate) {
-        board.clear(from);
-        board.place(to);
     }
 }
