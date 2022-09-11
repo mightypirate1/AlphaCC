@@ -20,7 +20,7 @@ function target_env_delete () {
 function target_env_create () {
   target_env_delete
   python3 -m venv .venv --prompt $REPO_NAME
-  source .venv/bin/activate && pip install -r requirements.txt
+  . .venv/bin/activate && pip install -r requirements.txt
 }
 
 function target_build () {
@@ -29,11 +29,11 @@ function target_build () {
 }
 
 function target_install () {
-  (venv_exists || target_env_create) && (source .venv/bin/activate && target_build && target_test)
+  (venv_exists || target_env_create) && (. .venv/bin/activate && target_build && target_test)
 }
 
 function target_test () {
-  (venv_is_active && pytest tests) || (source .venv/bin/activate && pytest tests)
+  (venv_is_active && pytest tests) || (. .venv/bin/activate && pytest tests)
 }
 
 #######
@@ -45,7 +45,8 @@ function venv_exists () {
 }
 
 function venv_is_active () {
-  if [[ $(echo $VIRTUAL_ENVIRONMENT | grep $REPO_NAME | wc -l) -gt 0 ]]; then
+  if [[ $(echo $VIRTUAL_ENVIRONMENT | grep $REPO_NAME | wc -l) -gt 0 ]] \
+  || [[ $(echo $VIRTUAL_ENV         | grep $REPO_NAME | wc -l) -gt 0 ]]; then
     return 0
   else
     return 1
