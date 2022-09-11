@@ -66,7 +66,7 @@ impl Board {
             print!("{row}");
             print!("{}\n", (0..width-row_idx).map( |_| "  ").collect::<String>() );
         }
-        println!("Current player: {}", self.current_player);
+        println!("Current player: {}", self.get_current_player());
     }
 
     /////////////////////
@@ -95,6 +95,9 @@ impl Board {
     pub fn get_n_players(&self) -> usize {
         return self.n_players;
     }
+    pub fn get_current_player(&self) -> usize {
+        return self.current_player;
+    }
     pub fn place_moves_are_allowed(&self) -> bool {
         return self.allow_place_moves;
     }
@@ -111,10 +114,10 @@ impl Board {
 
     pub fn place(&mut self, coord: HexCoordinate) {
         if  self.coord_is_valid(&coord) && self.coord_is_empty(&coord) {
-                self.set_board_state(coord, self.current_player as i32);
+                self.set_board_state(coord, self.get_current_player() as i32);
         }
         else {
-            panic!("Invalid play attempted: {} @ {}, {}", self.current_player, coord.x, coord.y);
+            panic!("Invalid play attempted: {} @ {}, {}", self.get_current_player(), coord.x, coord.y);
         }
     }
     pub fn clear(&mut self, coord: HexCoordinate) {
@@ -154,7 +157,7 @@ impl Board {
             && self.get_boardstate_by_coord(coord) < self.n_players as i32;
     }
     pub fn coord_is_occupied_by_current_player(&self, coord: &HexCoordinate) -> bool {
-        return self.get_boardstate_by_coord(coord) == self.current_player as i32;
+        return self.get_boardstate_by_coord(coord) == self.get_current_player() as i32;
     }
     pub fn get_boardstate_by_coord(&self, coord: &HexCoordinate) -> i32 {
         if self.coord_is_valid(&coord){
@@ -198,7 +201,7 @@ impl Board {
     }
 
     pub fn get_current_player_piece_coords(&self) -> Vec::<HexCoordinate>{
-        return self.get_player_piece_coords(self.current_player);
+        return self.get_player_piece_coords(self.get_current_player());
     }
 
     ////////////////////
@@ -245,7 +248,7 @@ impl Board {
     //////////////////////////////
 
     pub fn get_all_legal_moves_for_current_player(&self) -> Vec<Move>{
-        return self.get_all_legal_moves(self.current_player);
+        return self.get_all_legal_moves(self.get_current_player());
     }
 
     pub fn get_all_legal_moves(&self, player: usize) -> Vec<Move> {
@@ -362,7 +365,20 @@ impl Board {
         return mtx;
     }
 
+    pub fn get_matrix_from_perspective_of_current_player(&self) -> Vec<Vec<i32>> {
+        // If we are player 1, we see the board like normal
+        if self.get_current_player() == 1 {
+            return self.get_matrix();
+        }
+        // If we are player 2; rotate board 180 degrees and change "color" of the pieces
+        let mut mtx: Vec<Vec<i32>> = Vec::new();
+        for col in ((3 - &self.matrix.slice(s![..;-1,..;-1])) % 3 ).outer_iter() {
+            mtx.push(col.to_vec());
+        }
+        return mtx;
+    }
+
     pub fn get_board_info(&self) -> BoardInfo {
-        return BoardInfo { current_player: self.current_player, winner: self.current_win_status()}
+        return BoardInfo { current_player: self.get_current_player(), winner: self.current_win_status()}
     }
 }
