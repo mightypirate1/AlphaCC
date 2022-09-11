@@ -10,12 +10,18 @@ class GreedyAgent(BaseAgent):
             for y in range(self.heuristic_matrix.shape[1]):
                 self.heuristic_matrix[x, y] = (x + y)
 
-    def choose_action(self, board: Board) -> int:
+    def choose_move(self, board: Board) -> int:
         s_primes = self.unpack_s_primes(board)
-        action = np.argmax(self.evaluation(s_primes))
+        action = np.argmax(self._evaluation(s_primes))
         return action
 
-    def evaluation(self, s_primes: List[GameState]) -> np.ndarray:
+    def on_game_start(self) -> None:
+        pass
+
+    def on_game_end(self) -> None:
+        pass
+
+    def _evaluation(self, s_primes: List[GameState]) -> np.ndarray:
         def V(s):
             return ((np.array(s.matrix) == 1).astype(np.float) * self.heuristic_matrix).sum()
         return [V(sp) for sp in s_primes]
