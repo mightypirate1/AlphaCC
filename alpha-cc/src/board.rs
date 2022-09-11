@@ -215,7 +215,6 @@ impl Board {
         return 0;
     }
     fn player_one_has_won(&self) -> bool {
-        println!("player_one_has_won?");
         let home_size: usize = self.get_home_size();
         let board_size: usize = self.get_board_size();
         for ((y, x), value) in self.matrix.slice(
@@ -229,7 +228,6 @@ impl Board {
         return true;
     }
     fn player_two_has_won(&self) -> bool {
-        println!("player_two_has_won?");
         let home_size: usize = self.get_home_size();
         for ((y, x), value) in self.matrix.slice(
             s![0..home_size, 0..home_size] // Player1's home, i.e. player2's destination!
