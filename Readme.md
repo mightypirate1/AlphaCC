@@ -44,7 +44,7 @@ The only thing you can currently do is to play the game. The interface is horrib
  > next_states = board.get_all_possible_next_states()
  >
  > # How the board looks under the hood, i.e. what your policy will get to see:
- > explicit_view_of_board_were_i_to_play_move_7 = next_states[7].get_matrix()
+ > explicit_view_of_board_were_i_to_play_move_7 = next_states[7].get_matrix_from_perspective_of_current_player()
  >
  > # Some extra info is in:
  > game_info = board.get_game_info()
