@@ -41,7 +41,7 @@ impl HexCoordinate{
 
     pub fn get_neighbor(&self, direction: usize, distance: usize) -> HexCoordinate{
         /*
-        If I'm X, then these are the locations of my neighbours:
+        If I'm X, then these are the locations of my immediate neighbours:
 
           2   1
         3   X   0
@@ -49,22 +49,20 @@ impl HexCoordinate{
 
         In the matrix, this is expected to be:
 
-        2 _ 1
+          2 1 
         3 X 0
-        4 _ 5
+        4 5
         */
 
-        if distance > 1 {
-            return self.get_neighbor(direction, distance - 1).get_neighbor(direction, 1);
-        }
+        let d: i32 = distance as i32;
 
         match direction {
-            0 => return HexCoordinate{x: self.x,   y: self.y+1},
-            1 => return HexCoordinate{x: self.x-1, y: self.y+1},
-            2 => return HexCoordinate{x: self.x-1,   y: self.y},
-            3 => return HexCoordinate{x: self.x,   y: self.y-1},
-            4 => return  HexCoordinate{x: self.x+1,   y: self.y-1},
-            5 => return  HexCoordinate{x: self.x+1,   y: self.y},
+            0 => return HexCoordinate{ x: self.x,     y: self.y + d },
+            1 => return HexCoordinate{ x: self.x - d, y: self.y + d },
+            2 => return HexCoordinate{ x: self.x - d, y: self.y     },
+            3 => return HexCoordinate{ x: self.x,     y: self.y - d },
+            4 => return HexCoordinate{ x: self.x + d, y: self.y - d },
+            5 => return HexCoordinate{ x: self.x + d, y: self.y     },
             _ => panic!("{} is not a valid direction", direction),
         }
     }
