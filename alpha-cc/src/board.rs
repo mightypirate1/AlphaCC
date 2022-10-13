@@ -220,27 +220,33 @@ impl Board {
     fn player_one_has_won(&self) -> bool {
         let home_size: usize = self.get_home_size();
         let board_size: usize = self.get_board_size();
+        let mut at_least_one_stone_in_goal: bool = false;
         for ((y, x), value) in self.matrix.slice(
             s![board_size-home_size.., board_size-home_size..]  // Player2's home, i.e. player1's destination!
         ).indexed_iter() {
-            if self.coord_is_in_home_of_player(2, HexCoordinate::from_usize(x+board_size-home_size, y+board_size-home_size))
-                && *value != 1 {
+            if self.coord_is_in_home_of_player(2, HexCoordinate::from_usize(x+board_size-home_size, y+board_size-home_size)) {
+                if *value == 0 {
                     return false;
                 }
+                at_least_one_stone_in_goal = *value == 1 || at_least_one_stone_in_goal;
+            }
         }
-        return true;
+        return at_least_one_stone_in_goal;
     }
     fn player_two_has_won(&self) -> bool {
         let home_size: usize = self.get_home_size();
+        let mut at_least_one_stone_in_goal: bool = false;
         for ((y, x), value) in self.matrix.slice(
             s![0..home_size, 0..home_size] // Player1's home, i.e. player2's destination!
         ).indexed_iter() {
-            if self.coord_is_in_home_of_player(1, HexCoordinate::from_usize(x, y))
-                && *value != 2 {
+            if self.coord_is_in_home_of_player(1, HexCoordinate::from_usize(x, y)) {
+                if *value == 0 {
                     return false;
                 }
+            }
+            at_least_one_stone_in_goal = *value == 2 || at_least_one_stone_in_goal;
         }
-        return true;
+        return at_least_one_stone_in_goal;
     }
 
     //////////////////////////////
@@ -365,9 +371,9 @@ impl Board {
         return mtx;
     }
 
-    pub fn get_matrix_from_perspective_of_current_player(&self) -> Vec<Vec<i32>> {
+    pub fn get_matrix_from_perspective_of_player(&self, player: usize) -> Vec<Vec<i32>> {
         // If we are player 1, we see the board like normal
-        if self.get_current_player() == 1 {
+        if player == 1 {
             return self.get_matrix();
         }
         // If we are player 2; rotate board 180 degrees and change "color" of the pieces
@@ -376,6 +382,10 @@ impl Board {
             mtx.push(col.to_vec());
         }
         return mtx;
+    }
+
+    pub fn get_matrix_from_perspective_of_current_player(&self) -> Vec<Vec<i32>> {
+        return self.get_matrix_from_perspective_of_player(self.get_current_player());
     }
 
     pub fn get_board_info(&self) -> BoardInfo {
