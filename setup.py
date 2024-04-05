@@ -6,6 +6,7 @@ setup(
     install_requires=[
         "maturin",
         "numpy",
+        "pydantic",
     ],
     packages=find_packages(),
     extras_require={

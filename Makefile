@@ -1,70 +1,64 @@
-.PHONY: clean clean-build clean-pyc clean-cache clean-venv coverage develop install lint reformat template-update venv
-
 PYTHON3 = python3.11
 
 clean: clean-build clean-pyc clean-cache clean-venv  ## remove all build, test, coverage and Python artifacts
 
 clean-build:
-	rm -rf build/
-	rm -rf dist/
-	rm -rf .eggs/
-	find . -name '*.egg-info' -exec rm -fr {} +
-	find . -name '*.egg' -exec rm -f {} +
+	@rm -rf build/
+	@rm -rf dist/
+	@rm -rf .eggs/
+	@find . -name '*.egg-info' -exec rm -fr {} +
+	@find . -name '*.egg' -exec rm -f {} +
 
 clean-pyc:
-	find . -name '*.pyc' -exec rm -f {} +
-	find . -name '*.pyo' -exec rm -f {} +
-	find . -name '*~' -exec rm -f {} +
-	find . -name '__pycache__' -exec rm -fr {} +
+	@find . -name '*.pyc' -exec rm -f {} +
+	@find . -name '*.pyo' -exec rm -f {} +
+	@find . -name '*~' -exec rm -f {} +
+	@find . -name '__pycache__' -exec rm -fr {} +
 
 clean-cache:
-	rm -f .coverage
-	rm -rf .pytest_cache
-	rm -rf .mypy_cache
-	rm -rf .ruff_cache
+	@rm -f .coverage
+	@rm -rf .pytest_cache
+	@rm -rf .mypy_cache
+	@rm -rf .ruff_cache
 
 clean-venv: ## remove venv
-	rm -rf .venv
+	@rm -rf .venv
 
-coverage: ## check code coverage quickly with the default Python
-	coverage run --source alpha_cc -m pytest
-	coverage report -m
 
 develop: clean venv
-	bash -c "\
-	source .venv/bin/activate && \
-	pip install -e .[dev] \
+	@bash -c "\
+		rustup component add clippy
+		source .venv/bin/activate && \
+		pip install -e .[dev] \
     "
 
 install: develop build-engine
 
 build-engine:
-	bash -c "\
+	@bash -c "\
 		source .venv/bin/activate && \
 		cd alpha_cc/engine && \
-		maturin develop \
+		maturin develop --release \
 	"
 
 lint:
-	ruff check alpha_cc tests
-	black --check alpha_cc tests
-	mypy alpha_cc tests
+	@bash -c "cd alpha_cc/engine && cargo clippy -- -D warnings"
+	@ruff check alpha_cc tests
+	@black --check alpha_cc tests
+	@mypy alpha_cc tests
 
 lint-fix:
-	ruff check --fix-only alpha_cc tests
+	@ruff check --fix-only alpha_cc tests
 
 reformat:
-	ruff check --select I,W --fix-only alpha_cc tests
-	black alpha_cc tests
+	@ruff check --select I,W --fix-only alpha_cc tests
+	@black alpha_cc tests
 
 test: ## run tests quickly with the default Python
-	pytest
-
-template-update:
-	cookiecutter_project_upgrader --context-file cookiecutter_input.json -p True -m True
+	@pytest
 
 venv:
-	$(PYTHON3) -m venv .venv --prompt alpha-cc
+	@$(PYTHON3) -m venv .venv --prompt alpha-cc
 
 github-init:
 	git init --initial-branch=main
