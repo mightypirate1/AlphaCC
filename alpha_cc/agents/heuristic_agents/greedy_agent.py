@@ -24,6 +24,6 @@ class GreedyAgent(BaseAgent):
 
     def _evaluation(self, s_primes: list[GameState]) -> np.ndarray:
         def value(s: GameState) -> np.floating:
-            return ((np.array(s.matrix) == 1).astype(np.floating) * self.heuristic_matrix).sum()
+            return ((np.array(s.matrix) == 1) * self.heuristic_matrix).sum()
 
         return np.asarray([value(sp) for sp in s_primes])
