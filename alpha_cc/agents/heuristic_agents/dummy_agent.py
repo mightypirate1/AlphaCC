@@ -1,10 +1,11 @@
-from typing import List
 import numpy as np
-from alpha_cc import Board, BoardInfo
-from agents.base_agent import BaseAgent, GameState
+from alpha_cc_engine import Board
+
+from alpha_cc.agents.base_agent import BaseAgent
+
 
 class DummyAgent(BaseAgent):
-    def __init__(self):
+    def __init__(self) -> None:
         pass
 
     def choose_move(self, board: Board) -> int:

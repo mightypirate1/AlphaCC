@@ -1,8 +1,10 @@
 import time
 from dataclasses import dataclass
-from typing import Optional, Tuple
-from alpha_cc import Board, BoardInfo
-from agents.base_agent import BaseAgent
+
+from alpha_cc_engine import Board
+
+from alpha_cc.agents.base_agent import BaseAgent
+
 
 @dataclass
 class RunTimeConfig:
@@ -11,13 +13,14 @@ class RunTimeConfig:
     slow: bool = False  # Does nothing if render is False
     debug: bool = False  # Currently doesn't do anything
 
+
 class RunTime:
     def __init__(
         self,
         board: Board,
-        agents: Tuple[BaseAgent, BaseAgent],
-        config: Optional[RunTimeConfig] = None,
-    ):
+        agents: tuple[BaseAgent, BaseAgent],
+        config: RunTimeConfig | None = None,
+    ) -> None:
         self.board = board
         self.agent_dict = dict(enumerate(agents, start=1))
         self.config = config or RunTimeConfig()
@@ -40,7 +43,7 @@ class RunTime:
                     time.sleep(1)
         ### Be done
         if self.config.verbose:
-            print(f"Player {winner} wins!")
+            print(f"Player {winner} wins!")  # noqa
         self._agents_on_game_end()
 
     def _agents_on_game_start(self) -> None:

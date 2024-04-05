@@ -1,14 +1,14 @@
 [package]
-name = "alpha-cc"
+name = "alpha-cc-engine"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
-name = "alpha_cc"
+name = "alpha_cc_engine"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.16.5", features = ["extension-module"] }
-ndarray = "0.15.0"
+pyo3 = { version = "0.21.1", features = ["extension-module"] }
+ndarray = "0.15.6"
 rand = "0.8.5"

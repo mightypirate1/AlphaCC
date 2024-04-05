@@ -183,3 +183,31 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/
+
+# python
+*egg-info/
+.venv/
+__pycache__
+
+# coverage
+.coverage
+coverage.xml
+htmlcov/
+reports/
+
+# jupyter
+.ipynb_checkpoints
+
+## vscode
+.vscode/
+.history/
+*.vsix
+
+# misc
+/tmp
+
+# mypy
+.mypy_cache/
+
+# ruff
+.ruff_cache/

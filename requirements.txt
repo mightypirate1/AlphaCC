@@ -1,4 +1,0 @@
-maturin==0.13.2
-ipython==8.5.0
-numpy>=1.23.3
-pytest>=7.1.3

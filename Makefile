@@ -1,33 +1,76 @@
-DOCKER_IMAGE_NAME=alpha-cc
+.PHONY: clean clean-build clean-pyc clean-cache clean-venv coverage develop install lint reformat template-update venv
 
-docker-dev-build:
-	docker build -t $(DOCKER_IMAGE_NAME):dev  .
+PYTHON3 = python3.11
 
-docker-build:
-	docker build -t $(DOCKER_IMAGE_NAME):latest  .
+clean: clean-build clean-pyc clean-cache clean-venv  ## remove all build, test, coverage and Python artifacts
 
-docker-debug:
-	docker run \
-		-it \
-  	--name $(DOCKER_IMAGE_NAME)-devtest \
-  	--mount type=bind,source=$(PWD)/agents,target=/AlphaCC/agents \
-  	$(DOCKER_IMAGE_NAME):dev
+clean-build:
+	rm -rf build/
+	rm -rf dist/
+	rm -rf .eggs/
+	find . -name '*.egg-info' -exec rm -fr {} +
+	find . -name '*.egg' -exec rm -f {} +
 
-env-create:
-	@bash make.sh env-create
+clean-pyc:
+	find . -name '*.pyc' -exec rm -f {} +
+	find . -name '*.pyo' -exec rm -f {} +
+	find . -name '*~' -exec rm -f {} +
+	find . -name '__pycache__' -exec rm -fr {} +
 
-env-delete:
-	@bash make.sh env-delete
+clean-cache:
+	rm -f .coverage
+	rm -rf .pytest_cache
+	rm -rf .mypy_cache
+	rm -rf .ruff_cache
 
-build:
-	@bash make.sh build
+clean-venv: ## remove venv
+	rm -rf .venv
 
-env-activate:
-	. .venv/bin/activate
+coverage: ## check code coverage quickly with the default Python
+	coverage run --source alpha_cc -m pytest
+	coverage report -m
 
-test:
-	@bash make.sh test
+develop: clean venv
+	bash -c "\
+	source .venv/bin/activate && \
+	pip install -e .[dev] \
+    "
 
-install:
-	@bash make.sh install
-	@echo "\n------------------------\nInstallation successful!\n------------------------"
+install: develop build-engine
+
+build-engine:
+	bash -c "\
+		source .venv/bin/activate && \
+		cd alpha_cc/engine && \
+		maturin develop \
+	"
+
+lint:
+	ruff check alpha_cc tests
+	black --check alpha_cc tests
+	mypy alpha_cc tests
+
+lint-fix:
+	ruff check --fix-only alpha_cc tests
+
+reformat:
+	ruff check --select I,W --fix-only alpha_cc tests
+	black alpha_cc tests
+
+test: ## run tests quickly with the default Python
+	pytest
+
+template-update:
+	cookiecutter_project_upgrader --context-file cookiecutter_input.json -p True -m True
+
+venv:
+	$(PYTHON3) -m venv .venv --prompt alpha-cc
+
+github-init:
+	git init --initial-branch=main
+	git add .
+	git commit -m "Generated from template"
+	git remote add origin git@github.com:mightypirate1/alpha-cc.git
+	git branch cookiecutter-template
+	git push -u origin main
+	git push -u origin cookiecutter-template
