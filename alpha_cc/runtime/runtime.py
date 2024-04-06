@@ -11,6 +11,7 @@ class RunTimeConfig(BaseModel):
     render: bool = False
     slow: bool = False  # Does nothing if render is False
     debug: bool = False  # Currently doesn't do anything
+    starting_player: int | None = None
 
 
 class RunTime:
@@ -28,15 +29,17 @@ class RunTime:
         ### Initialize
         self._agents_on_game_start()
         board = self.board.reset()
+        if self.config.starting_player is not None:
+            board = self.board.reset_with_starting_player(self.config.starting_player)
         game_over = False
         move_count = 0
 
         ### Play!
         while not game_over:
-            agent = self.agent_dict[board.get_board_info().current_player]
+            agent = self.agent_dict[board.board_info.current_player]
             move = agent.choose_move(board)
             board = board.perform_move(move)
-            board_info = board.get_board_info()
+            board_info = board.board_info
             game_over = board_info.game_over
 
             move_count += 1

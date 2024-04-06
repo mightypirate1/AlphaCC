@@ -15,7 +15,7 @@ def test_create(board: Board) -> None:  # noqa
 
 def test_get_data(board: Board) -> None:
     board.get_matrix()
-    board.get_board_info()
+    _ = board.board_info
 
 
 def test_get_and_perform_action(board: Board) -> None:
