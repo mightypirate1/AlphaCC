@@ -4,9 +4,14 @@ Typehints and docs for the game engine
 """
 
 class Board:
-    def __init__(self, size: int) -> None: ...
+    def __init__(self, size: int) -> None:
+        """Board with side length `size`"""
+
     def reset(self) -> Board:
-        """Resets board to starting position, randomizes starting player, and returns state"""
+        """Resets board to starting position, randomizes starting player, and returns the Board"""
+
+    def reset_with_starting_player(self, starting_player: int) -> Board:
+        """Resets board to starting position and sets current player, and returns the Board"""
 
     def get_all_possible_next_states(self) -> list[Board]:
         """Returns a list of all board configurations that can be reached through a legal move"""
@@ -32,7 +37,12 @@ class Board:
     def get_matrix_from_perspective_of_current_player(self) -> list[list[int]]:
         """Raw data from the board as seen from the current player's perspective"""
 
-    def get_board_info(self) -> BoardInfo:
+    @property
+    def size(self) -> int:
+        """Size of the board. Actual matrix shape is (size, size)"""
+
+    @property
+    def board_info(self) -> BoardInfo:
         """Get the `BoardInfo`"""
 
 class BoardInfo:
