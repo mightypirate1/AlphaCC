@@ -1,7 +1,7 @@
 from time import perf_counter
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
 
 
 class DbgStats(BaseModel):
@@ -9,6 +9,7 @@ class DbgStats(BaseModel):
     start_time: float
     stop_time: float | None = None
 
+    @computed_field  # type: ignore
     @property
     def duration(self) -> float | None:
         if self.stop_time is None:
