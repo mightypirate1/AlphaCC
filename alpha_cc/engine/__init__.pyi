@@ -15,6 +15,8 @@ class Board:
         """
         Performs the move with index `move_index`.
 
+        Returns a copy, so the original board is unchanged.
+
         The index refers to the list returned by `get_all_possible_next_states`
         """
 

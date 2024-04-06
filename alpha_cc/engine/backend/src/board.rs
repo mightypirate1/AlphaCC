@@ -324,14 +324,13 @@ impl Board {
     pub fn pycreate(size: usize) -> PyResult<Self> {
         Ok(Board::create(size))
     }
-    pub fn reset(mut slf: PyRefMut<'_, Self>) -> Board {
-        // Resets board to starting position, randomizes starting player, and returns state
-        let size: usize = slf.matrix.shape()[0];
-        slf.matrix = Array2::zeros((size, size));
-        slf.initialize_board();
-        slf.calculated_moves = Vec::new();
-        slf.current_player = if rand::random() {1} else {2};
-        slf.copy()
+
+    pub fn reset(slf: PyRefMut<'_, Self>) -> Board {
+        let mut new_board = slf.copy();
+        new_board.initialize_board();
+        new_board.calculated_moves = Vec::new();
+        new_board.current_player = if rand::random() {1} else {2};
+        new_board
     }
 
     pub fn get_all_possible_next_states(& mut self) -> Vec<Board> {
@@ -348,9 +347,9 @@ impl Board {
     }
 
     pub fn perform_move(slf: PyRef<'_, Self>, move_index: usize) -> Board {
-        let mut new_board_state: Board;
         if move_index < slf.calculated_moves.len() {
-            new_board_state = slf.calculated_moves[move_index].apply(slf.copy());
+            let mut new_board_state = slf.copy();
+            new_board_state = slf.calculated_moves[move_index].apply(new_board_state);
             new_board_state.next_player();
             return new_board_state;
         }
