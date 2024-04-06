@@ -1,7 +1,7 @@
 import numpy as np
-from alpha_cc_engine import Board
 
 from alpha_cc.agents.base_agent import BaseAgent, GameState
+from alpha_cc.engine import Board
 
 
 class GreedyAgent(BaseAgent):

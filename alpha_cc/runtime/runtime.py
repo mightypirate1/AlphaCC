@@ -1,9 +1,9 @@
 import time
 
-from alpha_cc_engine import Board
 from pydantic import BaseModel
 
 from alpha_cc.agents.base_agent import BaseAgent
+from alpha_cc.engine import Board
 
 
 class RunTimeConfig(BaseModel):
@@ -38,7 +38,7 @@ class RunTime:
             board = board.perform_move(move)
             board_info = board.get_board_info()
             game_over = board_info.game_over
-            
+
             move_count += 1
             if self.config.render:
                 board.render()

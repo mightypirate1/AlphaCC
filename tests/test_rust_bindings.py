@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
-from alpha_cc_engine import Board
+
+from alpha_cc.engine import Board
 
 
 @pytest.fixture
