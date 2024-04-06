@@ -362,24 +362,26 @@ impl Board {
     }
 
     pub fn get_matrix(&self) -> Vec<Vec<i32>> {
-        let mut mtx: Vec<Vec<i32>> = Vec::new();
-        for col in self.matrix.outer_iter() {
-            mtx.push(col.to_vec());
-        }
-        mtx
+        self.get_matrix_from_perspective_of_player(1)
     }
 
     pub fn get_matrix_from_perspective_of_player(&self, player: usize) -> Vec<Vec<i32>> {
-        // If we are player 1, we see the board like normal
-        if player == 1 {
-            return self.get_matrix();
-        }
-        // If we are player 2; rotate board 180 degrees and change "color" of the pieces
         let mut mtx: Vec<Vec<i32>> = Vec::new();
-        for col in ((3 - &self.matrix.slice(s![..;-1,..;-1])) % 3 ).outer_iter() {
-            mtx.push(col.to_vec());
+        match player {
+            1 => {
+                for col in self.matrix.outer_iter() {
+                    mtx.push(col.to_vec());
+                }
+                mtx
+            },
+            2 => {
+                for col in self.matrix.slice(s![..;-1, ..;-1]).columns() {
+                    mtx.push(col.to_vec());
+                }
+                mtx
+            },
+            _ => {panic!("Invalid player: {player}")},
         }
-        mtx
     }
 
     pub fn get_matrix_from_perspective_of_current_player(&self) -> Vec<Vec<i32>> {

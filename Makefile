@@ -27,7 +27,7 @@ clean-venv: ## remove venv
 
 develop: clean venv
 	@bash -c "\
-		rustup component add clippy
+		rustup component add clippy && \
 		source .venv/bin/activate && \
 		pip install -e .[dev] \
     "
@@ -37,12 +37,12 @@ install: develop build-engine
 build-engine:
 	@bash -c "\
 		source .venv/bin/activate && \
-		cd alpha_cc/engine && \
+		cd alpha_cc/engine/backend && \
 		maturin develop --release \
 	"
 
 lint:
-	@bash -c "cd alpha_cc/engine && cargo clippy -- -D warnings"
+	@bash -c "cd alpha_cc/engine/backend && cargo clippy -- -D warnings"
 	@ruff check alpha_cc tests
 	@black --check alpha_cc tests
 	@mypy alpha_cc tests
