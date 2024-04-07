@@ -9,11 +9,12 @@ class HeuristicReward(RewardFunction):
         def heuristic_reward(x: int, y: int) -> float:
             return linear_weight * (x + y) + cross_weight * ((x * y) ** 0.5)
 
-        self.heuristic_matrix = np.ones((board_size, board_size))
-        for x in range(self.heuristic_matrix.shape[0]):
-            for y in range(self.heuristic_matrix.shape[1]):
-                self.heuristic_matrix[x, y] = heuristic_reward(x, y)
+        self._heuristic_matrix = np.ones((board_size, board_size))
+        for x in range(self._heuristic_matrix.shape[0]):
+            for y in range(self._heuristic_matrix.shape[1]):
+                self._heuristic_matrix[x, y] = heuristic_reward(x, y)
+        self._heuristic_matrix /= self._heuristic_matrix.sum()
 
-    def __call__(self, state: GameState) -> float:
+    def __call__(self, state: GameState) -> np.floating:
         # since current_player sees themselves as 1
-        return ((np.array(state.matrix) == 1) * self.heuristic_matrix).sum()
+        return ((np.array(state.matrix) == 1) * self._heuristic_matrix).sum()
