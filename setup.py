@@ -7,6 +7,7 @@ setup(
         "maturin",
         "numpy",
         "pydantic",
+        "tqdm-loggable",
     ],
     packages=find_packages(),
     extras_require={
