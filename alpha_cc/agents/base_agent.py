@@ -1,5 +1,7 @@
 from abc import ABC, abstractmethod
 
+import numpy as np
+
 from alpha_cc.agents.state import GameState
 from alpha_cc.engine import Board
 
@@ -12,7 +14,7 @@ class BaseAgent(ABC):
         return [GameState(b) for b in board.get_all_possible_next_states()]
 
     @abstractmethod
-    def choose_move(self, board: Board) -> int:
+    def choose_move(self, board: Board, training: bool = False) -> int | np.integer:
         pass
 
     @abstractmethod

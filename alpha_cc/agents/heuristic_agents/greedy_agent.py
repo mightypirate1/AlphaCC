@@ -9,7 +9,7 @@ class GreedyAgent(BaseAgent):
     def __init__(self, size: int = 9) -> None:
         self._heuristic_function = HeuristicReward(size)
 
-    def choose_move(self, board: Board) -> int:
+    def choose_move(self, board: Board, training: bool = False) -> int:  # noqa
         s_primes = self.unpack_s_primes(board)
         values = self._evaluation(s_primes)
         action = np.argmax(values).astype(int)
