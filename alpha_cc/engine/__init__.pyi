@@ -3,6 +3,8 @@ Typehints and docs for the game engine
 
 """
 
+import numpy as np
+
 class Board:
     def __init__(self, size: int) -> None:
         """Board with side length `size`"""
@@ -16,7 +18,7 @@ class Board:
     def get_all_possible_next_states(self) -> list[Board]:
         """Returns a list of all board configurations that can be reached through a legal move"""
 
-    def perform_move(self, move_index: int) -> Board:
+    def perform_move(self, move_index: int | np.integer) -> Board:
         """
         Performs the move with index `move_index`.
 

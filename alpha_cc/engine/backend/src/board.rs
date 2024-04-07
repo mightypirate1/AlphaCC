@@ -356,7 +356,10 @@ impl Board {
     pub fn get_all_possible_next_states(& mut self) -> Vec<Board> {
         // IMPORTANT: This is being set here so that we can have an action space that
         // is just a usize; namely the index in this list.
-        self.calculated_moves = self.get_all_legal_moves_for_current_player();
+        if self.calculated_moves.is_empty() {
+            // moves not yet calculated
+            self.calculated_moves = self.get_all_legal_moves_for_current_player();
+        }
         let mut next_boards: Vec<Board> = Vec::new();
         let mut next_board: Board;
         for a_move in &self.calculated_moves {
