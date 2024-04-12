@@ -1,6 +1,6 @@
 import numpy as np
 
-from alpha_cc.agents.mcts.mcts_agent import MCTSExperience
+from alpha_cc.agents.mcts.mcts_experience import MCTSExperience
 from alpha_cc.agents.state import GameState
 from alpha_cc.nn.nets.dual_head_net import DualHeadNet
 from alpha_cc.reward import HeuristicReward

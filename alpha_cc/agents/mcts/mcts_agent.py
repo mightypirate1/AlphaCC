@@ -1,19 +1,11 @@
-from dataclasses import dataclass
-
 import numpy as np
 
 from alpha_cc.agents.base_agent import BaseAgent
 from alpha_cc.agents.mcts.mcts import MCTS
+from alpha_cc.agents.mcts.mcts_experience import MCTSExperience
 from alpha_cc.agents.state import GameState
 from alpha_cc.engine import Board
-from alpha_cc.nn.nets.pretend_net import DefaultNet
-
-
-@dataclass
-class MCTSExperience:
-    state: GameState
-    pi: np.ndarray
-    v_target: np.floating | float = 0.0
+from alpha_cc.nn.nets.default_net import DefaultNet
 
 
 class MCTSAgent(MCTS, BaseAgent):
