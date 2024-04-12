@@ -20,4 +20,5 @@ config = RunTimeConfig(
     starting_player=starting_player,
 )
 runtime = RunTime(board, agents, config=config)
-runtime.play_game(training=False)
+move_count = runtime.play_game(training=False)
+print(f"Move count: {move_count}")  # noqa  # this file is just temporary
