@@ -1,12 +1,12 @@
 import time
-
-from pydantic import BaseModel
+from dataclasses import dataclass
 
 from alpha_cc.agents.base_agent import BaseAgent
 from alpha_cc.engine import Board
 
 
-class RunTimeConfig(BaseModel):
+@dataclass
+class RunTimeConfig:
     verbose: bool = False
     render: bool = False
     slow: bool = False  # Does nothing if render is False
