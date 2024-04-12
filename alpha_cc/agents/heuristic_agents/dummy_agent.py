@@ -8,7 +8,7 @@ class DummyAgent(BaseAgent):
     def __init__(self) -> None:
         pass
 
-    def choose_move(self, board: Board) -> int:
+    def choose_move(self, board: Board, _: bool = False) -> int:
         s_primes = self.unpack_s_primes(board)
         action = np.random.choice(len(s_primes))
         return action

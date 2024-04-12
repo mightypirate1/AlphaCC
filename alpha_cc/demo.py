@@ -1,14 +1,24 @@
-from alpha_cc.agents.heuristic_agents.dummy_agent import DummyAgent
 from alpha_cc.agents.heuristic_agents.greedy_agent import GreedyAgent
+from alpha_cc.agents.mcts.mcts_agent import MCTSAgent
 from alpha_cc.engine import Board
+from alpha_cc.nn.nets.default_net import DefaultNet
 from alpha_cc.runtime.runtime import RunTime, RunTimeConfig
 
-board = Board(5)
+size = 9
+starting_player = 2
+board = Board(size)
+
 agents = (
-    DummyAgent(),
-    # GreedyAgent(),
-    GreedyAgent(5),
+    GreedyAgent(size),
+    # GreedyAgent(size),
+    MCTSAgent(DefaultNet()),
 )
-config = RunTimeConfig(verbose=True, render=True, slow=True)
+config = RunTimeConfig(
+    verbose=True,
+    render=True,
+    slow=False,
+    starting_player=starting_player,
+)
 runtime = RunTime(board, agents, config=config)
-runtime.play_game()
+move_count = runtime.play_game(training=False)
+print(f"Move count: {move_count}")  # noqa  # this file is just temporary

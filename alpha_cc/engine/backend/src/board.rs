@@ -45,6 +45,19 @@ impl Board {
         board.initialize_board();
         board
     }
+    
+    pub fn create_with_starting_player(size: usize, starting_player: usize) -> Board {
+        let mut board = Board {
+            matrix: Array2::zeros((size, size)),
+            current_player: starting_player,
+            ..Default::default()
+        };
+        if starting_player > board.n_players {
+            panic!("cant use starting player {} for {}-player Board", starting_player, board.n_players);
+        }
+        board.initialize_board();
+        board
+    }
 
     // Copy functionality
     pub fn copy(&self) -> Board{
@@ -155,8 +168,8 @@ impl Board {
         self.get_boardstate_by_coord(coord) == 0
     }
     pub fn coord_is_occupied(&self, coord: &HexCoordinate) -> bool {
-        self.get_boardstate_by_coord(coord) > 0
-            && self.get_boardstate_by_coord(coord) < self.n_players as i32
+        let coord_contents = self.get_boardstate_by_coord(coord);
+        coord_contents > 0 && coord_contents < self.n_players as i32 + 1
     }
     pub fn coord_is_occupied_by_current_player(&self, coord: &HexCoordinate) -> bool {
         self.get_boardstate_by_coord(coord) == self.get_current_player() as i32
@@ -324,20 +337,29 @@ impl Board {
     pub fn pycreate(size: usize) -> PyResult<Self> {
         Ok(Board::create(size))
     }
-    pub fn reset(mut slf: PyRefMut<'_, Self>) -> Board {
-        // Resets board to starting position, randomizes starting player, and returns state
-        let size: usize = slf.matrix.shape()[0];
-        slf.matrix = Array2::zeros((size, size));
-        slf.initialize_board();
-        slf.calculated_moves = Vec::new();
-        slf.current_player = if rand::random() {1} else {2};
-        slf.copy()
+
+    pub fn reset(slf: PyRefMut<'_, Self>) -> Board {
+        let starting_player: usize = if rand::random() {1} else {2};
+        Board::create_with_starting_player(
+            slf.get_board_size(),
+            starting_player,
+        )
+    }
+    
+    pub fn reset_with_starting_player(slf: PyRefMut<'_, Self>, starting_player: usize) -> Board {
+        Board::create_with_starting_player(
+            slf.get_board_size(),
+            starting_player,
+        )
     }
 
     pub fn get_all_possible_next_states(& mut self) -> Vec<Board> {
         // IMPORTANT: This is being set here so that we can have an action space that
         // is just a usize; namely the index in this list.
-        self.calculated_moves = self.get_all_legal_moves_for_current_player();
+        if self.calculated_moves.is_empty() {
+            // moves not yet calculated
+            self.calculated_moves = self.get_all_legal_moves_for_current_player();
+        }
         let mut next_boards: Vec<Board> = Vec::new();
         let mut next_board: Board;
         for a_move in &self.calculated_moves {
@@ -348,9 +370,9 @@ impl Board {
     }
 
     pub fn perform_move(slf: PyRef<'_, Self>, move_index: usize) -> Board {
-        let mut new_board_state: Board;
         if move_index < slf.calculated_moves.len() {
-            new_board_state = slf.calculated_moves[move_index].apply(slf.copy());
+            let mut new_board_state = slf.copy();
+            new_board_state = slf.calculated_moves[move_index].apply(new_board_state);
             new_board_state.next_player();
             return new_board_state;
         }
@@ -372,22 +394,25 @@ impl Board {
                 for col in self.matrix.outer_iter() {
                     mtx.push(col.to_vec());
                 }
-                mtx
             },
             2 => {
-                for col in self.matrix.slice(s![..;-1, ..;-1]).columns() {
+                // - switch player colors (1->2, 2->1, 0->0)
+                // - iterate cols and rows in reverse (to flip the board)
+                let mtx_with_players_switched = (3 - self.matrix.to_owned()) % 3;
+                for col in mtx_with_players_switched.slice(s![..;-1, ..;-1]).columns() {
                     mtx.push(col.to_vec());
                 }
-                mtx
             },
             _ => {panic!("Invalid player: {player}")},
         }
+        mtx
     }
 
     pub fn get_matrix_from_perspective_of_current_player(&self) -> Vec<Vec<i32>> {
         self.get_matrix_from_perspective_of_player(self.get_current_player())
     }
 
+    #[getter]
     pub fn get_board_info(&self) -> BoardInfo {
         let win_status = self.current_win_status();
         BoardInfo {
@@ -395,5 +420,10 @@ impl Board {
             winner: win_status,
             game_over: win_status > 0,
         }
+    }
+
+    #[getter]
+    pub fn get_size(&self) -> usize {
+        self.get_board_size()
     }
 }
