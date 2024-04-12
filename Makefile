@@ -30,7 +30,7 @@ develop: clean venv
 		rustup component add clippy && \
 		source .venv/bin/activate && \
                 pip install uv && \
-		uv pip install -e ".[dev]" \
+		uv pip install -e ".[all]" \
     "
 
 install: develop build-engine
