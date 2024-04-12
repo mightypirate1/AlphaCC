@@ -45,7 +45,7 @@ If you want to interact with the game backend itself, here's showing the main fu
  source .venv/bin/activate
  ipython
 
- > import alpha_cc
+ > from alpha_cc.engine import Board
  > board = alpha_cc.Board(9)
  >
  > # These are all boards that are possible to reach through legal moves. You don't get to know what those moves are, but the action space is simply the index in the list `next_states`.
@@ -76,7 +76,7 @@ If you want to interact with the game backend itself, here's showing the main fu
                   [0, 0, 0, 0, 0, 2, 2, 2, 2]
 Current player: 2
 >
-> # Put it back :-)
+> # Put it back! :-)
 > board = board.reset()  # Randomizes staring player
 ```
 So... that's it. Not impressed? You could  `Contribute!` (see below).
