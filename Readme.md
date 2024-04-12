@@ -12,9 +12,12 @@ The intended way of running this project is Docker/docker-compose, but that has 
 
 ##### Requirements:
 To run this in your local environment, you need to make sure you have the following installed first:
-- linux with bash
-- python >= 3.8 (with venv)
-- rustc >= 1.58.1
+
+- linux
+- bash
+- rustup (with build-essential or equivalent for your system)
+- python3.11 (with venv)
+- pip
 
 You may get away with lower versions, but no guarantees!
 
