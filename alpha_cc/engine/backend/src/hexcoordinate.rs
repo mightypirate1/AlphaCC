@@ -6,9 +6,9 @@ use std::vec::Vec;
 #[pyclass]
 pub struct HexCoordinate {
     #[pyo3(get, set)]
-    pub x: i32,
+    pub x: usize,
     #[pyo3(get, set)]
-    pub y: i32,
+    pub y: usize,
 }
 
 impl PartialEq for HexCoordinate {
@@ -19,11 +19,8 @@ impl PartialEq for HexCoordinate {
 
 
 impl HexCoordinate {
-    pub fn create(x: i32, y: i32) -> HexCoordinate {
+    pub fn create(x: usize, y: usize) -> HexCoordinate {
         HexCoordinate {x, y}
-    }
-    pub fn from_usize(x: usize, y: usize) -> HexCoordinate {
-        HexCoordinate {x: x as i32, y: y as i32}
     }
 
     pub fn get_all_neighbours(&self, distance: usize) -> Vec<HexCoordinate> {
@@ -56,7 +53,7 @@ impl HexCoordinate {
         4 5
         */
 
-        let d: i32 = distance as i32;
+        let d = distance;
 
         match direction {
             0 => HexCoordinate{ x: self.x,     y: self.y + d },
@@ -74,7 +71,7 @@ impl HexCoordinate {
 #[pymethods]
 impl HexCoordinate {
     #[new]
-    pub fn pycreate(x: i32, y: i32) -> PyResult<Self> {
+    pub fn pycreate(x: usize, y: usize) -> PyResult<Self> {
         Ok(HexCoordinate::create(x, y))
     }
 }
