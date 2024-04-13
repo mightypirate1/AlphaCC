@@ -120,7 +120,7 @@ impl Board {
         self.matrix.shape()[0]
     }
     fn get_home_size(&self) -> usize {
-        (self.get_board_size() - 1) / 2
+        (self.get_board_size() + 1) / 2
     }
 
     ////////////////////////////
@@ -196,7 +196,7 @@ impl Board {
         let board_size = self.get_board_size() as i32;
         match player {
             1 => {coord.x + coord.y < home_size},
-            2 => {coord.x + coord.y + 1 >= 2 * board_size - home_size},
+            2 => {coord.x + coord.y >= 2 * board_size - home_size - 1},
             _ => {panic!("no such player: {player}");}
         }
     }
