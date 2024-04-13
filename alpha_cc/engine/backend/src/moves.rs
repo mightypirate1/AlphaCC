@@ -1,18 +1,20 @@
+use pyo3::prelude::*;
 use crate::hexcoordinate::HexCoordinate;
 use crate::board::Board;
 
+#[pyclass]
 #[derive(Clone, Copy, Debug)]
 pub enum Move {
     Place {coord: HexCoordinate},
-    Walk {to: HexCoordinate, from: HexCoordinate},
-    Jump {to: HexCoordinate, from: HexCoordinate},
+    Walk {to_coord: HexCoordinate, from_coord: HexCoordinate},
+    Jump {to_coord: HexCoordinate, from_coord: HexCoordinate},
 }
 
 impl Move {
     pub fn apply(self, mut board: Board) -> Board{
         match self {
-            Move::Walk{to, from} => board = self.move_stone(board, to, from),
-            Move::Jump{to, from} => board = self.move_stone(board, to, from),
+            Move::Walk{to_coord, from_coord} => board = self.move_stone(board, to_coord, from_coord),
+            Move::Jump{to_coord, from_coord} => board = self.move_stone(board, to_coord, from_coord),
             Move::Place{coord}   => board = self.place_at(board, coord),
         }
         board
@@ -27,9 +29,10 @@ impl Move {
         board
     }
 
-    fn move_stone(self, mut board: Board, to: HexCoordinate, from: HexCoordinate) -> Board {
-        board.clear(from);
-        board.place(to);
+    fn move_stone(self, mut board: Board, to_coord: HexCoordinate, from_coord: HexCoordinate) -> Board {
+        board.clear(from_coord);
+        board.place(to_coord);
         board
     }
 }
+

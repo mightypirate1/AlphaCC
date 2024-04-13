@@ -33,6 +33,7 @@ class Board:
     def get_matrix(self) -> list[list[int]]:
         """Raw data from the board"""
 
+    def get_all_legal_moves(self) -> list[Move]: ...
     def get_matrix_from_perspective_of_player(self, player: int) -> list[list[int]]:
         """Raw data from the board as seen from `player`'s perspective"""
 
@@ -53,3 +54,22 @@ class BoardInfo:
     winner: int
 
     def __init__(self, size: int) -> None: ...
+
+class HexCoordinate:
+    x: int
+    y: int
+
+class _Move:
+    from_coord: HexCoordinate
+    to_coord: HexCoordinate
+
+class Move(_Move):  # TODO: work on better typing here (may need pyo3 changes)
+    """
+    `Move` is a rust enum with types `Jump` and `Walk`.
+
+    NOTE: type hints are not perfect for `Move`!
+
+    """
+
+    class Walk(_Move): ...
+    class Jump(_Move): ...

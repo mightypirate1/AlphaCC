@@ -5,13 +5,14 @@ use std::vec::Vec;
 use ndarray::{s, Array2};
 use crate::hexcoordinate::HexCoordinate;
 
+
 #[pyclass]
 pub struct Board {
     current_player: usize,
     n_players: usize,
     matrix: Array2::<i32>,
     calculated_moves: Vec<Move>,
-    pub allow_place_moves: bool,
+    allow_place_moves: bool,
 }
 
 #[pyclass]
@@ -264,11 +265,7 @@ impl Board {
     // Move finding algorithms: //
     //////////////////////////////
 
-    pub fn get_all_legal_moves_for_current_player(&self) -> Vec<Move>{
-        self.get_all_legal_moves(self.get_current_player())
-    }
-
-    pub fn get_all_legal_moves(&self, player: usize) -> Vec<Move> {
+    pub fn get_all_legal_moves_for_player(&self, player: usize) -> Vec<Move> {
         let mut moves = Vec::new();
         let mut candidate_coord: HexCoordinate;
         if self.place_moves_are_allowed() {
@@ -283,7 +280,7 @@ impl Board {
                 candidate_coord = coord.get_neighbor(direction, 1);
                 if self.coord_is_empty(&candidate_coord){
                     // If the immediate neighbor is empty, it's legal to walk there
-                    moves.push(Move::Walk{from: coord, to: candidate_coord});
+                    moves.push(Move::Walk{from_coord: coord, to_coord: candidate_coord});
                 }
             }
             moves.extend(self.find_all_jumps_from_coord(coord));
@@ -318,11 +315,20 @@ impl Board {
                     // - Remember that we already know we can get to `target_coord` from `starting_coord`.
                     // - Add `starting_coord` -> `target_coord` to list of Jumps.
                     final_positions.push(target_coord);
-                    jump_moves.push(Move::Jump{from: starting_coord, to: target_coord});
+                    jump_moves.push(Move::Jump{from_coord: starting_coord, to_coord: target_coord});
                     self.recusive_exporation(starting_coord, target_coord, final_positions, jump_moves);
             }
         }
         jump_moves
+    }
+
+    fn calculate_current_players_moves_if_needed(& mut self) {
+        if self.calculated_moves.is_empty() {
+            // moves not yet calculated
+            self.calculated_moves = self.get_all_legal_moves_for_player(
+                self.get_current_player()
+            );
+        }
     }
 }
 
@@ -354,29 +360,31 @@ impl Board {
     }
 
     pub fn get_all_possible_next_states(& mut self) -> Vec<Board> {
-        // IMPORTANT: This is being set here so that we can have an action space that
-        // is just a usize; namely the index in this list.
-        if self.calculated_moves.is_empty() {
-            // moves not yet calculated
-            self.calculated_moves = self.get_all_legal_moves_for_current_player();
-        }
         let mut next_boards: Vec<Board> = Vec::new();
         let mut next_board: Board;
+        self.calculate_current_players_moves_if_needed();
         for a_move in &self.calculated_moves {
             next_board = a_move.apply(self.copy());
             next_boards.push(next_board);
         }
         next_boards
     }
+    
+    pub fn get_all_legal_moves(& mut self) -> PyResult<Vec<Move>> {
+        self.calculate_current_players_moves_if_needed();
+        // self.get_all_legal_moves_for_player(self.get_current_player())
+        Ok(self.calculated_moves.to_vec())
+    }
 
-    pub fn perform_move(slf: PyRef<'_, Self>, move_index: usize) -> Board {
-        if move_index < slf.calculated_moves.len() {
-            let mut new_board_state = slf.copy();
-            new_board_state = slf.calculated_moves[move_index].apply(new_board_state);
+    pub fn perform_move(& mut self,  move_index: usize) -> Board {
+        self.calculate_current_players_moves_if_needed();
+        if move_index < self.calculated_moves.len() {
+            let mut new_board_state = self.copy();
+            new_board_state = self.calculated_moves[move_index].apply(new_board_state);
             new_board_state.next_player();
             return new_board_state;
         }
-        panic!("Invalid move index {move_index}: valid choices are {:?}", (0..slf.calculated_moves.len())) // .collect::<std::vec::Vec<usize>>());
+        panic!("Invalid move index {move_index}: valid choices are {:?}", (0..self.calculated_moves.len()))
     }
 
     pub fn render(&self) {

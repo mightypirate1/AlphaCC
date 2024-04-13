@@ -5,7 +5,9 @@ use std::vec::Vec;
 #[derive(Copy, Clone, Eq, Debug)]
 #[pyclass]
 pub struct HexCoordinate {
+    #[pyo3(get, set)]
     pub x: i32,
+    #[pyo3(get, set)]
     pub y: i32,
 }
 
@@ -15,8 +17,8 @@ impl PartialEq for HexCoordinate {
     }
 }
 
-// #[pymethods]
-impl HexCoordinate{
+
+impl HexCoordinate {
     pub fn create(x: i32, y: i32) -> HexCoordinate {
         HexCoordinate {x, y}
     }
@@ -65,5 +67,14 @@ impl HexCoordinate{
             5 => HexCoordinate{ x: self.x + d, y: self.y     },
             _ => panic!("{} is not a valid direction", direction),
         }
+    }
+}
+
+
+#[pymethods]
+impl HexCoordinate {
+    #[new]
+    pub fn pycreate(x: i32, y: i32) -> PyResult<Self> {
+        Ok(HexCoordinate::create(x, y))
     }
 }

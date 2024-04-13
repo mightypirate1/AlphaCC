@@ -1,1 +1,1 @@
-from alpha_cc_engine import Board, BoardInfo
+from alpha_cc_engine import Board, BoardInfo, HexCoordinate, Move
