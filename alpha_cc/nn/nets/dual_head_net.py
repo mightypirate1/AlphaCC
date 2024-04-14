@@ -14,6 +14,3 @@ class DualHeadNet(ABC, Generic[TTrainData]):
 
     @abstractmethod
     def value(self, state: GameState) -> np.floating: ...
-
-    @abstractmethod
-    def update_weights(self, train_data: TTrainData) -> None: ...

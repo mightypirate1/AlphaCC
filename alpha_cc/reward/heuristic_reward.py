@@ -5,7 +5,7 @@ from alpha_cc.reward.reward_function import RewardFunction
 
 
 class HeuristicReward(RewardFunction):
-    def __init__(self, board_size: int, c_base: float = 1.0, c_tweak: float = 0.01) -> None:
+    def __init__(self, board_size: int, scale: float = 1.0, c_base: float = 1.0, c_tweak: float = 0.01) -> None:
         def heuristic_reward(x: int, y: int) -> float:
             # basic rational:
             # - move forward down the middle
@@ -21,7 +21,8 @@ class HeuristicReward(RewardFunction):
             for y in range(self._heuristic_matrix.shape[1]):
                 self._heuristic_matrix[x, y] = heuristic_reward(x, y)
         self._heuristic_matrix /= self._heuristic_matrix.sum()
+        self._scale = scale
 
     def __call__(self, state: GameState) -> np.floating:
         # since current_player sees themselves as 1
-        return ((np.array(state.matrix) == 1) * self._heuristic_matrix).sum()
+        return self._scale * ((np.array(state.matrix) == 1) * self._heuristic_matrix).sum()

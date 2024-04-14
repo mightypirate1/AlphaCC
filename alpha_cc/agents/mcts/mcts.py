@@ -1,4 +1,3 @@
-import sys
 from dataclasses import dataclass
 
 import numpy as np
@@ -7,22 +6,20 @@ from alpha_cc.agents.state import GameState, StateHash
 from alpha_cc.nn.nets.default_net import DefaultNet
 from alpha_cc.reward import HeuristicReward
 
-# TODO: we need a stopping criterion, and to rule
-# those cases before we hit a recursion limit
-sys.setrecursionlimit(2000)
-
 
 @dataclass
 class Node:
     v_hat: np.floating
-    pi: np.ndarray
+    pi: np.ndarray  # this is the nn-output; not mcts pi
     n: np.ndarray
     q: np.ndarray
 
 
 class MCTS:
-    def __init__(self, nn: DefaultNet) -> None:
-        self._nn = nn
+    def __init__(self, board_size: int, max_game_length: int) -> None:
+        self._max_game_length = max_game_length
+        self._nn = DefaultNet(board_size)
+        self._heuristic = HeuristicReward(board_size, scale=0.01)
         self._nodes: dict[StateHash, Node] = {}
 
     @property
@@ -32,6 +29,10 @@ class MCTS:
     @property
     def nodes(self) -> dict[StateHash, Node]:
         return self._nodes
+
+    @property
+    def max_game_length(self) -> int:
+        return self._max_game_length
 
     def clear_nodes(self) -> None:
         self._nodes.clear()
@@ -43,12 +44,18 @@ class MCTS:
             weighted_counts = node.n ** (1 / temperature)
         return weighted_counts / weighted_counts.sum()
 
-    def rollout(self, state: GameState, fuse: int = 1000) -> np.floating | float:
+    def rollout(self, state: GameState) -> np.floating | float:
         # if game is over, we stop
         if state.info.game_over:
             if state.info.winner == state.info.current_player:
                 return 1.0  # previous player won
             return -1.0
+
+        # heuristic for long games (we dont have deepmind's resources here)
+        if state.info.duration == self._max_game_length:
+            v_s = self._heuristic(state)
+            v_sp = self._heuristic(state.children[1])
+            return -(v_s - v_sp)
 
         # if we have reached as far as we have been:
         # - initialize the node with nn estimates and zeros for N(s,a), and Q(s,a)
@@ -59,22 +66,15 @@ class MCTS:
             self._nodes[state.hash] = Node(
                 v_hat=v_hat,
                 pi=pi,
-                n=np.zeros_like(pi, dtype=np.integer),
-                q=np.zeros_like(pi),
+                n=np.zeros(len(state.children), dtype=np.integer),
+                q=np.zeros(len(state.children)),
             )
             return -v_hat
-
-        if fuse == 0:
-            # TODO: see todo at top of file. then we can remove the fuse
-            heuristic = HeuristicReward(state.board.size)
-            v_s = heuristic(state)
-            v_sp = heuristic(state.children[1])
-            return -(v_s - v_sp)
 
         # keep rolling
         a = self._find_best_action(state)
         s_prime = GameState(state.board.perform_move(a))
-        v = self.rollout(s_prime, fuse=fuse - 1)
+        v = self.rollout(s_prime)
 
         # update node
         node = self._nodes[state.hash]
@@ -94,6 +94,7 @@ class MCTS:
         best_u, best_a = -np.inf, -1
         node = self._nodes[state.hash]
         sum_n = sum(node.n)
+
         for a in range(len(state.board.get_all_possible_next_states())):
             q_sa = node.q[a]
             p_sa = node.pi[a]

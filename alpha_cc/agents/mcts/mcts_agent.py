@@ -1,19 +1,19 @@
 import numpy as np
 
-from alpha_cc.agents.base_agent import BaseAgent
+from alpha_cc.agents.agent import Agent
 from alpha_cc.agents.mcts.mcts import MCTS
 from alpha_cc.agents.mcts.mcts_experience import MCTSExperience
 from alpha_cc.agents.state import GameState
 from alpha_cc.engine import Board
-from alpha_cc.nn.nets.default_net import DefaultNet
 
 
-class MCTSAgent(MCTS, BaseAgent):
-    def __init__(self, nn: DefaultNet) -> None:
-        super().__init__(nn)
-        self._n_rollouts = 100
+class MCTSAgent(MCTS, Agent):
+    def __init__(self, board_size: int, max_game_length: int, n_rollouts: int = 100) -> None:
+        super().__init__(board_size, max_game_length)
+        self._n_rollouts = 2
         self._dirichlet_weight = 0.0  # 0.25  # TODO: get good value from paper
         self._trajectory: list[MCTSExperience] = []
+        self._n_rollouts = n_rollouts
 
     @property
     def trajectory(self) -> list[MCTSExperience]:
@@ -24,8 +24,14 @@ class MCTSAgent(MCTS, BaseAgent):
         for _ in range(self._n_rollouts):
             self.rollout(state)
         pi = self.pi(state)
+
         if training:
-            self._trajectory.append(MCTSExperience(state=state, pi=pi))
+            self._trajectory.append(
+                MCTSExperience(
+                    state=state,
+                    pi_target=pi,
+                )
+            )
             pi = self._training_policy(pi)
             return np.random.choice(len(pi), p=pi)
         return pi.argmax()
