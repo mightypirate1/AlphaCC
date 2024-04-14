@@ -33,7 +33,7 @@ develop: clean venv
 		uv pip install -e ".[all]" \
     "
 
-install: develop build-engine
+install: develop build-engine install-webapp
 
 build-engine:
 	@bash -c " \
