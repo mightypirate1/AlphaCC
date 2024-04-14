@@ -15,3 +15,11 @@ async def hello_world(ape: ApeIO, bacon: int) -> BoardIO:
         message=f"{bacon} hello, {ape}",
         matrix=BOARD_MATRIX,
     )
+
+
+@app.get("/static-board")
+async def static_board() -> BoardIO:
+    return BoardIO(
+        message="starting board",
+        matrix=BOARD_MATRIX,
+    )
