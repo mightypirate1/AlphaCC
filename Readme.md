@@ -19,9 +19,9 @@ To run this in your local environment, you need to make sure you have the follow
 - python3.11 (with venv)
 - pip
 
-You may get away with lower versions, but no guarantees!
-
-Installation procedures for these are left as an exercise for the reader.
+The the game interface runs as a webapp and requires:
+- npm
+- angular/cli
 
 ##### Installation:
 "In theory", all you need to do once requirements are in place is `make install`. Once that has run to completion and produced the happy news `Installation successful!`you are good to go!

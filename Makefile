@@ -36,10 +36,16 @@ develop: clean venv
 install: develop build-engine
 
 build-engine:
-	@bash -c "\
+	@bash -c " \
 		source .venv/bin/activate && \
 		cd alpha_cc/engine/backend && \
 		maturin develop --release \
+	"
+
+install-webapp:
+	@bash -c " \
+		cd webapp && \
+		npm install \
 	"
 
 lint:
@@ -60,12 +66,3 @@ test: ## run tests quickly with the default Python
 
 venv:
 	@$(PYTHON3) -m venv .venv --prompt alpha-cc
-
-github-init:
-	git init --initial-branch=main
-	git add .
-	git commit -m "Generated from template"
-	git remote add origin git@github.com:mightypirate1/alpha-cc.git
-	git branch cookiecutter-template
-	git push -u origin main
-	git push -u origin cookiecutter-template
