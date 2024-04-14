@@ -386,6 +386,9 @@ impl Board {
     }
 
     pub fn perform_move(& mut self,  move_index: usize) -> Board {
+        if self.current_win_status() > 0 {
+            panic!("Game is already over. No new moves allowed!");
+        }
         self.calculate_current_players_moves_if_needed();
         let mut new_board_state = self.copy();
         if move_index < self.calculated_moves.len() {
