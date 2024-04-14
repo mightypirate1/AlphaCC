@@ -50,6 +50,7 @@ install-webapp:
 
 lint:
 	@bash -c "cd alpha_cc/engine/backend && cargo clippy -- -D warnings"
+	@bash -c "cd webapp && ng lint"
 	@ruff check alpha_cc tests
 	@black --check alpha_cc tests
 	@mypy alpha_cc tests
