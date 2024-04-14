@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 import numpy as np
+import torch
 
 from alpha_cc.agents.state import GameState, StateHash
 from alpha_cc.nn.nets.default_net import DefaultNet
@@ -16,8 +17,9 @@ class Node:
 
 
 class MCTS:
-    def __init__(self, board_size: int, max_game_length: int) -> None:
+    def __init__(self, board_size: int, max_game_length: int, apply_heuristic: bool = True) -> None:
         self._max_game_length = max_game_length
+        self._apply_heuristic = apply_heuristic
         self._nn = DefaultNet(board_size)
         self._heuristic = HeuristicReward(board_size, scale=0.01)
         self._nodes: dict[StateHash, Node] = {}
@@ -44,7 +46,16 @@ class MCTS:
             weighted_counts = node.n ** (1 / temperature)
         return weighted_counts / weighted_counts.sum()
 
+    @torch.no_grad()
     def rollout(self, state: GameState) -> np.floating | float:
+        def add_as_new_node(v_hat: np.floating, pi: np.ndarray) -> None:
+            self._nodes[state.hash] = Node(
+                v_hat=v_hat,
+                pi=pi,
+                n=np.zeros(len(state.children), dtype=np.integer),
+                q=np.zeros(len(state.children)),
+            )
+
         # if game is over, we stop
         if state.info.game_over:
             if state.info.winner == state.info.current_player:
@@ -52,10 +63,18 @@ class MCTS:
             return -1.0
 
         # heuristic for long games (we dont have deepmind's resources here)
-        if state.info.duration == self._max_game_length:
-            v_s = self._heuristic(state)
-            v_sp = self._heuristic(state.children[1])
-            return -(v_s - v_sp)
+        if state.info.duration > self._max_game_length:
+            # > because rollouts need to "see further" to populate all fields needed to compute pi
+            if self._apply_heuristic:  # TODO: less messy logic
+                v_s = self._heuristic(state)
+                v_sp = self._heuristic(state.children[1])
+                v_hat = v_s - v_sp
+            else:
+                v_hat = self._nn.value(state)
+            if state.hash not in self._nodes:
+                pi = self._nn.policy(state)
+                add_as_new_node(v_hat, pi)
+            return -v_hat
 
         # if we have reached as far as we have been:
         # - initialize the node with nn estimates and zeros for N(s,a), and Q(s,a)
@@ -63,12 +82,7 @@ class MCTS:
         if state.hash not in self._nodes:
             v_hat = self._nn.value(state)
             pi = self._nn.policy(state)
-            self._nodes[state.hash] = Node(
-                v_hat=v_hat,
-                pi=pi,
-                n=np.zeros(len(state.children), dtype=np.integer),
-                q=np.zeros(len(state.children)),
-            )
+            add_as_new_node(v_hat, pi)
             return -v_hat
 
         # keep rolling
@@ -89,7 +103,7 @@ class MCTS:
             # according to the paper
             c_puct_init = 2.5
             c_puct_base = 19652
-            return c_puct_init + np.log((np.sum(node.n) + c_puct_base + 1) / c_puct_base)
+            return c_puct_init + np.log((node.n.sum() + c_puct_base + 1) / c_puct_base)
 
         best_u, best_a = -np.inf, -1
         node = self._nodes[state.hash]

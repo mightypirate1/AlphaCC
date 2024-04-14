@@ -5,6 +5,7 @@ from lru import LRU
 from alpha_cc.agents.mcts.mcts_experience import MCTSExperience
 from alpha_cc.agents.state import GameState, StateHash
 from alpha_cc.engine.engine_utils import action_indexer
+from alpha_cc.nn.blocks.policy_softmax import PolicySoftmax
 from alpha_cc.nn.nets.dual_head_net import DualHeadNet
 
 
@@ -34,8 +35,9 @@ class DefaultNet(torch.nn.Module, DualHeadNet[list[list[MCTSExperience]]]):
                 torch.nn.Linear(128, 1),
             ]
         )
+        self._policy_softmax = PolicySoftmax(board_size)
 
-    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, x: torch.Tensor, action_mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         for layer in self._encoder:
             x = layer(x)
         x_enc = x
@@ -48,21 +50,23 @@ class DefaultNet(torch.nn.Module, DualHeadNet[list[list[MCTSExperience]]]):
         for layer in self._policy_head:
             x = layer(x)
 
-        x_pi = x.view(
+        x_pi_unscaled = x.view(  # form tensor pi
             -1,
             self._board_size,  # from_x
             self._board_size,  # from_y
             self._board_size,  # to_x
             self._board_size,  # to_y
-        )  # shape (n, d, d, d, d)
+        )
+        x_pi = self._policy_softmax(x_pi_unscaled, action_mask)
         return x_pi, x_value
 
     @torch.no_grad()
     def policy(self, state: GameState) -> np.ndarray:
         x_pi_all, _ = self._create_or_get_cached_output(state)
-        # translate nn action to mcts actio
-        x_pi = x_pi_all[:, *action_indexer(state.board)]
-        return torch.nn.functional.softmax(x_pi, dim=0).squeeze(0).numpy()
+        mask = torch.as_tensor(state.action_mask)
+        x_pi = self._policy_softmax(x_pi_all, mask)
+        x_pi_vec = x_pi[:, *action_indexer(state.board)]
+        return x_pi_vec.squeeze(0).numpy()
 
     @torch.no_grad()
     def value(self, state: GameState) -> np.floating:
@@ -75,16 +79,8 @@ class DefaultNet(torch.nn.Module, DualHeadNet[list[list[MCTSExperience]]]):
     @torch.no_grad()
     def _create_or_get_cached_output(self, state: GameState) -> tuple[torch.Tensor, torch.Tensor]:
         if state.hash not in self._cache:
-            x = (
-                torch.as_tensor(state.matrix)
-                .reshape(
-                    1,
-                    1,
-                    self._board_size,
-                    self._board_size,
-                )
-                .float()
-            )
-
-            self._cache[state.hash] = self(x)
+            input_shape = (1, 1, self._board_size, self._board_size)
+            x = torch.as_tensor(state.matrix).reshape(input_shape).float()
+            mask = torch.as_tensor(state.action_mask)
+            self._cache[state.hash] = self(x, mask)
         return self._cache[state.hash]

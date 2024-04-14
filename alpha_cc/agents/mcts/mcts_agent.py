@@ -22,7 +22,7 @@ class MCTSAgent(MCTS, Agent):
     def choose_move(self, board: Board, training: bool = False) -> int | np.integer:
         state = GameState(board)
         for _ in range(self._n_rollouts):
-            self.rollout(state)
+            v = self.rollout(state)
         pi = self.pi(state)
 
         if training:
@@ -30,6 +30,7 @@ class MCTSAgent(MCTS, Agent):
                 MCTSExperience(
                     state=state,
                     pi_target=pi,
+                    v_target=v,  # will be reassigned in `on_game_end`
                 )
             )
             pi = self._training_policy(pi)
@@ -41,7 +42,11 @@ class MCTSAgent(MCTS, Agent):
         self._trajectory = []
 
     def on_game_end(self) -> None:
-        pass
+        final_state = self.trajectory[-1].state
+        v = -1.0 if final_state.info.winner == final_state.info.current_player else 1.0
+        for experience in reversed(self.trajectory):
+            experience.v_target = v
+            v *= -1.0
 
     def _training_policy(self, pi: np.ndarray) -> np.ndarray:
         if self._dirichlet_weight == 0:
