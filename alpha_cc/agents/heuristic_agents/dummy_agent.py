@@ -1,16 +1,15 @@
 import numpy as np
 
-from alpha_cc.agents.base_agent import BaseAgent
+from alpha_cc.agents.agent import Agent
 from alpha_cc.engine import Board
 
 
-class DummyAgent(BaseAgent):
+class DummyAgent(Agent):
     def __init__(self) -> None:
         pass
 
     def choose_move(self, board: Board, _: bool = False) -> int:
-        s_primes = self.unpack_s_primes(board)
-        action = np.random.choice(len(s_primes))
+        action = np.random.choice(len(board.get_all_possible_next_states()))
         return action
 
     def on_game_start(self) -> None:

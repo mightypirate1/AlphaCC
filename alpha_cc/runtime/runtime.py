@@ -1,7 +1,7 @@
 import time
 from dataclasses import dataclass
 
-from alpha_cc.agents.base_agent import BaseAgent
+from alpha_cc.agents.agent import Agent
 from alpha_cc.engine import Board
 
 
@@ -18,7 +18,7 @@ class RunTime:
     def __init__(
         self,
         board: Board,
-        agents: tuple[BaseAgent, BaseAgent],
+        agents: tuple[Agent, Agent],
         config: RunTimeConfig | None = None,
     ) -> None:
         self._board = board
