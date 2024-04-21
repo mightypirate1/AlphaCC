@@ -25,6 +25,7 @@ API_REQUIRES = [
 NN_REQUIRES = [
     "einops",
     "torch",
+    "tensorboard",
 ]
 
 

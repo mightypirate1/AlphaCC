@@ -8,7 +8,6 @@ from alpha_cc.agents.mcts.mcts_agent import MCTSExperience
 class TrainingDataset(Dataset):
     def __init__(self, trajectories: list[list[MCTSExperience]]) -> None:
         self._experiences = [exp for traj in trajectories for exp in traj]
-        print(f"VALUE_TARGET_ABS_MU {np.abs(np.array([e.v_target for e in self._experiences])).mean()}")  # noqa
 
     def __len__(self) -> int:
         return len(self._experiences)

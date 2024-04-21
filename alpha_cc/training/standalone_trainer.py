@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 from tqdm_loggable.auto import tqdm
 
 from alpha_cc.agents.mcts.mcts_agent import MCTSAgent, MCTSExperience
@@ -18,6 +19,7 @@ class StandaloneTrainer:
         value_weight: float = 1.0,
         epochs_per_update: int = 3,
         lr: float = 1e-4,
+        summary_writer: SummaryWriter | None = None,
         apply_heuristic_on_max_game_length: bool = False,
     ) -> None:
         self._agent = agent
@@ -28,6 +30,8 @@ class StandaloneTrainer:
         self._optimizer = torch.optim.Adam(agent.nn.parameters(), lr=lr)
         self._apply_heuristic_on_max_game_length = apply_heuristic_on_max_game_length
         self._heuristic = HeuristicReward(board.size, scale=0.01)
+        self._global_step = 0
+        self._summary_writer = summary_writer
 
     def train(self, num_samples: int = 1000, max_game_length: int | None = None) -> None:
         self._agent.nn.eval()
@@ -86,23 +90,26 @@ class StandaloneTrainer:
                     current_pi, current_value = self._agent.nn(x, pi_mask)
                     value_loss = compute_value_loss(current_value, target_value)
                     policy_loss = compute_policy_loss(current_pi, target_pi, pi_mask)
-                    loss = policy_loss + value_loss
+                    loss = self._value_weight * value_loss + self._policy_weight * policy_loss
                     loss.backward()
                     self._optimizer.step()
                     epoch_value_loss += value_loss.item() / len(dataloader)
                     epoch_policy_loss += policy_loss.item() / len(dataloader)
                     pbar.update(x.shape[0])
+                    pbar.set_postfix(
+                        {"value-loss": round(epoch_value_loss, 5), "policy-loss": round(epoch_policy_loss, 5)}
+                    )
             return epoch_value_loss, epoch_policy_loss
 
         def compute_value_loss(current_value: torch.Tensor, target_value: torch.Tensor) -> torch.Tensor:
-            return self._value_weight * torch.nn.functional.mse_loss(current_value, target_value).mean()
+            return torch.nn.functional.mse_loss(current_value, target_value).mean()
 
         def compute_policy_loss(
             current_pi: torch.Tensor, target_pi: torch.Tensor, pi_mask: torch.Tensor
         ) -> torch.Tensor:
             policy_loss_unmasked = -target_pi * torch.log(current_pi + 1e-6)
             policy_loss = torch.where(pi_mask, policy_loss_unmasked, 0.0)
-            return self._policy_weight * policy_loss.sum() / pi_mask.sum()
+            return policy_loss.sum() / pi_mask.sum()
 
         self._agent.nn.train()
         self._agent.nn.clear_cache()
@@ -120,5 +127,7 @@ class StandaloneTrainer:
             epoch_value_loss, epoch_policy_loss = train_epoch(epoch)
             total_value_loss += epoch_value_loss / self._epochs_per_update
             total_policy_loss += epoch_policy_loss / self._epochs_per_update
-            print(f"epoch losses: value={epoch_value_loss} policy={epoch_policy_loss}")  # noqa
-        print(f"total losses: value={total_value_loss} policy={total_policy_loss}")  # noqa
+        if self._summary_writer is not None:
+            self._summary_writer.add_scalar("trainer/value-loss", total_value_loss, global_step=self._global_step)
+            self._summary_writer.add_scalar("trainer/policy-loss", total_policy_loss, global_step=self._global_step)
+        self._global_step += 1

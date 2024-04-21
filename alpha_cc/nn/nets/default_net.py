@@ -10,7 +10,7 @@ from alpha_cc.nn.nets.dual_head_net import DualHeadNet
 
 
 class DefaultNet(torch.nn.Module, DualHeadNet[list[list[MCTSExperience]]]):
-    def __init__(self, board_size: int, cache_size: int = 10000) -> None:
+    def __init__(self, board_size: int, cache_size: int = 10000, dropout: float = 0.3) -> None:
         super().__init__()
         self._cache: LRU[StateHash, tuple[torch.Tensor, torch.Tensor]] = LRU(cache_size)
         self._board_size = board_size
@@ -19,21 +19,26 @@ class DefaultNet(torch.nn.Module, DualHeadNet[list[list[MCTSExperience]]]):
             [
                 ResBlock(1, 64, 3),
                 ResBlock(64, 128, 5),
-                ResBlock(128, 128, 5),
+                # ResBlock(128, 128, 5),
             ]
         )
         self._policy_head = torch.nn.ModuleList(
             [
+                ResBlock(128, 128, 5),
                 torch.nn.Conv2d(128, board_size * board_size, 5, padding=2),
             ]
         )
         self._value_head = torch.nn.ModuleList(
             [
-                ResBlock(128, 128, 5),
-                ResBlock(128, 128, 5),
+                # torch.nn.Dropout2d(dropout),
+                # ResBlock(128, 128, 5),
+                # torch.nn.Dropout2d(dropout),
+                # ResBlock(128, 128, 5),
+                # torch.nn.Dropout2d(dropout),
                 torch.nn.AvgPool2d(board_size),
                 torch.nn.Flatten(),
                 torch.nn.Linear(128, 1),
+                torch.nn.Dropout(dropout),
                 torch.nn.Tanh(),
             ]
         )
