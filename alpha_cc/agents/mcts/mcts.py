@@ -5,23 +5,19 @@ import torch
 
 from alpha_cc.agents.state import GameState, StateHash
 from alpha_cc.nn.nets.default_net import DefaultNet
-from alpha_cc.reward import HeuristicReward
 
 
 @dataclass
 class Node:
-    v_hat: np.floating
+    v_hat: float
     pi: np.ndarray  # this is the nn-output; not mcts pi
     n: np.ndarray
     q: np.ndarray
 
 
 class MCTS:
-    def __init__(self, board_size: int, max_game_length: int, apply_heuristic: bool = True) -> None:
-        self._max_game_length = max_game_length
-        self._apply_heuristic = apply_heuristic
+    def __init__(self, board_size: int) -> None:
         self._nn = DefaultNet(board_size)
-        self._heuristic = HeuristicReward(board_size, scale=0.01)
         self._nodes: dict[StateHash, Node] = {}
 
     @property
@@ -31,10 +27,6 @@ class MCTS:
     @property
     def nodes(self) -> dict[StateHash, Node]:
         return self._nodes
-
-    @property
-    def max_game_length(self) -> int:
-        return self._max_game_length
 
     def clear_nodes(self) -> None:
         self._nodes.clear()
@@ -47,8 +39,8 @@ class MCTS:
         return weighted_counts / weighted_counts.sum()
 
     @torch.no_grad()
-    def rollout(self, state: GameState) -> np.floating | float:
-        def add_as_new_node(v_hat: np.floating, pi: np.ndarray) -> None:
+    def rollout(self, state: GameState, remaining_depth: int = 999) -> float:
+        def add_as_new_node(v_hat: float, pi: np.ndarray) -> None:
             self._nodes[state.hash] = Node(
                 v_hat=v_hat,
                 pi=pi,
@@ -62,33 +54,26 @@ class MCTS:
                 return 1.0  # previous player won
             return -1.0
 
-        # heuristic for long games (we dont have deepmind's resources here)
-        if state.info.duration > self._max_game_length:
-            # > because rollouts need to "see further" to populate all fields needed to compute pi
-            if self._apply_heuristic:  # TODO: less messy logic
-                v_s = self._heuristic(state)
-                v_sp = self._heuristic(state.children[1])
-                v_hat = v_s - v_sp
-            else:
-                v_hat = self._nn.value(state)
-            if state.hash not in self._nodes:
-                pi = self._nn.policy(state)
-                add_as_new_node(v_hat, pi)
-            return -v_hat
+        # at some point one has to stop (recursion limit, feasability, etc)
+        if remaining_depth == 0:
+            return -float(self._nn.value(state))
 
         # if we have reached as far as we have been:
         # - initialize the node with nn estimates and zeros for N(s,a), and Q(s,a)
         # - return value from the perspective of the player on the previous move
         if state.hash not in self._nodes:
-            v_hat = self._nn.value(state)
+            v_hat = float(self._nn.value(state))
             pi = self._nn.policy(state)
             add_as_new_node(v_hat, pi)
             return -v_hat
 
         # keep rolling
         a = self._find_best_action(state)
-        s_prime = GameState(state.board.perform_move(a))
-        v = self.rollout(s_prime)
+        s_prime = GameState(
+            state.board.perform_move(a),
+            disallowed_children={state.hash, *state.disallowed_children},
+        )
+        v = self.rollout(s_prime, remaining_depth=remaining_depth - 1)
 
         # update node
         node = self._nodes[state.hash]
@@ -99,8 +84,8 @@ class MCTS:
         return -v
 
     def _find_best_action(self, state: GameState) -> int:
-        def c_puct(node: Node) -> float:
-            # according to the paper
+        def c_puct(node: Node) -> float:  # TODO: look at this again
+            # according to some paper i forgot to reference...
             c_puct_init = 2.5
             c_puct_base = 19652
             return c_puct_init + np.log((node.n.sum() + c_puct_base + 1) / c_puct_base)
@@ -109,11 +94,18 @@ class MCTS:
         node = self._nodes[state.hash]
         sum_n = sum(node.n)
 
-        for a in range(len(state.board.get_all_possible_next_states())):
+        for a, sp in enumerate(state.children):
+            if sp.hash in state.disallowed_children:
+                continue
             q_sa = node.q[a]
             p_sa = node.pi[a]
-            u = q_sa + c_puct(node) * p_sa * np.sqrt(sum_n / (1 + node.n[a]))
+            u = q_sa + c_puct(node) * p_sa * np.sqrt(sum_n) / (1 + node.n[a])
+
             if u > best_u:
                 best_u = u
                 best_a = a
+
+        if best_a == -1:
+            raise ValueError("our disallowed children got us stuck?")
+
         return best_a

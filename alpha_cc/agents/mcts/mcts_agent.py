@@ -8,31 +8,27 @@ from alpha_cc.engine import Board
 
 
 class MCTSAgent(MCTS, Agent):
-    def __init__(self, board_size: int, max_game_length: int, n_rollouts: int = 100) -> None:
-        super().__init__(board_size, max_game_length)
-        self._n_rollouts = 2
+    def __init__(self, board_size: int, n_rollouts: int = 100, rollout_depth: int = 999) -> None:
+        super().__init__(board_size)
+        self._n_rollouts = n_rollouts
+        self._rollout_depth = rollout_depth
         self._dirichlet_weight = 0.0  # 0.25  # TODO: get good value from paper
         self._trajectory: list[MCTSExperience] = []
-        self._n_rollouts = n_rollouts
 
     @property
     def trajectory(self) -> list[MCTSExperience]:
         return self._trajectory
 
     def choose_move(self, board: Board, training: bool = False) -> int | np.integer:
-        state = GameState(board)
+        traversed_states = {exp.state.hash for exp in self.trajectory}
+        state = GameState(board, disallowed_children=traversed_states)
         for _ in range(self._n_rollouts):
-            v = self.rollout(state)
+            v = self.rollout(state, remaining_depth=self._rollout_depth)
         pi = self.pi(state)
 
         if training:
-            self._trajectory.append(
-                MCTSExperience(
-                    state=state,
-                    pi_target=pi,
-                    v_target=v,  # will be reassigned in `on_game_end`
-                )
-            )
+            experience = MCTSExperience(state=state, pi_target=pi, v_target=v)
+            self._trajectory.append(experience)
             pi = self._training_policy(pi)
             return np.random.choice(len(pi), p=pi)
         return pi.argmax()
@@ -42,11 +38,7 @@ class MCTSAgent(MCTS, Agent):
         self._trajectory = []
 
     def on_game_end(self) -> None:
-        final_state = self.trajectory[-1].state
-        v = -1.0 if final_state.info.winner == final_state.info.current_player else 1.0
-        for experience in reversed(self.trajectory):
-            experience.v_target = v
-            v *= -1.0
+        pass
 
     def _training_policy(self, pi: np.ndarray) -> np.ndarray:
         if self._dirichlet_weight == 0:

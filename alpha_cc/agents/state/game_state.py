@@ -9,8 +9,9 @@ StateHash = NewType("StateHash", bytes)
 
 
 class GameState:
-    def __init__(self, board: Board) -> None:
+    def __init__(self, board: Board, disallowed_children: set[StateHash] | None = None) -> None:
         self._board = board
+        self._disallowed_children = disallowed_children
         self._info = board.board_info
         self._matrix: list[list[int]] | None = None
         self._action_mask: list[list[list[list[int]]]] | None = None
@@ -31,6 +32,19 @@ class GameState:
         if self._children is None:
             self._children = [GameState(sp) for sp in self.board.get_all_possible_next_states()]
         return self._children
+
+    @property
+    def filtered_children(self) -> list[GameState]:
+        # TODO: cache if needed
+        disallowed_children = {self.hash, *self.disallowed_children}
+        possible_children = [GameState(sp, disallowed_children) for sp in self.board.get_all_possible_next_states()]
+        return [child for child in possible_children if child.hash not in self.disallowed_children]
+
+    @property
+    def disallowed_children(self) -> set[StateHash]:
+        if self._disallowed_children is None:
+            return set()
+        return self._disallowed_children
 
     @property
     def matrix(self) -> list[list[int]]:

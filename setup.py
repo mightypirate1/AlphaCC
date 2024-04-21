@@ -23,6 +23,7 @@ API_REQUIRES = [
 
 
 NN_REQUIRES = [
+    "einops",
     "torch",
 ]
 
@@ -37,6 +38,7 @@ ALL_REQUIRES = [
 setup(
     name="alpha-cc",
     install_requires=[
+        "click",
         "maturin",
         "numpy",
         "tqdm-loggable",
