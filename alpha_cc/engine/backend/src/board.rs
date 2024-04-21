@@ -250,10 +250,14 @@ impl Board {
         for ((y, x), value) in self.matrix.slice(
             s![board_size-home_size.., board_size-home_size..]  // Player2's home, i.e. player1's destination!
         ).indexed_iter() {
-            if self.coord_is_in_home_of_player(2, HexCoordinate::create(x+board_size-home_size, y+board_size-home_size)) && *value == 0 {
-                return false;
+            if self.coord_is_in_home_of_player(2, HexCoordinate::create(x+board_size-home_size, y+board_size-home_size)) {
+                if *value == 0 {
+                    return false;
+                }
+                else {
+                    at_least_one_stone_in_goal = *value == 1 || at_least_one_stone_in_goal;
+                }
             }
-            at_least_one_stone_in_goal = *value == 1 || at_least_one_stone_in_goal;
         }
         at_least_one_stone_in_goal
     }
@@ -263,10 +267,14 @@ impl Board {
         for ((y, x), value) in self.matrix.slice(
             s![0..home_size, 0..home_size] // Player1's home, i.e. player2's destination!
         ).indexed_iter() {
-            if self.coord_is_in_home_of_player(1, HexCoordinate::create(x, y)) && *value == 0 {
-                return false;
+            if self.coord_is_in_home_of_player(1, HexCoordinate::create(x, y)) {
+                if *value == 0 {
+                    return false;
+                }
+                else {
+                    at_least_one_stone_in_goal = *value == 2 || at_least_one_stone_in_goal;
+                }
             }
-            at_least_one_stone_in_goal = *value == 2 || at_least_one_stone_in_goal;
         }
         at_least_one_stone_in_goal
     }
