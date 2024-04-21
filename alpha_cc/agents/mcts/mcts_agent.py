@@ -108,12 +108,13 @@ class MCTSAgent(Agent):
         if temperature != 1.0:  # save some flops
             weighted_counts = node.n ** (1 / temperature)
         normalized_weighted_counts = weighted_counts / weighted_counts.sum()
-        
+
         if self._summary_writer is not None:
-            self._summary_writer.add_scalar("agent/action-entropy", entropy(normalized_weighted_counts), global_step=self._global_step)
-        
+            self._summary_writer.add_scalar(
+                "agent/action-entropy", entropy(normalized_weighted_counts), global_step=self._global_step
+            )
+
         return normalized_weighted_counts
-        
 
     @torch.no_grad()
     def _rollout(self, state: GameState, remaining_depth: int = 999) -> float:
