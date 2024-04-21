@@ -19,7 +19,6 @@ class DefaultNet(torch.nn.Module, DualHeadNet[list[list[MCTSExperience]]]):
             [
                 ResBlock(1, 64, 3),
                 ResBlock(64, 128, 5),
-                # ResBlock(128, 128, 5),
             ]
         )
         self._policy_head = torch.nn.ModuleList(
@@ -32,9 +31,6 @@ class DefaultNet(torch.nn.Module, DualHeadNet[list[list[MCTSExperience]]]):
             [
                 # torch.nn.Dropout2d(dropout),
                 # ResBlock(128, 128, 5),
-                # torch.nn.Dropout2d(dropout),
-                # ResBlock(128, 128, 5),
-                # torch.nn.Dropout2d(dropout),
                 torch.nn.AvgPool2d(board_size),
                 torch.nn.Flatten(),
                 torch.nn.Linear(128, 1),
