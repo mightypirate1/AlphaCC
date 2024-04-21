@@ -44,6 +44,8 @@ class RunTime:
                 board.render()
             if self._config.slow:
                 time.sleep(1)
+            if self._config.verbose:
+                print(f"Move {move_count} played.")  # noqa
 
         ### Be done
         if self._config.verbose:
