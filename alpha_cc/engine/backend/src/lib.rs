@@ -6,6 +6,8 @@ use pyo3::prelude::*;
 use crate::board::Board;
 use crate::board::BoardInfo;
 use crate::hexcoordinate::HexCoordinate;
+use crate::moves::Move;
+use crate::moves::Moves;
 
 
 /// A Python module implemented in Rust.
@@ -15,5 +17,7 @@ fn alpha_cc(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<Board>()?;
     m.add_class::<BoardInfo>()?;
     m.add_class::<HexCoordinate>()?;
+    m.add_class::<Move>()?;
+    m.add_class::<Moves>()?;
     Ok(())
 }

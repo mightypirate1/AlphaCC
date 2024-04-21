@@ -1,9 +1,12 @@
 extern crate pyo3;
-use pyo3::prelude::*;
-use crate::moves::Move;
 use std::vec::Vec;
+
 use ndarray::{s, Array2};
+use pyo3::prelude::*;
+
+use crate::moves::*;
 use crate::hexcoordinate::HexCoordinate;
+
 
 #[pyclass]
 pub struct Board {
@@ -11,7 +14,8 @@ pub struct Board {
     n_players: usize,
     matrix: Array2::<i32>,
     calculated_moves: Vec<Move>,
-    pub allow_place_moves: bool,
+    allow_place_moves: bool,
+    duration: usize,
 }
 
 #[pyclass]
@@ -20,6 +24,10 @@ pub struct BoardInfo {
     current_player: usize,
     #[pyo3(get)]
     winner: usize,
+    #[pyo3(get)]
+    size: usize,
+    #[pyo3(get)]
+    duration: usize,
     #[pyo3(get)]
     game_over: bool,
 }
@@ -32,6 +40,7 @@ impl Default for Board {
             matrix: Array2::zeros((9, 9)),
             calculated_moves: Vec::new(),
             allow_place_moves: false,
+            duration: 0,
         }
     }
 }
@@ -67,6 +76,7 @@ impl Board {
             matrix: self.matrix.to_owned(),
             calculated_moves: Vec::new(),
             allow_place_moves: self.allow_place_moves,
+            duration: self.duration,
         }
     }
 
@@ -93,10 +103,10 @@ impl Board {
         self.matrix = Array2::zeros((board_size, board_size));
         for x in 0..board_size {
             for y in 0..board_size {
-                if self.coord_is_in_home_of_player(1, HexCoordinate::from_usize(x, y)) {
+                if self.coord_is_in_home_of_player(1, HexCoordinate::create(x, y)) {
                     self.matrix[[y, x]] = 1;
                 }
-                if self.coord_is_in_home_of_player(2, HexCoordinate::from_usize(x, y)) {
+                if self.coord_is_in_home_of_player(2, HexCoordinate::create(x, y)) {
                     self.matrix[[y, x]] = 2;
                 }
             }
@@ -120,12 +130,16 @@ impl Board {
         self.matrix.shape()[0]
     }
     fn get_home_size(&self) -> usize {
-        (self.get_board_size() - 1) / 2
+        (self.get_board_size() + 1) / 2
     }
 
     ////////////////////////////
     // Core board operations: //
     ////////////////////////////
+
+    pub fn tick(&mut self) {
+        self.duration += 1;
+    }
 
     pub fn place(&mut self, coord: HexCoordinate) {
         if  self.coord_is_valid(&coord) && self.coord_is_empty(&coord) {
@@ -147,7 +161,7 @@ impl Board {
     }
     fn set_board_state(&mut self, coord: HexCoordinate, new_state: i32) {
         if self.coord_is_valid(&coord){
-            self.matrix[[coord.x as usize, coord.y as usize]] = new_state;
+            self.matrix[[coord.x, coord.y]] = new_state;
         }
         else{
             panic!("invalid coord for set state")
@@ -176,27 +190,24 @@ impl Board {
     }
     pub fn get_boardstate_by_coord(&self, coord: &HexCoordinate) -> i32 {
         if self.coord_is_valid(coord){
-            return self.matrix[[coord.x as usize, coord.y as usize]];
+            return self.matrix[[coord.x, coord.y]];
         }
         -1
     }
     fn coord_is_valid(&self, coord: &HexCoordinate) -> bool {
         let x_max: usize = self.matrix.shape()[0];
         let y_max: usize = self.matrix.shape()[1];
-        if   coord.x > -1 &&
-             coord.y > -1 &&
-            (coord.x as usize) < x_max &&
-            (coord.y as usize) < y_max {
+        if  coord.x < x_max && coord.y < y_max {
                 return true;
         }
         false
     }
     fn coord_is_in_home_of_player(&self, player: usize, coord: HexCoordinate) -> bool {
-        let home_size = self.get_home_size() as i32;
-        let board_size = self.get_board_size() as i32;
+        let home_size = self.get_home_size();
+        let board_size = self.get_board_size();
         match player {
             1 => {coord.x + coord.y < home_size},
-            2 => {coord.x + coord.y + 1 >= 2 * board_size - home_size},
+            2 => {coord.x + coord.y >= 2 * board_size - home_size - 1},
             _ => {panic!("no such player: {player}");}
         }
     }
@@ -209,7 +220,7 @@ impl Board {
         let mut coords: Vec::<HexCoordinate> = Vec::new();
         for ((x, y), &value) in self.matrix.indexed_iter(){
             if value == player as i32 {
-                coords.push(HexCoordinate::from_usize(x, y));
+                coords.push(HexCoordinate::create(x, y));
             }
         }
         coords
@@ -239,10 +250,14 @@ impl Board {
         for ((y, x), value) in self.matrix.slice(
             s![board_size-home_size.., board_size-home_size..]  // Player2's home, i.e. player1's destination!
         ).indexed_iter() {
-            if self.coord_is_in_home_of_player(2, HexCoordinate::from_usize(x+board_size-home_size, y+board_size-home_size)) && *value == 0 {
-                return false;
+            if self.coord_is_in_home_of_player(2, HexCoordinate::create(x+board_size-home_size, y+board_size-home_size)) {
+                if *value == 0 {
+                    return false;
+                }
+                else {
+                    at_least_one_stone_in_goal = *value == 1 || at_least_one_stone_in_goal;
+                }
             }
-            at_least_one_stone_in_goal = *value == 1 || at_least_one_stone_in_goal;
         }
         at_least_one_stone_in_goal
     }
@@ -252,10 +267,14 @@ impl Board {
         for ((y, x), value) in self.matrix.slice(
             s![0..home_size, 0..home_size] // Player1's home, i.e. player2's destination!
         ).indexed_iter() {
-            if self.coord_is_in_home_of_player(1, HexCoordinate::from_usize(x, y)) && *value == 0 {
-                return false;
+            if self.coord_is_in_home_of_player(1, HexCoordinate::create(x, y)) {
+                if *value == 0 {
+                    return false;
+                }
+                else {
+                    at_least_one_stone_in_goal = *value == 2 || at_least_one_stone_in_goal;
+                }
             }
-            at_least_one_stone_in_goal = *value == 2 || at_least_one_stone_in_goal;
         }
         at_least_one_stone_in_goal
     }
@@ -264,11 +283,7 @@ impl Board {
     // Move finding algorithms: //
     //////////////////////////////
 
-    pub fn get_all_legal_moves_for_current_player(&self) -> Vec<Move>{
-        self.get_all_legal_moves(self.get_current_player())
-    }
-
-    pub fn get_all_legal_moves(&self, player: usize) -> Vec<Move> {
+    pub fn get_all_legal_moves_for_player(&self, player: usize) -> Vec<Move> {
         let mut moves = Vec::new();
         let mut candidate_coord: HexCoordinate;
         if self.place_moves_are_allowed() {
@@ -283,7 +298,7 @@ impl Board {
                 candidate_coord = coord.get_neighbor(direction, 1);
                 if self.coord_is_empty(&candidate_coord){
                     // If the immediate neighbor is empty, it's legal to walk there
-                    moves.push(Move::Walk{from: coord, to: candidate_coord});
+                    moves.push(Move::Walk{from_coord: coord, to_coord: candidate_coord});
                 }
             }
             moves.extend(self.find_all_jumps_from_coord(coord));
@@ -318,11 +333,20 @@ impl Board {
                     // - Remember that we already know we can get to `target_coord` from `starting_coord`.
                     // - Add `starting_coord` -> `target_coord` to list of Jumps.
                     final_positions.push(target_coord);
-                    jump_moves.push(Move::Jump{from: starting_coord, to: target_coord});
+                    jump_moves.push(Move::Jump{from_coord: starting_coord, to_coord: target_coord});
                     self.recusive_exporation(starting_coord, target_coord, final_positions, jump_moves);
             }
         }
         jump_moves
+    }
+
+    fn calculate_current_players_moves_if_needed(& mut self) {
+        if self.calculated_moves.is_empty() {
+            // moves not yet calculated
+            self.calculated_moves = self.get_all_legal_moves_for_player(
+                self.get_current_player()
+            );
+        }
     }
 }
 
@@ -354,29 +378,33 @@ impl Board {
     }
 
     pub fn get_all_possible_next_states(& mut self) -> Vec<Board> {
-        // IMPORTANT: This is being set here so that we can have an action space that
-        // is just a usize; namely the index in this list.
-        if self.calculated_moves.is_empty() {
-            // moves not yet calculated
-            self.calculated_moves = self.get_all_legal_moves_for_current_player();
-        }
         let mut next_boards: Vec<Board> = Vec::new();
         let mut next_board: Board;
+        self.calculate_current_players_moves_if_needed();
         for a_move in &self.calculated_moves {
             next_board = a_move.apply(self.copy());
             next_boards.push(next_board);
         }
         next_boards
     }
+    
+    pub fn get_legal_moves(& mut self) -> Moves {
+        self.calculate_current_players_moves_if_needed();
+        Moves::create(self.calculated_moves.to_vec(), self.get_board_size())
+    }
 
-    pub fn perform_move(slf: PyRef<'_, Self>, move_index: usize) -> Board {
-        if move_index < slf.calculated_moves.len() {
-            let mut new_board_state = slf.copy();
-            new_board_state = slf.calculated_moves[move_index].apply(new_board_state);
+    pub fn perform_move(& mut self,  move_index: usize) -> Board {
+        if self.current_win_status() > 0 {
+            panic!("Game is already over. No new moves allowed!");
+        }
+        self.calculate_current_players_moves_if_needed();
+        let mut new_board_state = self.copy();
+        if move_index < self.calculated_moves.len() {
+            new_board_state = self.calculated_moves[move_index].apply(new_board_state);
             new_board_state.next_player();
             return new_board_state;
         }
-        panic!("Invalid move index {move_index}: valid choices are {:?}", (0..slf.calculated_moves.len())) // .collect::<std::vec::Vec<usize>>());
+        panic!("Invalid move index {move_index}: valid choices are {:?}", (0..self.calculated_moves.len()))
     }
 
     pub fn render(&self) {
@@ -419,6 +447,8 @@ impl Board {
             current_player: self.get_current_player(),
             winner: win_status,
             game_over: win_status > 0,
+            size: self.get_board_size(),
+            duration: self.duration,
         }
     }
 

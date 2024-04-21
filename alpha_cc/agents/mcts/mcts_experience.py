@@ -8,5 +8,5 @@ from alpha_cc.agents.state import GameState
 @dataclass
 class MCTSExperience:
     state: GameState
-    pi: np.ndarray
-    v_target: np.floating | float = 0.0
+    pi_target: np.ndarray
+    v_target: float = 0.0  # gets assigned by trainer

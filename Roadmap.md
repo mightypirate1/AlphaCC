@@ -7,10 +7,9 @@ The items in each list is very roughly in order of importance.
 3. Find/implement hex-convolutions if that's a thing. I feel it might be.
 
 ### Game logic
-1. Sanity check game by playing it somehow.
-2. Time limit for games
-3. Fix win condition: seems a stalling tactic is to just not move out of the home, thus forcing draw.
-4. Make move finding symmetrical; i.e. positions that are identical up to isomorphism should get the moves in the same order. This might affect MCTS and improve sample efficiency.
+1. Time limit for games
+2. Fix win condition: seems a stalling tactic is to just not move out of the home, thus forcing draw.
+3. Correct number of starting pieces! (currently 1 row too little)
 
 ### Orchestration
 1. Figure out how to parallelize, ideally some  `x * workers + 1 * trainer` setup.
@@ -19,8 +18,14 @@ The items in each list is very roughly in order of importance.
 4. Add `redis` if needed for passing around data.
 
 ### Interface
-1. Set up some kind of back-end that handles the game and interacts with http.
-2. Build some kind of graphical interface.
-3. Use the interface to show games that have been played during training.
-4. Make it so that a human can play against an agent on the backend.
-5. Write pyo3-stuff for checking whether there exists a legal move between a pair of coordinates.
+1. Build some kind of graphical interface.
+2. Use the interface to show games that have been played during training.
+3. Make it so that a human can play against an agent on the backend.
+
+## REFACTORING thoughts
+1. Once a real nn is in place, the `reward` folder can probably be dropped.
+2. `Runtime` might be redundant soon. Atleast when the webapp takes form.
+3. `Move.Place` is not used in any meaningful way. If it doesn't becomove useful for creating boards with a particular setup, we should remove it. Some engine code can then be simplified.
+4. Do we need both `Board` and `BoardInfo` to have `size`?
+5. If we don't use both mask and reverse mask (for nn training) we get rid of one of them
+6. If we do keep the `disallowed_children` thing; figure out a nicer way to implement it!

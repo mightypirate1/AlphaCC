@@ -1,12 +1,12 @@
 import time
+from dataclasses import dataclass
 
-from pydantic import BaseModel
-
-from alpha_cc.agents.base_agent import BaseAgent
+from alpha_cc.agents.agent import Agent
 from alpha_cc.engine import Board
 
 
-class RunTimeConfig(BaseModel):
+@dataclass
+class RunTimeConfig:
     verbose: bool = False
     render: bool = False
     slow: bool = False  # Does nothing if render is False
@@ -18,7 +18,7 @@ class RunTime:
     def __init__(
         self,
         board: Board,
-        agents: tuple[BaseAgent, BaseAgent],
+        agents: tuple[Agent, Agent],
         config: RunTimeConfig | None = None,
     ) -> None:
         self._board = board
@@ -44,6 +44,8 @@ class RunTime:
                 board.render()
             if self._config.slow:
                 time.sleep(1)
+            if self._config.verbose:
+                print(f"Move {move_count} played.")  # noqa
 
         ### Be done
         if self._config.verbose:
