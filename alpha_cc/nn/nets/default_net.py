@@ -5,7 +5,7 @@ from lru import LRU
 from alpha_cc.agents.mcts.mcts_experience import MCTSExperience
 from alpha_cc.agents.state import GameState, StateHash
 from alpha_cc.engine.engine_utils import action_indexer
-from alpha_cc.nn.blocks.policy_softmax import PolicySoftmax
+from alpha_cc.nn.blocks import PolicySoftmax, ResBlock
 from alpha_cc.nn.nets.dual_head_net import DualHeadNet
 
 
@@ -17,9 +17,9 @@ class DefaultNet(torch.nn.Module, DualHeadNet[list[list[MCTSExperience]]]):
 
         self._encoder = torch.nn.ModuleList(
             [
-                torch.nn.Conv2d(1, 64, 3, padding=1),
-                torch.nn.Conv2d(64, 128, 5, padding=2),
-                torch.nn.Conv2d(128, 128, 5, padding=2),
+                ResBlock(1, 64, 3),
+                ResBlock(64, 128, 5),
+                ResBlock(128, 128, 5),
             ]
         )
         self._policy_head = torch.nn.ModuleList(
@@ -29,27 +29,25 @@ class DefaultNet(torch.nn.Module, DualHeadNet[list[list[MCTSExperience]]]):
         )
         self._value_head = torch.nn.ModuleList(
             [
-                torch.nn.Conv2d(128, 128, 7),
-                torch.nn.Conv2d(128, 128, 3),
+                ResBlock(128, 128, 5),
+                ResBlock(128, 128, 5),
+                torch.nn.AvgPool2d(board_size),
                 torch.nn.Flatten(),
                 torch.nn.Linear(128, 1),
+                torch.nn.Tanh(),
             ]
         )
         self._policy_softmax = PolicySoftmax(board_size)
 
     def forward(self, x: torch.Tensor, action_mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        # encoder
         for layer in self._encoder:
             x = layer(x)
         x_enc = x
-        for layer in self._value_head:
-            x = layer(x)
 
-        x_value = x.squeeze(1)  # shape (n,)
-
-        x = x_enc
+        # policy head
         for layer in self._policy_head:
             x = layer(x)
-
         x_pi_unscaled = x.view(  # form tensor pi
             -1,
             self._board_size,  # from_x
@@ -58,6 +56,13 @@ class DefaultNet(torch.nn.Module, DualHeadNet[list[list[MCTSExperience]]]):
             self._board_size,  # to_y
         )
         x_pi = self._policy_softmax(x_pi_unscaled, action_mask)
+
+        # value head
+        x = x_enc
+        for layer in self._value_head:
+            x = layer(x)
+        x_value = x.squeeze(1)  # shape (n,)
+
         return x_pi, x_value
 
     @torch.no_grad()
