@@ -1,9 +1,7 @@
 <p>board works!</p>
 
-@if (message) {
-    <!-- Message: {{ board.message }} -->
-    Message: {{ message }}
-}
+Message: {{ board?.message }}
+
 <br>
 @for (i of board?.matrix; track $index) {
     @for (j of i; track $index) {

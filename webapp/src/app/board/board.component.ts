@@ -12,8 +12,6 @@ import { Board } from '../board';
 export class BoardComponent implements OnInit{
 
   board: Board | undefined;
-  message: string = '';
-  matrix: number[][] | undefined;
 
   constructor(private boardService: BoardService) { }
 
@@ -26,11 +24,7 @@ export class BoardComponent implements OnInit{
       .subscribe({
         next: (data) => {
           this.board = data;
-          this.message = data.message;
-          this.matrix = data.matrix;
-          console.log(this.board);
         }
       })
-    console.log(this.board);
   }
 }
