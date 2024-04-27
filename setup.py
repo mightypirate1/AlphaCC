@@ -10,6 +10,9 @@ DEV_REQUIRES = [
     "ipython",
     "isort",
     "mypy",
+    "nbformat>4.2.0",
+    "pandas",
+    "plotly-express",
     "pytest",
     "ruff",
 ]
@@ -22,17 +25,9 @@ API_REQUIRES = [
 ]
 
 
-NN_REQUIRES = [
-    "einops",
-    "torch",
-    "tensorboard",
-]
-
-
 ALL_REQUIRES = [
     *DEV_REQUIRES,
     *API_REQUIRES,
-    *NN_REQUIRES,
 ]
 
 
@@ -40,15 +35,19 @@ setup(
     name="alpha-cc",
     install_requires=[
         "click",
+        "einops",
+        "lru-dict",
         "maturin",
         "numpy",
+        "scipy",
+        "tensorboard",
+        "torch",
         "tqdm-loggable",
     ],
     packages=find_packages(),
     extras_require={
         "api": API_REQUIRES,
         "dev": DEV_REQUIRES,
-        "nn": NN_REQUIRES,
         "all": ALL_REQUIRES,
     },
 )

@@ -14,7 +14,7 @@ class ResBlock(torch.nn.Module):
         super().__init__()
         self._in_channels = in_channels
         self._out_channels = out_channels
-        # TODO: figure out why it works this way size-wise
+        # TODO: figure out why it works this way size-wise (it seems reversed?)
         self._padding = (0, 0, 0, 0, 0, self._out_channels - self._in_channels)
         self._layers = torch.nn.ModuleList(
             [

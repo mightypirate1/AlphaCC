@@ -55,6 +55,7 @@ class BoardInfo:
     game_over: bool
     winner: int
     size: int
+    reward: int
     duration: int
 
     def __init__(self, size: int) -> None: ...
