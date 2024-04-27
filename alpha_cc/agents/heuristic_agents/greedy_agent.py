@@ -8,11 +8,11 @@ from alpha_cc.reward import HeuristicReward
 
 class GreedyAgent(Agent):
     def __init__(self, size: int = 9) -> None:
-        self._heuristic_function = HeuristicReward(size)
+        self._heuristic_function = HeuristicReward(size, subtract_opponent=True)
 
-    def choose_move(self, board: Board, training: bool = False) -> int:  # noqa
+    def choose_move(self, board: Board, _: bool = False) -> int:
         sp_values = self._evaluation(board)
-        action = np.argmax(sp_values).astype(int)
+        action = int(np.argmax(sp_values))
         return action
 
     def on_game_start(self) -> None:
