@@ -30,6 +30,8 @@ pub struct BoardInfo {
     duration: usize,
     #[pyo3(get)]
     game_over: bool,
+    #[pyo3(get)]
+    reward: i32,
 }
 
 impl Default for Board {
@@ -139,6 +141,7 @@ impl Board {
 
     pub fn tick(&mut self) {
         self.duration += 1;
+        self.current_player = 3 - self.current_player;
     }
 
     pub fn place(&mut self, coord: HexCoordinate) {
@@ -165,12 +168,6 @@ impl Board {
         }
         else{
             panic!("invalid coord for set state")
-        }
-    }
-    fn next_player(&mut self) {
-        self.current_player += 1;
-        if self.current_player > self.n_players {
-            self.current_player = (self.current_player as i32 - self.n_players as i32) as usize;
         }
     }
 
@@ -401,7 +398,6 @@ impl Board {
         let mut new_board_state = self.copy();
         if move_index < self.calculated_moves.len() {
             new_board_state = self.calculated_moves[move_index].apply(new_board_state);
-            new_board_state.next_player();
             return new_board_state;
         }
         panic!("Invalid move index {move_index}: valid choices are {:?}", (0..self.calculated_moves.len()))
@@ -442,13 +438,15 @@ impl Board {
 
     #[getter]
     pub fn get_board_info(&self) -> BoardInfo {
-        let win_status = self.current_win_status();
+        let winner = self.current_win_status();
+        let current_player = self.get_current_player();
         BoardInfo {
-            current_player: self.get_current_player(),
-            winner: win_status,
-            game_over: win_status > 0,
+            current_player,
+            winner,
+            game_over: winner > 0,
             size: self.get_board_size(),
             duration: self.duration,
+            reward: if winner == current_player {1} else {-1},
         }
     }
 

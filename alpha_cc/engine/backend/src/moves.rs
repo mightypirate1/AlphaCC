@@ -34,8 +34,14 @@ struct MoveIter {
 impl Move {
     pub fn apply(self, mut board: Board) -> Board{
         match self {
-            Move::Walk{to_coord, from_coord} => board = self.move_stone(board, to_coord, from_coord),
-            Move::Jump{to_coord, from_coord} => board = self.move_stone(board, to_coord, from_coord),
+            Move::Walk{to_coord, from_coord} => {
+                board = self.move_stone(board, to_coord, from_coord);
+                board.tick();
+            },
+            Move::Jump{to_coord, from_coord} => {
+                board = self.move_stone(board, to_coord, from_coord);
+                board.tick();
+            },
             Move::Place{coord}   => board = self.place_at(board, coord),
         }
         board
@@ -51,7 +57,6 @@ impl Move {
     }
 
     fn move_stone(self, mut board: Board, to_coord: HexCoordinate, from_coord: HexCoordinate) -> Board {
-        board.tick();
         board.clear(from_coord);
         board.place(to_coord);
         board
