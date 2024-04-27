@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 
 
-class ApeIO(BaseModel):
-    x: str
+class CoordIO(BaseModel):
+    x: int
     y: int
