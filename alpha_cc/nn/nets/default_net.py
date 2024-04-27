@@ -23,24 +23,24 @@ class DefaultNet(torch.nn.Module, DualHeadNet[list[list[MCTSExperience]]]):
         )
         self._policy_head = torch.nn.ModuleList(
             [
+                torch.nn.Dropout2d(dropout),
                 ResBlock(128, 128, 5),
                 torch.nn.Conv2d(128, board_size * board_size, 5, padding=2),
             ]
         )
         self._value_head = torch.nn.ModuleList(
             [
-                # torch.nn.Dropout2d(dropout),
                 # ResBlock(128, 128, 5),
                 torch.nn.AvgPool2d(board_size),
                 torch.nn.Flatten(),
-                torch.nn.Linear(128, 1),
                 torch.nn.Dropout(dropout),
+                torch.nn.Linear(128, 1),
                 torch.nn.Tanh(),
             ]
         )
         self._policy_softmax = PolicySoftmax(board_size)
 
-    def forward(self, x: torch.Tensor, action_mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         # encoder
         for layer in self._encoder:
             x = layer(x)
@@ -49,14 +49,13 @@ class DefaultNet(torch.nn.Module, DualHeadNet[list[list[MCTSExperience]]]):
         # policy head
         for layer in self._policy_head:
             x = layer(x)
-        x_pi_unscaled = x.view(  # form tensor pi
+        x_pi = x.view(  # form tensor pi
             -1,
             self._board_size,  # from_x
             self._board_size,  # from_y
             self._board_size,  # to_x
             self._board_size,  # to_y
         )
-        x_pi = self._policy_softmax(x_pi_unscaled, action_mask)
 
         # value head
         x = x_enc
@@ -87,6 +86,5 @@ class DefaultNet(torch.nn.Module, DualHeadNet[list[list[MCTSExperience]]]):
         if state.hash not in self._cache:
             input_shape = (1, 1, self._board_size, self._board_size)
             x = torch.as_tensor(state.matrix).reshape(input_shape).float()
-            mask = torch.as_tensor(state.action_mask)
-            self._cache[state.hash] = self(x, mask)
+            self._cache[state.hash] = self(x)
         return self._cache[state.hash]

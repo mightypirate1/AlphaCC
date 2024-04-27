@@ -26,7 +26,7 @@ def main(weights: str, size: int, slow: bool, n_rollouts: int, rollout_depth: in
     )
     runtime = RunTime(board, agents, config=config)
     move_count = runtime.play_game(training=training)
-    print(f"Move count: {move_count}")  # noqa  # this file is just temporary
+    click.echo(f"Move count: {move_count}")
 
 
 if __name__ == "__main__":
