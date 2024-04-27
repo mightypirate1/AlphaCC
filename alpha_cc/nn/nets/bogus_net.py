@@ -15,7 +15,7 @@ class BogusNet(DualHeadNet[list[list[MCTSExperience]]]):
         return pi
 
     def value(self, state: GameState) -> np.floating:
-        return self.heuristic(state)
+        return np.float32(self.heuristic(state))
 
     def update_weights(self, train_data: list[list[MCTSExperience]]) -> None:
         print(f"pretend training on {len(train_data)} trajectories")  # noqa
