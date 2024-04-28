@@ -136,4 +136,3 @@ class MCTSAgent(Agent):
         best_action = np.argmax(u).astype(int)
 
         return best_action
-
