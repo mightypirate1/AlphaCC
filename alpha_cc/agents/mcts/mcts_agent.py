@@ -40,7 +40,6 @@ class MCTSAgent(Agent):
     def on_game_start(self) -> None:
         self._nodes.clear()
         self._trajectory = []
-        self._reset_stats_counters()
 
     def on_game_end(self) -> None:
         pass
@@ -54,7 +53,6 @@ class MCTSAgent(Agent):
         state = GameState(board)
         values = []
         for _ in range(self._n_rollouts):
-            self._rollout_count_total += 1
             v = -self._rollout(state, remaining_depth=self._rollout_depth)
             values.append(v)
         pi = self.pi(state)
@@ -91,16 +89,14 @@ class MCTSAgent(Agent):
 
         # if game is over, we stop
         if state.info.game_over:
-            self._rollout_count_game_over += 1
             if state.info.winner == state.info.current_player:
-                return -1.0  # previous player won
-            return 1.0  # previous player lost
+                return -1.0  # previous player lost
+            return 1.0  # previous player won
 
         # if we have reached as far as we have been:
         # - initialize the node with nn estimates and zeros for N(s,a), and Q(s,a)
         # - return value from the perspective of the player on the previous move
         if state.hash not in self._nodes:
-            self._rollout_count_new_node += 1
             v_hat = float(self.nn.value(state))
             pi = self.nn.policy(state)
             add_as_new_node(v_hat, pi)
@@ -112,7 +108,6 @@ class MCTSAgent(Agent):
 
         # at some point one has to stop (recursion limit, feasability, etc)
         if remaining_depth == 0 or (state.info.duration == self._rollout_max_game_length):
-            self._rollout_count_recursion_depth += 1
             v = float(self.nn.value(state))
             return -v
 
@@ -142,9 +137,3 @@ class MCTSAgent(Agent):
 
         return best_action
 
-    def _reset_stats_counters(self) -> None:
-        self._rollout_count_total = 0
-        self._rollout_count_game_over = 0
-        self._rollout_count_recursion_depth = 0
-        self._rollout_count_disallowed_states = 0
-        self._rollout_count_new_node = 0
