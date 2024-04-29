@@ -120,6 +120,20 @@ class StandaloneTrainer:
             policy_loss_unmasked = -target_pi * self._policy_log_softmax(current_pi_tensor_unsoftmaxed, pi_mask)
             policy_loss = torch.where(pi_mask, policy_loss_unmasked, 0).sum() / pi_mask.sum()
             return policy_loss
+        
+        def evaluate() -> tuple[torch.Tensor, torch.Tensor]:
+            self._agent.nn.eval()
+            dataloader = DataLoader(dataset, batch_size=1)
+            pis, vs = [], []
+            with tqdm(total=len(dataset), desc="nn-eval/epoch") as pbar:
+                for x, _, _, pi_mask in dataloader:
+                    pi_unsoftmaxed, value = self._agent.nn(x)
+                    pi_unmasked = self._policy_log_softmax(pi_unsoftmaxed, pi_mask)
+                    pi = pi_unmasked[:, *torch.nonzero(pi_mask.squeeze()).T].ravel()
+                    pis.append(pi)
+                    vs.append(value)
+                    pbar.update(x.shape[0])
+            return torch.cat(pis, dim=0), torch.cat(vs, dim=0)
 
         self._agent.nn.train()
         self._agent.nn.clear_cache()
@@ -138,10 +152,13 @@ class StandaloneTrainer:
             total_value_loss += epoch_value_loss / self._epochs_per_update
             total_policy_loss += epoch_policy_loss / self._epochs_per_update
         if self._summary_writer is not None:
+            pi, v = evaluate()
             v_targets = np.array([e.v_target for traj in trajectories for e in traj])
             self._summary_writer.add_scalar("trainer/value-loss", total_value_loss, global_step=self._global_step)
             self._summary_writer.add_scalar("trainer/policy-loss", total_policy_loss, global_step=self._global_step)
             self._summary_writer.add_histogram("trainer/v_target", v_targets, global_step=self._global_step)
+            self._summary_writer.add_histogram("trainer/pi_pred", pi, global_step=self._global_step)
+            self._summary_writer.add_histogram("trainer/v_pred", v, global_step=self._global_step)
 
     def _report_rollout_stats(self, trajectories: list[list[MCTSExperience]]) -> None:
         def log_aggregates(key: str, data: np.ndarray) -> None:
