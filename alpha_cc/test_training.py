@@ -14,7 +14,7 @@ from alpha_cc.training.standalone_trainer import StandaloneTrainer
 @click.option("--size", type=int, default=9)
 @click.option("--n-rollouts", type=int, default=1000)
 @click.option("--rollout-depth", type=int, default=20)
-@click.option("--max-game-length", type=int, default=20)
+@click.option("--max-game-length", type=int, default=None)
 @click.option("--n-train-samples", type=int, default=1024)
 @click.option("--epochs-per-update", type=int, default=3)
 @click.option("--policy-weight", type=float, default=1.0)
@@ -28,7 +28,7 @@ def main(
     size: int,
     n_rollouts: int,
     rollout_depth: int,
-    max_game_length: int,
+    max_game_length: int | None,
     n_train_samples: int,
     epochs_per_update: int,
     policy_weight: float,

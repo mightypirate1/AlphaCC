@@ -13,7 +13,16 @@ from alpha_cc.runtime.runtime import RunTime, RunTimeConfig
 @click.option("--n-rollouts", type=int, default=1000)
 @click.option("--rollout-depth", type=int, default=20)
 @click.option("--training", is_flag=True)
-def main(weights: str, size: int, slow: bool, n_rollouts: int, rollout_depth: int, training: bool) -> None:
+@click.option("--starting-player", type=int, default=None)
+def main(
+    weights: str,
+    size: int,
+    slow: bool,
+    n_rollouts: int,
+    rollout_depth: int,
+    training: bool,
+    starting_player: int | None = None,
+) -> None:
     board = Board(size)
     agent = MCTSAgent(size, n_rollouts=n_rollouts, rollout_depth=rollout_depth)
     agent.nn.load_state_dict(torch.load(weights))
@@ -23,6 +32,7 @@ def main(weights: str, size: int, slow: bool, n_rollouts: int, rollout_depth: in
         verbose=True,
         render=True,
         slow=slow,
+        starting_player=starting_player,
     )
     runtime = RunTime(board, agents, config=config)
     move_count = runtime.play_game(training=training)
