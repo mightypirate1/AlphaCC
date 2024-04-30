@@ -15,10 +15,10 @@ class TrainingDataset(Dataset):
     def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         exp = self._experiences[index]
         x = torch.as_tensor(exp.state.matrix).unsqueeze(0)
-        value_target = torch.as_tensor(exp.v_target)
         pi_mask = torch.as_tensor(exp.state.action_mask)
         pi_target = self._create_pi_target_tensor(exp)
-        return x.float(), value_target.float(), pi_target.float(), pi_mask.bool()
+        value_target = torch.as_tensor(exp.v_target)
+        return x.float(), pi_mask.bool(), pi_target.float(), value_target.float()
 
     def _create_pi_target_tensor(self, exp: MCTSExperience) -> torch.Tensor:
         """
@@ -38,5 +38,4 @@ class TrainingDataset(Dataset):
         for i in range(len(exp.state.children)):
             from_coord, to_coord = exp.state.action_mask_indices[i]
             pi_target[from_coord.x, from_coord.y, to_coord.x, to_coord.y] = exp.pi_target[i]
-            # pi_target[from_coord.x, from_coord.y, to_coord.x, to_coord.y] = exp.pi_target[i]
         return torch.as_tensor(pi_target)

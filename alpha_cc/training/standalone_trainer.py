@@ -95,7 +95,7 @@ class StandaloneTrainer:
             epoch_value_loss = 0.0
             epoch_policy_loss = 0.0
             with tqdm(total=len(dataset), desc=f"nn-update/epoch {epoch}") as pbar:
-                for x, target_value, target_pi, pi_mask in dataloader:
+                for x, pi_mask, target_pi, target_value in dataloader:
                     self._optimizer.zero_grad()
                     current_pi_unsoftmaxed, current_value = self._agent.nn(x)
                     value_loss = compute_value_loss(current_value, target_value)
@@ -118,18 +118,18 @@ class StandaloneTrainer:
             current_pi_tensor_unsoftmaxed: torch.Tensor, target_pi: torch.Tensor, pi_mask: torch.Tensor
         ) -> torch.Tensor:
             policy_loss_unmasked = -target_pi * self._policy_log_softmax(current_pi_tensor_unsoftmaxed, pi_mask)
-            policy_loss = torch.where(pi_mask, policy_loss_unmasked, 0).sum() / pi_mask.sum()
-            return policy_loss
-        
+            return torch.where(pi_mask, policy_loss_unmasked, 0).sum() / pi_mask.sum()
+
+        @torch.no_grad()
         def evaluate() -> tuple[torch.Tensor, torch.Tensor]:
             self._agent.nn.eval()
             dataloader = DataLoader(dataset, batch_size=1)
             pis, vs = [], []
             with tqdm(total=len(dataset), desc="nn-eval/epoch") as pbar:
-                for x, _, _, pi_mask in dataloader:
-                    pi_unsoftmaxed, value = self._agent.nn(x)
-                    pi_unmasked = self._policy_log_softmax(pi_unsoftmaxed, pi_mask)
-                    pi = pi_unmasked[:, *torch.nonzero(pi_mask.squeeze()).T].ravel()
+                for x, pi_mask, _, _ in dataloader:
+                    pi_tensor, value = self._agent.nn(x)
+                    pi_vec = pi_tensor[:, *torch.nonzero(pi_mask.squeeze()).T].ravel()
+                    pi = torch.nn.functional.softmax(pi_vec, dim=1)
                     pis.append(pi)
                     vs.append(value)
                     pbar.update(x.shape[0])
