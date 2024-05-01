@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from alpha_cc.agents.state import GameState
+from alpha_cc.state import GameState
 
 
 @dataclass

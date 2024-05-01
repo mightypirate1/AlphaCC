@@ -1,18 +1,17 @@
 import numpy as np
 
-from alpha_cc.engine import Board
+from alpha_cc.state import GameState
 
 
-def action_indexer(board: Board) -> np.ndarray:
-    move_mask_indices = board.get_legal_moves().get_action_mask_indices()
+def action_indexer(state: GameState) -> np.ndarray:
     return np.array(
         [
             [
-                move_mask_indices[i][0].x,
-                move_mask_indices[i][0].y,
-                move_mask_indices[i][1].x,
-                move_mask_indices[i][1].y,
+                move.from_coord.x,
+                move.from_coord.y,
+                move.to_coord.x,
+                move.to_coord.y,
             ]
-            for i in range(len(board.get_all_possible_next_states()))
+            for i, move in enumerate(state.moves)
         ]
     ).T

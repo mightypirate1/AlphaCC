@@ -22,7 +22,6 @@ config = RunTimeConfig(
     verbose=True,
     render=True,
     slow=False,
-    starting_player=starting_player,
 )
 runtime = RunTime(board, agents, config=config)
 move_count = runtime.play_game(training=False)

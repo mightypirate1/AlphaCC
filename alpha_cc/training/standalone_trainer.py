@@ -6,10 +6,8 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm_loggable.auto import tqdm
 
 from alpha_cc.agents.mcts.mcts_agent import MCTSAgent, MCTSExperience
-from alpha_cc.agents.state.game_state import GameState
 from alpha_cc.engine import Board
 from alpha_cc.nn.blocks import PolicyLogSoftmax
-from alpha_cc.reward import HeuristicReward
 from alpha_cc.training.training_dataset import TrainingDataset
 
 
@@ -26,7 +24,6 @@ class StandaloneTrainer:
         gamma_delay: int | float = np.inf,
         lr: float = 1e-4,
         summary_writer: SummaryWriter | None = None,
-        apply_heuristic_on_max_game_length: bool = False,
     ) -> None:
         self._agent = agent
         self._board = board
@@ -36,10 +33,8 @@ class StandaloneTrainer:
         self._batch_size = batch_size
         self._gamma = gamma
         self._gamma_delay = gamma_delay
-        self._apply_heuristic_on_max_game_length = apply_heuristic_on_max_game_length
-        self._policy_log_softmax = PolicyLogSoftmax(board.size)
+        self._policy_log_softmax = PolicyLogSoftmax(board.info.size)
         self._optimizer = torch.optim.Adam(agent.nn.parameters(), lr=lr, weight_decay=1e-4)
-        self._heuristic = HeuristicReward(board.size, scale=1, subtract_opponent=True)
         self._global_step = 0
         self._summary_writer = summary_writer
 
@@ -66,11 +61,12 @@ class StandaloneTrainer:
         def game_exceeds_duration() -> bool:
             if max_game_length is None:
                 return False
-            return board.board_info.duration >= max_game_length
+            return board.info.duration >= max_game_length
 
-        while not board.board_info.game_over and not game_exceeds_duration():
-            move = agent.choose_move(board, training=True)
-            board = board.perform_move(move)
+        while not board.info.game_over and not game_exceeds_duration():
+            a = agent.choose_move(board, training=True)
+            move = board.get_moves()[a]
+            board = board.apply(move)
 
         last_player_value = self._value_from_perspective_of_last_player(board)
         trajectory = self._assign_value_targets(agent.trajectory, value=last_player_value)
@@ -78,10 +74,8 @@ class StandaloneTrainer:
         return trajectory
 
     def _value_from_perspective_of_last_player(self, board: Board) -> float:
-        if board.board_info.game_over:
-            return -float(board.board_info.reward)  # minus because this board does not make it onto the trajectory
-        if self._apply_heuristic_on_max_game_length:
-            return self._heuristic(GameState(board))  # no minus, since the last experience has the previous board
+        if board.info.game_over:
+            return -float(board.info.reward)  # minus because this board does not make it onto the trajectory
         return self._agent.trajectory[-1].v_target
 
     def _assign_value_targets(self, trajectory: list[MCTSExperience], value: float = 0.0) -> list[MCTSExperience]:
@@ -128,8 +122,8 @@ class StandaloneTrainer:
             with tqdm(total=len(dataset), desc="nn-eval/epoch") as pbar:
                 for x, pi_mask, _, _ in dataloader:
                     pi_tensor, value = self._agent.nn(x)
-                    pi_vec = pi_tensor[:, *torch.nonzero(pi_mask.squeeze()).T].ravel()
-                    pi = torch.nn.functional.softmax(pi_vec, dim=1)
+                    pi_vec = pi_tensor[:, *torch.nonzero(pi_mask.squeeze()).T]
+                    pi = torch.nn.functional.softmax(pi_vec, dim=1).ravel()
                     pis.append(pi)
                     vs.append(value)
                     pbar.update(x.shape[0])

@@ -25,7 +25,5 @@ The items in each list is very roughly in order of importance.
 ## REFACTORING thoughts
 1. Once a real nn is in place, the `reward` folder can probably be dropped.
 2. `Runtime` might be redundant soon. Atleast when the webapp takes form.
-3. `Move.Place` is not used in any meaningful way. If it doesn't becomove useful for creating boards with a particular setup, we should remove it. Some engine code can then be simplified.
-4. Do we need both `Board` and `BoardInfo` to have `size`?
 5. If we don't use both mask and reverse mask (for nn training) we get rid of one of them
 6. If we do keep the `disallowed_states` thing; figure out a nicer way to implement it!

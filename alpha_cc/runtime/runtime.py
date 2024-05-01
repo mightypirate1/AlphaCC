@@ -11,7 +11,6 @@ class RunTimeConfig:
     render: bool = False
     slow: bool = False  # Does nothing if render is False
     debug: bool = False  # Currently doesn't do anything
-    starting_player: int | None = None
 
 
 class RunTime:
@@ -29,15 +28,14 @@ class RunTime:
         ### Initialize
         self._agents_on_game_start()
         board = self._board.reset()
-        if self._config.starting_player is not None:
-            board = self._board.reset_with_starting_player(self._config.starting_player)
         move_count = 0
 
         ### Play!
-        while not board.board_info.game_over:
-            agent = self._agent_dict[board.board_info.current_player]
-            move = agent.choose_move(board, training=training)
-            board = board.perform_move(move)
+        while not board.info.game_over:
+            agent = self._agent_dict[board.info.current_player]
+            a = agent.choose_move(board, training=training)
+            move = board.get_moves()[a]
+            board = board.apply(move)
 
             move_count += 1
             if self._config.render:
@@ -49,7 +47,7 @@ class RunTime:
 
         ### Be done
         if self._config.verbose:
-            print(f"Player {board.board_info.winner} wins!")  # noqa
+            print(f"Player {board.info.winner} wins!")  # noqa
         self._agents_on_game_end()
         return move_count
 

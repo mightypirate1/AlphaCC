@@ -19,7 +19,6 @@ from alpha_cc.training.standalone_trainer import StandaloneTrainer
 @click.option("--epochs-per-update", type=int, default=3)
 @click.option("--policy-weight", type=float, default=1.0)
 @click.option("--value-weight", type=float, default=1.0)
-@click.option("--heuristic", is_flag=True, default=False)
 @click.option("--save-path", type=click.Path(dir_okay=True, file_okay=False), default=None)
 @click.option("--init-weights", type=click.Path(exists=True, dir_okay=False), default=None)
 @click.option("--logdir", type=click.Path(), default=None)
@@ -33,7 +32,6 @@ def main(
     epochs_per_update: int,
     policy_weight: float,
     value_weight: float,
-    heuristic: bool,
     save_path: str | None,
     init_weights: str | None,
     logdir: str | None,
@@ -65,7 +63,6 @@ def main(
         policy_weight=policy_weight,
         value_weight=value_weight,
         epochs_per_update=epochs_per_update,
-        apply_heuristic_on_max_game_length=heuristic,
         summary_writer=summary_writer,
     )
     for epoch in tqdm(range(20 * 8), desc="TRAINING"):

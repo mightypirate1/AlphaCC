@@ -4,6 +4,5 @@ from pydantic import BaseModel
 
 
 class NewGameIO(BaseModel):
-    size: int
+    size: Literal[5, 7, 9]
     game_id: str | None
-    starting_player: Literal[1, 2] | None

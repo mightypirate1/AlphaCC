@@ -4,9 +4,9 @@ import torch
 from alpha_cc.agents.agent import Agent
 from alpha_cc.agents.mcts.mcts_experience import MCTSExperience
 from alpha_cc.agents.mcts.mcts_node import MCTSNode
-from alpha_cc.agents.state import GameState, StateHash
 from alpha_cc.engine import Board
 from alpha_cc.nn.nets.default_net import DefaultNet
+from alpha_cc.state import GameState, StateHash
 
 
 class MCTSAgent(Agent):
@@ -51,14 +51,13 @@ class MCTSAgent(Agent):
             return pi_noised
 
         state = GameState(board)
-        values = []
-        for _ in range(self._n_rollouts):
-            v = -self._rollout(state, remaining_depth=self._rollout_depth)
-            values.append(v)
+        value = np.array(
+            [-self._rollout(state, remaining_depth=self._rollout_depth) for _ in range(self._n_rollouts)]
+        ).mean()
         pi = self.pi(state)
 
         if training:
-            experience = MCTSExperience(state=state, pi_target=pi, v_target=np.mean(values).astype(float))
+            experience = MCTSExperience(state=state, pi_target=pi, v_target=value)
             self._trajectory.append(experience)
             pi = _training_policy(pi)
             return np.random.choice(len(pi), p=pi)
@@ -85,6 +84,7 @@ class MCTSAgent(Agent):
                 pi=pi,
                 n=np.zeros(len(state.children), dtype=np.integer),
                 q=np.zeros(len(state.children)),
+                moves=state.moves,
             )
 
         # if game is over, we stop
@@ -107,11 +107,11 @@ class MCTSAgent(Agent):
         a = self._find_best_action(state)
 
         # at some point one has to stop (recursion limit, feasability, etc)
-        if remaining_depth == 0 or (state.info.duration == self._rollout_max_game_length):
+        if remaining_depth == 0:
             v = float(self.nn.value(state))
             return -v
 
-        s_prime = GameState(state.board.perform_move(a))
+        s_prime = GameState(state.board.apply(node.moves[a]))
         v = self._rollout(s_prime, remaining_depth=remaining_depth - 1)
 
         # update node
