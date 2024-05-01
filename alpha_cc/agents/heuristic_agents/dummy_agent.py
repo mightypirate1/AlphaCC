@@ -9,7 +9,7 @@ class DummyAgent(Agent):
         pass
 
     def choose_move(self, board: Board, _: bool = False) -> int:
-        action = np.random.choice(len(board.get_all_possible_next_states()))
+        action = np.random.choice(len(board.get_next_states()))
         return action
 
     def on_game_start(self) -> None:

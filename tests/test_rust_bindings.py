@@ -15,14 +15,15 @@ def test_create(board: Board) -> None:  # noqa
 
 def test_get_data(board: Board) -> None:
     board.get_matrix()
-    _ = board.board_info
+    _ = board.info
 
 
 def test_get_and_perform_action(board: Board) -> None:
     for _ in range(100):
-        next_states = board.get_all_possible_next_states()
-        action = np.random.choice(len(next_states))
-        board = board.perform_move(action)
+        moves = board.get_moves()
+        action = np.random.choice(len(moves))
+        move = moves[action]
+        board = board.apply(move)
 
 
 def test_rendering(board: Board) -> None:

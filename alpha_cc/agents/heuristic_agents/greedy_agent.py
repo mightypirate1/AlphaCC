@@ -1,9 +1,9 @@
 import numpy as np
 
 from alpha_cc.agents.agent import Agent
-from alpha_cc.agents.state import GameState
 from alpha_cc.engine import Board
 from alpha_cc.reward import HeuristicReward
+from alpha_cc.state import GameState
 
 
 class GreedyAgent(Agent):
@@ -22,5 +22,5 @@ class GreedyAgent(Agent):
         pass
 
     def _evaluation(self, board: Board) -> np.ndarray:
-        s_primes = [GameState(sp) for sp in board.get_all_possible_next_states()]
+        s_primes = GameState(board).children
         return np.asarray([self._heuristic_function(sp) for sp in s_primes])

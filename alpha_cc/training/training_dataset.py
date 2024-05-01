@@ -33,7 +33,7 @@ class TrainingDataset(Dataset):
 
         """
 
-        size = exp.state.board.size
+        size = exp.state.board.info.size
         pi_target = np.zeros((size, size, size, size))
         for i in range(len(exp.state.children)):
             from_coord, to_coord = exp.state.action_mask_indices[i]

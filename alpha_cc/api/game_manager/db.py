@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 from alpha_cc.agents.mcts import MCTSNode
-from alpha_cc.agents.state import GameState
+from alpha_cc.state import GameState
 
 
 @dataclass

@@ -49,7 +49,7 @@ If you want to interact with the game backend itself, here's showing the main fu
  > board = alpha_cc.Board(9)
  >
  > # These are all boards that are possible to reach through legal moves. You don't get to know what those moves are, but the action space is simply the index in the list `next_states`.
- > next_states = board.get_all_possible_next_states()  # These are type Board too!
+ > next_states = board.get_next_states()  # These are type Board too!
  >
  > # How the board looks under the hood, i.e. what your policy will get to see:
  > explicit_view_of_board_were_i_to_play_move_7 = next_states[7].get_matrix_from_perspective_of_current_player()

@@ -3,7 +3,7 @@ from typing import Generic, TypeVar
 
 import numpy as np
 
-from alpha_cc.agents.state import GameState
+from alpha_cc.state import GameState
 
 TTrainData = TypeVar("TTrainData")
 
