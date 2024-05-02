@@ -1,6 +1,7 @@
 ### Misc:
 .vscode
 .github
+**/*.swp
 
 ### Scratchpaper:
 rust-test

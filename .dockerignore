@@ -1,19 +1,24 @@
+tmp
+tests
+Dockerfile
+.venv
+
 # Misc
 .*
 *.ipynb
 
 # Rust
 target Cargo.lock **/*.rs.bk files *.db
+alpha_cc/engine/backend/target
 
 # Python
-__pycache__
-*.pyc
-*.pyo
-*.pyd
-.Python
-env
-pip-log.txt
-pip-delete-this-directory.txt
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.Python
+**/*.ipynb
+**/*.md
 .tox
 .coverage
 .coverage.*

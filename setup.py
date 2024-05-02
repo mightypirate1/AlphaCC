@@ -35,10 +35,13 @@ setup(
     name="alpha-cc",
     install_requires=[
         "click",
+        "dill",
         "einops",
         "lru-dict",
         "maturin",
         "numpy",
+        "python-dotenv",
+        "redis",
         "scipy",
         "tensorboard",
         "torch",
@@ -50,4 +53,10 @@ setup(
         "dev": DEV_REQUIRES,
         "all": ALL_REQUIRES,
     },
+    entry_points = {
+        'console_scripts': [
+            'alpha-cc-trainer = alpha_cc.entrypoints.trainer_thread:main',
+            'alpha-cc-worker = alpha_cc.entrypoints.worker_thread:main',
+        ],
+    }
 )

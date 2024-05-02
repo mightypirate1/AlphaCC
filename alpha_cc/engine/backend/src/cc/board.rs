@@ -11,6 +11,10 @@ and less bug prone
 use std::hash::{Hash, Hasher};
 extern crate pyo3;
 use pyo3::prelude::*;
+use pyo3::types::{PyTuple, PyBytes};
+
+use bincode::{deserialize, serialize};
+
 use crate::cc::{BoardInfo, HexCoord, Move};
 use crate::cc::moves::find_all_moves;
 
@@ -18,7 +22,7 @@ pub const MAX_SIZE: usize = 9;
 type BoardMatrix = [[i8; MAX_SIZE]; MAX_SIZE];
 
 
-#[pyclass]
+#[pyclass(module="alpha_cc_engine")]
 pub struct Board {
     size: usize,
     duration: u16,
@@ -75,7 +79,7 @@ impl Board {
         matrix[self.size -1 - r#move.to_coord.x][self.size -1 - r#move.to_coord.y] = 2;
         Board {
             size: self.size,
-            duration: self.duration + 7,
+            duration: self.duration + 1,
             home_size: self.home_size,
             matrix,
             current_player: if self.current_player == 1 {2} else {1},
@@ -181,8 +185,28 @@ impl Board {
 #[pymethods]
 impl Board {
     #[new]
-    pub fn pycreate(size: usize) -> PyResult<Self> {
-        Ok(Board::create(size))
+    #[pyo3(signature = (*py_args))]
+    fn new(py_args: &Bound<'_, PyTuple>) -> Self {
+        // complicated constructor to allow pickling (allows call to __new__ with empty args)
+        match py_args.len() {
+            1 => {
+                if let Ok(size) = py_args.get_item(0).unwrap().extract::<usize>() {
+                    return Board::create(size)
+                }
+                panic!("expected a single int as input");
+            },
+            0 => {
+                Board {
+                    size: 9,
+                    duration: 0,
+                    home_size: 4,
+                    matrix: Board::empty_matrix(),
+                    current_player: 1,
+                }
+            },
+            _ => {unreachable!()}
+        }
+    
     }
 
     pub fn reset(&self) -> Board {
@@ -247,5 +271,32 @@ impl Board {
             println!();
         }
         println!("current player: {}", self.current_player);
+    }
+
+    pub fn __setstate__(&mut self, py: Python, state: PyObject) -> PyResult<()> {
+        match state.extract::<&PyBytes>(py) {
+            Ok(s) => {
+                (
+                    self.size,
+                    self.duration,
+                    self.home_size,
+                    self.matrix,
+                    self.current_player,
+                ) = deserialize(s.as_bytes()).unwrap();
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    pub fn __getstate__(&self, py: Python) -> PyResult<PyObject> {
+        let data = (
+            self.size,
+            self.duration,
+            self.home_size,
+            self.matrix,
+            self.current_player,
+        );
+        Ok(PyBytes::new_bound(py, &serialize(&data).unwrap()).to_object(py))
     }
 }

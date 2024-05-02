@@ -5,7 +5,7 @@ use pyo3::prelude::*;
 
 
 
-#[pyclass]
+#[pyclass(module="alpha_cc_engine")]
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct HexCoord {
     #[pyo3(get)]
