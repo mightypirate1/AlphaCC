@@ -11,10 +11,8 @@ StateHash = NewType("StateHash", bytes)
 
 
 class GameState:
-    def __init__(self, board: Board, disallowed_states: set[StateHash] | None = None) -> None:
+    def __init__(self, board: Board) -> None:
         self._board = board
-        self._disallowed_states = disallowed_states
-        self._info = board.info
         self._matrix: np.ndarray | None = None
         self._action_mask: np.ndarray | None = None
         self._action_mask_indices: dict[int, tuple[HexCoord, HexCoord]] | None = None
@@ -31,7 +29,7 @@ class GameState:
 
     @property
     def info(self) -> BoardInfo:
-        return self._info
+        return self.board.info
 
     @property
     def moves(self) -> list[Move]:
@@ -75,3 +73,15 @@ class GameState:
             hash_bytes = hashlib.sha256(self.matrix.tobytes()).digest()
             self._hash = StateHash(hash_bytes)
         return self._hash
+
+    def __getstate__(self) -> object:
+        return self._board
+
+    def __setstate__(self, board: Board) -> None:
+        self._board = board
+        self._matrix = None
+        self._action_mask = None
+        self._action_mask_indices = None
+        self._children = None
+        self._moves = None
+        self._hash = None
