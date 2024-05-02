@@ -2,7 +2,7 @@ extern crate pyo3;
 use pyo3::prelude::*;
 
 
-#[pyclass]
+#[pyclass(module="alpha_cc_engine")]
 pub struct BoardInfo {
     #[pyo3(get)]
     pub current_player: i8,

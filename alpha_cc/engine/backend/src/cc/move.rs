@@ -3,7 +3,7 @@ extern crate pyo3;
 use pyo3::prelude::*;
 
 
-#[pyclass]
+#[pyclass(module="alpha_cc_engine")]
 #[derive(Clone)]
 pub struct Move {
     #[pyo3(get)]
