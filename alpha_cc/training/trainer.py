@@ -1,0 +1,129 @@
+import numpy as np
+import torch
+from scipy.stats import entropy
+from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
+from tqdm_loggable.auto import tqdm
+
+from alpha_cc.agents.mcts.mcts_agent import MCTSExperience
+from alpha_cc.nn.blocks import PolicyLogSoftmax
+from alpha_cc.nn.nets.default_net import DefaultNet
+from alpha_cc.training.training_dataset import TrainingDataset
+
+
+class Trainer:
+    def __init__(
+        self,
+        board_size: int,
+        nn: DefaultNet,
+        policy_weight: float = 1.0,
+        value_weight: float = 1.0,
+        epochs_per_update: int = 3,
+        batch_size: int = 64,
+        gamma: float = 1.0,
+        gamma_delay: int | float = np.inf,
+        lr: float = 1e-4,
+        summary_writer: SummaryWriter | None = None,
+    ) -> None:
+        self._nn = nn
+        self._policy_weight = policy_weight
+        self._value_weight = value_weight
+        self._epochs_per_update = epochs_per_update
+        self._batch_size = batch_size
+        self._gamma = gamma
+        self._gamma_delay = gamma_delay
+        self._policy_log_softmax = PolicyLogSoftmax(board_size)
+        self._optimizer = torch.optim.Adam(nn.parameters(), lr=lr, weight_decay=1e-4)
+        self._global_step = 0
+        self._summary_writer = summary_writer
+
+    def train(self, trajectories: list[list[MCTSExperience]]) -> None:
+        self._report_rollout_stats(trajectories)
+        self._update_nn(trajectories)
+        self._global_step += 1
+
+    def _update_nn(self, trajectories: list[list[MCTSExperience]]) -> None:
+        def train_epoch(epoch: int) -> tuple[float, float]:
+            epoch_value_loss = 0.0
+            epoch_policy_loss = 0.0
+            with tqdm(total=len(dataset), desc=f"nn-update/epoch {epoch}") as pbar:
+                for x, pi_mask, target_pi, target_value in dataloader:
+                    self._optimizer.zero_grad()
+                    current_pi_unsoftmaxed, current_value = self._nn(x)
+                    value_loss = compute_value_loss(current_value, target_value)
+                    policy_loss = compute_policy_loss(current_pi_unsoftmaxed, target_pi, pi_mask)
+                    loss = self._value_weight * value_loss + self._policy_weight * policy_loss
+                    loss.backward()
+                    self._optimizer.step()
+                    epoch_value_loss += value_loss.item() / len(dataloader)
+                    epoch_policy_loss += policy_loss.item() / len(dataloader)
+                    pbar.update(x.shape[0])
+                    pbar.set_postfix(
+                        {"value-loss": round(epoch_value_loss, 5), "policy-loss": round(epoch_policy_loss, 5)}
+                    )
+            return epoch_value_loss, epoch_policy_loss
+
+        def compute_value_loss(current_value: torch.Tensor, target_value: torch.Tensor) -> torch.Tensor:
+            return torch.nn.functional.mse_loss(current_value, target_value).mean()
+
+        def compute_policy_loss(
+            current_pi_tensor_unsoftmaxed: torch.Tensor, target_pi: torch.Tensor, pi_mask: torch.Tensor
+        ) -> torch.Tensor:
+            policy_loss_unmasked = -target_pi * self._policy_log_softmax(current_pi_tensor_unsoftmaxed, pi_mask)
+            return torch.where(pi_mask, policy_loss_unmasked, 0).sum() / pi_mask.sum()
+
+        @torch.no_grad()
+        def evaluate() -> tuple[torch.Tensor, torch.Tensor]:
+            self._nn.eval()
+            dataloader = DataLoader(dataset, batch_size=1)
+            pis, vs = [], []
+            with tqdm(total=len(dataset), desc="nn-eval/epoch") as pbar:
+                for x, pi_mask, _, _ in dataloader:
+                    pi_tensor, value = self._nn(x)
+                    pi_vec = pi_tensor[:, *torch.nonzero(pi_mask.squeeze()).T]
+                    pi = torch.nn.functional.softmax(pi_vec, dim=1).ravel()
+                    pis.append(pi)
+                    vs.append(value)
+                    pbar.update(x.shape[0])
+            return torch.cat(pis, dim=0), torch.cat(vs, dim=0)
+
+        self._nn.train()
+        self._nn.clear_cache()
+        dataset = TrainingDataset(trajectories)
+        dataloader = DataLoader(
+            dataset,
+            batch_size=self._batch_size,
+            shuffle=True,
+            drop_last=True,
+        )
+
+        total_value_loss = 0.0
+        total_policy_loss = 0.0
+        for epoch in range(1, self._epochs_per_update + 1):
+            epoch_value_loss, epoch_policy_loss = train_epoch(epoch)
+            total_value_loss += epoch_value_loss / self._epochs_per_update
+            total_policy_loss += epoch_policy_loss / self._epochs_per_update
+        if self._summary_writer is not None:
+            pi, v = evaluate()
+            v_targets = np.array([e.v_target for traj in trajectories for e in traj])
+            self._summary_writer.add_scalar("trainer/value-loss", total_value_loss, global_step=self._global_step)
+            self._summary_writer.add_scalar("trainer/policy-loss", total_policy_loss, global_step=self._global_step)
+            self._summary_writer.add_histogram("trainer/v_target", v_targets, global_step=self._global_step)
+            self._summary_writer.add_histogram("trainer/pi_pred", pi, global_step=self._global_step)
+            self._summary_writer.add_histogram("trainer/v_pred", v, global_step=self._global_step)
+
+    def _report_rollout_stats(self, trajectories: list[list[MCTSExperience]]) -> None:
+        def log_aggregates(key: str, data: np.ndarray) -> None:
+            if self._summary_writer is None:
+                return
+            self._summary_writer.add_scalar(f"train-rollouts/{key}-mean", data.mean(), global_step=self._global_step)
+            self._summary_writer.add_scalar(f"train-rollouts/{key}-min", data.min(), global_step=self._global_step)
+            self._summary_writer.add_scalar(f"train-rollouts/{key}-max", data.max(), global_step=self._global_step)
+
+        if self._summary_writer is not None:
+            game_lengths = np.array([len(traj) for traj in trajectories])
+            final_state_v_targets = np.array([traj[-1].v_target for traj in trajectories])
+            final_state_pi_target_entropies = np.array([entropy(traj[-1].pi_target) for traj in trajectories])
+            log_aggregates("game-length", game_lengths)
+            log_aggregates("final-state-v-targets", final_state_v_targets)
+            log_aggregates("final-state-pi-target-entropies", final_state_pi_target_entropies)
