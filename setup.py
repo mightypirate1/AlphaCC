@@ -35,10 +35,12 @@ setup(
     name="alpha-cc",
     install_requires=[
         "click",
+        "dill",
         "einops",
         "lru-dict",
         "maturin",
         "numpy",
+        "redis",
         "scipy",
         "tensorboard",
         "torch",
