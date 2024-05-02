@@ -54,14 +54,14 @@ class StandaloneTrainer:
 
     @torch.no_grad()
     def rollout_trajectory(self, max_game_length: int | None = None) -> list[MCTSExperience]:
-        agent = self._agent
-        board = self._board.reset()
-        agent.on_game_start()
-
         def game_exceeds_duration() -> bool:
             if max_game_length is None:
                 return False
             return board.info.duration >= max_game_length
+        
+        agent = self._agent
+        board = self._board.reset()
+        agent.on_game_start()
 
         while not board.info.game_over and not game_exceeds_duration():
             a = agent.choose_move(board, training=True)
