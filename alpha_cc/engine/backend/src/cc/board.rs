@@ -89,10 +89,12 @@ impl Board {
             let mut at_least_one_one_opponent_home = false;
             for x in (s-hs)..s {
                 for y in (s-hs)..s {
-                    if Board::xy_start_val(x, y, board.size) == 2 && board.matrix[x][y] == 1 {
-                        at_least_one_one_opponent_home = true;
+                    if Board::xy_start_val(x, y, board.size) == 2 {
+                        if board.matrix[x][y] == 0 {return false}
+                        if board.matrix[x][y] == 1 {
+                            at_least_one_one_opponent_home = true;
+                        }
                     }
-                    if board.matrix[x][y] == 0 {return false}
                 }
             }
             at_least_one_one_opponent_home
@@ -102,16 +104,18 @@ impl Board {
             let mut at_least_one_one_opponent_home = false;
             for x in 0..hs {
                 for y in 0..hs {
-                    if Board::xy_start_val(x, y, board.size) == 1 && board.matrix[x][y] == 2 {
-                        at_least_one_one_opponent_home = true;
+                    if Board::xy_start_val(x, y, board.size) == 1{
+                        if board.matrix[x][y] == 0 {return false}
+                        if board.matrix[x][y] == 2 {
+                            at_least_one_one_opponent_home = true;
+                        }
                     }
-                    if board.matrix[x][y] == 0 {return false}
                 }
             }
             at_least_one_one_opponent_home
         }
-        if one_wins(self) {return 1}
-        if two_wins(self) {return 2}
+        if one_wins(self) {return self.current_player}
+        if two_wins(self) {return 3 - self.current_player}
         0
     }
 
