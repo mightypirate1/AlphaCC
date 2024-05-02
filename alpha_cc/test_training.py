@@ -50,7 +50,6 @@ def main(
         size,
         n_rollouts=n_rollouts,
         rollout_depth=rollout_depth,
-        rollout_max_game_length=max_game_length,
     )
 
     if init_weights is not None:

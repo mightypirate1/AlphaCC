@@ -1,5 +1,61 @@
 services:
-   redis:
-     image: redislabs/redismod
-     ports:
-       - '6379:6379'
+  trainer:
+    image: alpha-cc/training
+    build:
+      dockerfile: Dockerfile
+      target: training
+    depends_on:
+      - redis
+    volumes:
+      - local:/mnt:rw
+    env_file:
+      - .env.docker
+    command: [
+      "alpha-cc-trainer",
+      "--run-id=dbg-07-size-5",
+      "--size=5",
+      "--n-train-samples=1000",
+      "--epochs-per-update=10",
+      "--policy-weight=1.0",
+      "--value-weight=1.0",
+      "--lr=1e-4",
+    ]
+
+  worker:
+    image: alpha-cc/training
+    depends_on:
+      - trainer
+    env_file:
+      - .env.docker
+    scale: 2
+    command: [
+      "alpha-cc-worker",
+      "--size=5",
+      "--n-rollouts=100",
+      "--rollout-depth=100",
+      "--max-game-length=500",
+    ]
+
+  tensorboard:
+    network_mode: "host"
+    image: alpha-cc/main
+    depends_on:
+      - trainer
+    volumes:
+      - local:/mnt:ro
+    command: ["tensorboard", "--logdir", "/mnt/logdir"]
+    ports:
+      - '6006:6006'
+
+  redis:
+    image: redislabs/redismod
+    ports:
+      - '6379:6379'
+
+volumes:
+  local:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: "./tmp"
