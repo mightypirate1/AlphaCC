@@ -14,12 +14,10 @@ class MCTSAgent(Agent):
         self,
         board_size: int,
         n_rollouts: int = 100,
-        rollout_depth: int = 999,
-        rollout_max_game_length: int | None = None,
+        rollout_depth: int = 500,
     ) -> None:
         self._n_rollouts = n_rollouts
         self._rollout_depth = rollout_depth
-        self._rollout_max_game_length = rollout_max_game_length or np.inf
         self._dirichlet_weight = 0.0  # 0.25  # TODO: get good value from paper
         self._nn = DefaultNet(board_size)
         self._trajectory: list[MCTSExperience] = []
@@ -54,7 +52,7 @@ class MCTSAgent(Agent):
         value = np.array(
             [-self._rollout(state, remaining_depth=self._rollout_depth) for _ in range(self._n_rollouts)]
         ).mean()
-        pi = self.pi(state)
+        pi = self._rollout_policy(state)
 
         if training:
             experience = MCTSExperience(state=state, pi_target=pi, v_target=value)
@@ -63,7 +61,7 @@ class MCTSAgent(Agent):
             return np.random.choice(len(pi), p=pi)
         return pi.argmax()
 
-    def pi(self, state: GameState, temperature: float = 1.0) -> np.ndarray:
+    def _rollout_policy(self, state: GameState, temperature: float = 1.0) -> np.ndarray:
         node = self._nodes[state.hash]
         weighted_counts = node.n
         if temperature != 1.0:  # save some flops
