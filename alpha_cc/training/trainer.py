@@ -106,8 +106,10 @@ class Trainer:
         if self._summary_writer is not None:
             pi, v = evaluate()
             v_targets = np.array([e.v_target for traj in trajectories for e in traj])
+            pi_targets = np.concatenate([e.pi_target.ravel() for traj in trajectories for e in traj])
             self._summary_writer.add_scalar("trainer/value-loss", total_value_loss, global_step=self._global_step)
             self._summary_writer.add_scalar("trainer/policy-loss", total_policy_loss, global_step=self._global_step)
+            self._summary_writer.add_histogram("trainer/pi_target", pi_targets, global_step=self._global_step)
             self._summary_writer.add_histogram("trainer/v_target", v_targets, global_step=self._global_step)
             self._summary_writer.add_histogram("trainer/pi_pred", pi, global_step=self._global_step)
             self._summary_writer.add_histogram("trainer/v_pred", v, global_step=self._global_step)
