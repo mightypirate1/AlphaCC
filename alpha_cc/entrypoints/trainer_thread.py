@@ -22,6 +22,7 @@ from alpha_cc.training.trainer import Trainer
 @click.option("--policy-weight", type=float, default=1.0)
 @click.option("--value-weight", type=float, default=1.0)
 @click.option("--lr", type=float, default=1e-4)
+@click.option("--batch-size", type=int, default=64)
 @click.option("--silent", is_flag=True, default=False)
 def main(
     run_id: str,
@@ -30,6 +31,7 @@ def main(
     epochs_per_update: int,
     policy_weight: float,
     value_weight: float,
+    batch_size: int,
     lr: float,
     silent: bool,
 ) -> None:
@@ -42,6 +44,7 @@ def main(
         epochs_per_update=epochs_per_update,
         policy_weight=policy_weight,
         value_weight=value_weight,
+        batch_size=batch_size,
         lr=lr,
         summary_writer=create_summary_writer(run_id),
     )
