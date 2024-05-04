@@ -28,7 +28,13 @@ class TrainingDB:
     def post_experiences(self, experiences: list[MCTSExperience]) -> None:
         self._db.lpush(self.queue_key, dill.dumps(experiences))
 
-    def fetch_experiences(self, blocking: bool = False) -> list[MCTSExperience]:
+    def fetch_all_trajectories(self) -> list[list[MCTSExperience]]:
+        trajectories = []
+        while trajectory := self.fetch_trajectory(blocking=False):
+            trajectories.append(trajectory)
+        return trajectories
+
+    def fetch_trajectory(self, blocking: bool = False) -> list[MCTSExperience]:
         if blocking:
             _, encoded_experiences = self._db.brpop(self.queue_key, timeout=0)  # type: ignore
         else:

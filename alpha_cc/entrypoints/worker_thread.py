@@ -4,6 +4,7 @@ import time
 import click
 
 from alpha_cc.agents import MCTSAgent
+from alpha_cc.agents.heuristic import Heuristic
 from alpha_cc.agents.mcts import MCTSExperience
 from alpha_cc.config import Environmnet
 from alpha_cc.db import TrainingDB
@@ -19,12 +20,16 @@ logger = logging.getLogger(__file__)
 @click.option("--rollout-depth", type=int, default=100)
 @click.option("--max-game-length", type=int, default=500)
 @click.option("--silent", is_flag=True, default=False)
+@click.option("--heuristic", is_flag=True, default=False)
+@click.option("--reassign-values", is_flag=True, default=False)
 def main(
     size: int,
     n_rollouts: int,
     rollout_depth: int,
     max_game_length: int,
     silent: bool,
+    heuristic: bool,
+    reassign_values: bool,
 ) -> None:
     def rollout_trajectory() -> list[MCTSExperience]:
         board = Board(size)
@@ -37,11 +42,18 @@ def main(
         return assign_target_values(agent.trajectory, board)
 
     def assign_target_values(traj: list[MCTSExperience], board: Board) -> list[MCTSExperience]:
-        # -1 on the reward, since that state is not on the trajectory
-        value = -float(board.info.reward) if board.info.game_over else traj[-1].v_target
-        for experience in reversed(traj):
-            experience.v_target = value
-            value *= -1.0
+        last_exp = traj[-1]
+        if board.info.game_over:
+            # -1 on the reward, since that state is not on the trajectory
+            value = -float(board.info.reward)
+        else:
+            value = heuristic_fcn(last_exp.state) if heuristic else traj[-1].v_target
+
+        last_exp.v_target = value
+        if reassign_values:
+            for experience in reversed(traj):
+                experience.v_target = value
+                value *= -1.0
         return traj
 
     def initialize_agent() -> None:
@@ -64,6 +76,7 @@ def main(
         rollout_depth,
     )
     db = TrainingDB(host=Environmnet.host_redis)
+    heuristic_fcn = Heuristic(size, subtract_opponent=True)
 
     current_weights = 0
     initialize_agent()

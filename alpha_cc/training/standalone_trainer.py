@@ -6,9 +6,10 @@ from tqdm_loggable.auto import tqdm
 from alpha_cc.agents.mcts.mcts_agent import MCTSAgent, MCTSExperience
 from alpha_cc.engine import Board
 from alpha_cc.training.trainer import Trainer
+from alpha_cc.training.training_dataset import TrainingDataset
 
 
-class StandaloneTrainer:
+class StandaloneTrainer:  # TODO: remove this class when code stabilizes
     def __init__(
         self,
         agent: MCTSAgent,
@@ -20,12 +21,14 @@ class StandaloneTrainer:
         gamma: float = 1.0,
         gamma_delay: int | float = np.inf,
         lr: float = 1e-4,
+        dataset_size: int = 100000,
         summary_writer: SummaryWriter | None = None,
     ) -> None:
         self._agent = agent
         self._board = board
         self._gamma = gamma
         self._gamma_delay = gamma_delay
+        self._dataset = TrainingDataset(max_size=dataset_size)
         self._trainer = Trainer(
             board.info.size,
             agent.nn,
@@ -46,10 +49,12 @@ class StandaloneTrainer:
             while num_samples > 0:
                 trajectory = self.rollout_trajectory(max_game_length)
                 trajectories.append(trajectory)
+                self._dataset.add_trajectory(trajectory)
                 n = len(trajectory)
                 num_samples -= n
                 pbar.update(n)
-        self._trainer.train(trajectories)
+        self._trainer.report_rollout_stats(trajectories)
+        self._trainer.train(self._dataset)
 
     @torch.no_grad()
     def rollout_trajectory(self, max_game_length: int | None = None) -> list[MCTSExperience]:
@@ -67,6 +72,8 @@ class StandaloneTrainer:
             move = board.get_moves()[a]
             board = board.apply(move)
 
+        # TODO: this is a deprecated version of code that is now in worker-thread.
+        # find a home for that, and use it here?
         last_player_value = self._value_from_perspective_of_last_player(board)
         trajectory = self._assign_value_targets(agent.trajectory, value=last_player_value)
         self._agent.on_game_end()

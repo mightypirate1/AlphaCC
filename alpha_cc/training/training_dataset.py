@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from collections import deque
+
 import numpy as np
 import torch
 from torch.utils.data import Dataset
@@ -6,19 +10,32 @@ from alpha_cc.agents.mcts.mcts_agent import MCTSExperience
 
 
 class TrainingDataset(Dataset):
-    def __init__(self, trajectories: list[list[MCTSExperience]]) -> None:
-        self._experiences = [exp for traj in trajectories for exp in traj]
+    def __init__(self, max_size: int = 10000) -> None:
+        self._max_size = max_size
+        self._experiences = deque[MCTSExperience](maxlen=max_size)
 
     def __len__(self) -> int:
         return len(self._experiences)
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         exp = self._experiences[index]
-        x = torch.as_tensor(exp.state.matrix).unsqueeze(0)
+        x = exp.state.tensor
         pi_mask = torch.as_tensor(exp.state.action_mask)
         pi_target = self._create_pi_target_tensor(exp)
         value_target = torch.as_tensor(exp.v_target)
         return x.float(), pi_mask.bool(), pi_target.float(), value_target.float()
+
+    def sample(self, batch_size: int) -> TrainingDataset:
+        dataset_sample = TrainingDataset(max_size=self._max_size)
+        sampled_experiences = np.random.choice(self._experiences, batch_size).tolist()  # type: ignore
+        dataset_sample.add_trajectory(sampled_experiences)
+        return dataset_sample
+
+    def add_trajectories(self, trajectories: list[list[MCTSExperience]]) -> None:
+        self._experiences.extendleft([exp for traj in trajectories for exp in traj])
+
+    def add_trajectory(self, trajectory: list[MCTSExperience]) -> None:
+        self._experiences.extendleft(trajectory)
 
     def _create_pi_target_tensor(self, exp: MCTSExperience) -> torch.Tensor:
         """

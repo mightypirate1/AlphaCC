@@ -1,6 +1,5 @@
 import numpy as np
 import torch
-from scipy.stats import entropy
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm_loggable.auto import tqdm
@@ -37,12 +36,35 @@ class Trainer:
         self._global_step = 0
         self._summary_writer = summary_writer
 
-    def train(self, trajectories: list[list[MCTSExperience]]) -> None:
-        self._report_rollout_stats(trajectories)
-        self._update_nn(trajectories)
+    @property
+    def nn(self) -> DefaultNet:
+        return self._nn
+
+    def train(self, dataset: TrainingDataset) -> None:
+        self._update_nn(dataset)
         self._global_step += 1
 
-    def _update_nn(self, trajectories: list[list[MCTSExperience]]) -> None:
+    def report_rollout_stats(self, trajectories: list[list[MCTSExperience]]) -> None:
+        def log_aggregates(key: str, data: np.ndarray) -> None:
+            if self._summary_writer is None:
+                return
+            self._summary_writer.add_scalar(f"train-rollouts/{key}-mean", data.mean(), global_step=self._global_step)
+            self._summary_writer.add_scalar(f"train-rollouts/{key}-min", data.min(), global_step=self._global_step)
+            self._summary_writer.add_scalar(f"train-rollouts/{key}-max", data.max(), global_step=self._global_step)
+
+        if self._summary_writer is not None:
+            game_lengths = np.array([len(traj) for traj in trajectories])
+            num_samples = game_lengths.sum()
+            v_targets = np.array([e.v_target for traj in trajectories for e in traj])
+            pi_targets = np.concatenate([e.pi_target.ravel() for traj in trajectories for e in traj])
+            self._summary_writer.add_scalar("trainer/num-samples", num_samples, global_step=self._global_step)
+            self._summary_writer.add_histogram("trainer/pi-target", pi_targets, global_step=self._global_step)
+            self._summary_writer.add_histogram("trainer/v-target", v_targets, global_step=self._global_step)
+            log_aggregates("game-length", game_lengths)
+            log_aggregates("v-targets", v_targets)
+            log_aggregates("pi-target", pi_targets)
+
+    def _update_nn(self, dataset: TrainingDataset) -> None:
         def train_epoch(epoch: int) -> tuple[float, float]:
             epoch_value_loss = 0.0
             epoch_policy_loss = 0.0
@@ -89,7 +111,6 @@ class Trainer:
 
         self._nn.train()
         self._nn.clear_cache()
-        dataset = TrainingDataset(trajectories)
         dataloader = DataLoader(
             dataset,
             batch_size=self._batch_size,
@@ -105,27 +126,7 @@ class Trainer:
             total_policy_loss += epoch_policy_loss / self._epochs_per_update
         if self._summary_writer is not None:
             pi, v = evaluate()
-            v_targets = np.array([e.v_target for traj in trajectories for e in traj])
-            pi_targets = np.concatenate([e.pi_target.ravel() for traj in trajectories for e in traj])
             self._summary_writer.add_scalar("trainer/value-loss", total_value_loss, global_step=self._global_step)
             self._summary_writer.add_scalar("trainer/policy-loss", total_policy_loss, global_step=self._global_step)
-            self._summary_writer.add_histogram("trainer/pi_target", pi_targets, global_step=self._global_step)
-            self._summary_writer.add_histogram("trainer/v_target", v_targets, global_step=self._global_step)
-            self._summary_writer.add_histogram("trainer/pi_pred", pi, global_step=self._global_step)
-            self._summary_writer.add_histogram("trainer/v_pred", v, global_step=self._global_step)
-
-    def _report_rollout_stats(self, trajectories: list[list[MCTSExperience]]) -> None:
-        def log_aggregates(key: str, data: np.ndarray) -> None:
-            if self._summary_writer is None:
-                return
-            self._summary_writer.add_scalar(f"train-rollouts/{key}-mean", data.mean(), global_step=self._global_step)
-            self._summary_writer.add_scalar(f"train-rollouts/{key}-min", data.min(), global_step=self._global_step)
-            self._summary_writer.add_scalar(f"train-rollouts/{key}-max", data.max(), global_step=self._global_step)
-
-        if self._summary_writer is not None:
-            game_lengths = np.array([len(traj) for traj in trajectories])
-            final_state_v_targets = np.array([traj[-1].v_target for traj in trajectories])
-            final_state_pi_target_entropies = np.array([entropy(traj[-1].pi_target) for traj in trajectories])
-            log_aggregates("game-length", game_lengths)
-            log_aggregates("final-state-v-targets", final_state_v_targets)
-            log_aggregates("final-state-pi-target-entropies", final_state_pi_target_entropies)
+            self._summary_writer.add_histogram("trainer/pi-pred", pi, global_step=self._global_step)
+            self._summary_writer.add_histogram("trainer/v-pred", v, global_step=self._global_step)

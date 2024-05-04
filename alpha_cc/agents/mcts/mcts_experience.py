@@ -9,4 +9,4 @@ from alpha_cc.state import GameState
 class MCTSExperience:
     state: GameState
     pi_target: np.ndarray
-    v_target: float = 0.0  # gets assigned by trainer
+    v_target: float
