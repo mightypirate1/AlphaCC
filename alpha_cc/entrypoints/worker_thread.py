@@ -19,17 +19,17 @@ logger = logging.getLogger(__file__)
 @click.option("--n-rollouts", type=int, default=100)
 @click.option("--rollout-depth", type=int, default=100)
 @click.option("--max-game-length", type=int, default=500)
-@click.option("--silent", is_flag=True, default=False)
 @click.option("--heuristic", is_flag=True, default=False)
 @click.option("--reassign-values", is_flag=True, default=False)
+@click.option("--verbose", is_flag=True, default=False)
 def main(
     size: int,
     n_rollouts: int,
     rollout_depth: int,
     max_game_length: int,
-    silent: bool,
     heuristic: bool,
     reassign_values: bool,
+    verbose: bool,
 ) -> None:
     def rollout_trajectory() -> list[MCTSExperience]:
         board = Board(size)
@@ -69,7 +69,7 @@ def main(
         logger.info(f"updated weights {current_weights}->{weight_index}")
         return weight_index
 
-    init_rootlogger(verbose=not silent)
+    init_rootlogger(verbose=verbose)
     agent = MCTSAgent(
         size,
         n_rollouts,

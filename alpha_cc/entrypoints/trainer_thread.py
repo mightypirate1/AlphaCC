@@ -27,7 +27,7 @@ logger = logging.getLogger(__file__)
 @click.option("--batch-size", type=int, default=64)
 @click.option("--train-size", type=int, default=5000)
 @click.option("--replay-buffer-size", type=int, default=20000)
-@click.option("--silent", is_flag=True, default=False)
+@click.option("--verbose", is_flag=True, default=False)
 def main(
     run_id: str,
     size: int,
@@ -39,9 +39,9 @@ def main(
     train_size: int,
     replay_buffer_size: int,
     lr: float,
-    silent: bool,
+    verbose: bool,
 ) -> None:
-    init_rootlogger(verbose=not silent)
+    init_rootlogger(verbose=verbose)
     db = TrainingDB(host=Environmnet.host_redis)
     replay_buffer = TrainingDataset(max_size=replay_buffer_size)
     trainer = Trainer(
