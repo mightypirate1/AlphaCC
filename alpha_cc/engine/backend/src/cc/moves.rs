@@ -1,6 +1,7 @@
 extern crate pyo3;
 use pyo3::prelude::*;
 use std::collections::{HashMap, HashSet};
+use indexmap::IndexSet;
 use crate::cc::{Board, HexCoord, Move};
 use crate::cc::board::MAX_SIZE;
 
@@ -31,7 +32,7 @@ pub fn find_all_moves(board: &Board) -> Vec<Move> {
     let size = board.get_size();
     let mut moves: Vec<Move> = Vec::new();
     let mut coord: HexCoord;
-    let mut from_coords: HashSet<HexCoord> = HashSet::new();
+    let mut from_coords: IndexSet<HexCoord> = IndexSet::new();
     
     for x in 0..size {
         for y in 0..size {
