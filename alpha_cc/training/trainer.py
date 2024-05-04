@@ -94,21 +94,6 @@ class Trainer:
             policy_loss_unmasked = -target_pi * self._policy_log_softmax(current_pi_tensor_unsoftmaxed, pi_mask)
             return torch.where(pi_mask, policy_loss_unmasked, 0).sum() / pi_mask.sum()
 
-        @torch.no_grad()
-        def evaluate() -> tuple[torch.Tensor, torch.Tensor]:
-            self._nn.eval()
-            dataloader = DataLoader(dataset, batch_size=1)
-            pis, vs = [], []
-            with tqdm(total=len(dataset), desc="nn-eval/epoch") as pbar:
-                for x, pi_mask, _, _ in dataloader:
-                    pi_tensor, value = self._nn(x)
-                    pi_vec = pi_tensor[:, *torch.nonzero(pi_mask.squeeze()).T]
-                    pi = torch.nn.functional.softmax(pi_vec, dim=1).ravel()
-                    pis.append(pi)
-                    vs.append(value)
-                    pbar.update(x.shape[0])
-            return torch.cat(pis, dim=0), torch.cat(vs, dim=0)
-
         self._nn.train()
         self._nn.clear_cache()
         dataloader = DataLoader(
@@ -125,8 +110,24 @@ class Trainer:
             total_value_loss += epoch_value_loss / self._epochs_per_update
             total_policy_loss += epoch_policy_loss / self._epochs_per_update
         if self._summary_writer is not None:
-            pi, v = evaluate()
+            pi, v = self._evaluate(dataset)
             self._summary_writer.add_scalar("trainer/value-loss", total_value_loss, global_step=self._global_step)
             self._summary_writer.add_scalar("trainer/policy-loss", total_policy_loss, global_step=self._global_step)
             self._summary_writer.add_histogram("trainer/pi-pred", pi, global_step=self._global_step)
             self._summary_writer.add_histogram("trainer/v-pred", v, global_step=self._global_step)
+
+    @torch.no_grad()
+    def evaluate(self, dataset: TrainingDataset) -> tuple[torch.Tensor, torch.Tensor]:
+        self._nn.eval()
+        dataloader = DataLoader(dataset, batch_size=self._batch_size, drop_last=False)
+        pis, vs = [], []
+        with tqdm(total=len(dataset), desc="nn-eval/epoch") as pbar:
+            for x, pi_mask_batch, _, _ in dataloader:
+                pi_tensor_batch, value_batch = self._nn(x)
+                vs.extend(value_batch)
+                for pi_tensor, pi_mask in zip(pi_tensor_batch, pi_mask_batch):
+                    pi_vec = pi_tensor[*torch.nonzero(pi_mask.squeeze()).T].ravel()
+                    pi = torch.nn.functional.softmax(pi_vec, dim=0)
+                    pis.append(pi)
+                pbar.update(x.shape[0])
+        return torch.cat(pis, dim=0), torch.cat(vs, dim=0)
