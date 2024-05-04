@@ -82,6 +82,6 @@ def main(
     initialize_agent()
     while True:
         traj = rollout_trajectory()
-        db.post_experiences(traj)
+        db.post_trajectory(traj)
         logger.info(f"worker posts {len(traj)} samples")
         current_weights = update_weights()

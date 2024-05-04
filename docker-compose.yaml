@@ -28,7 +28,7 @@ services:
       - trainer
     env_file:
       - .env.docker
-    scale: 2
+    scale: 0
     command: [
       "alpha-cc-worker",
       "--size=5",

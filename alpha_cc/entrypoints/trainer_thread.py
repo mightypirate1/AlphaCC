@@ -56,6 +56,7 @@ def main(
     )
 
     # publish once so workers can start working
+    db.reset_current_weights()
     curr_index = db.publish_latest_weights(trainer.nn.state_dict())
     with tqdm("awaiting sufficient samples", total=n_train_samples) as pbar:
         while len(replay_buffer) < n_train_samples:
