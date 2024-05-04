@@ -47,7 +47,7 @@ impl Hash for Board {
 
 impl Board {
     pub fn create(size: usize) -> Board {
-        if !(3..MAX_SIZE+1).contains(&size) || size % 2 == 0 {
+        if ![3, 5, 7, 9].contains(&size) {
             panic!("supports sizes: 3, 5, 7, 9");
         }
         Board {
