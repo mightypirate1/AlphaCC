@@ -2,8 +2,10 @@ import numpy as np
 import torch
 
 from alpha_cc.agents.agent import Agent
+from alpha_cc.agents.heuristic import Heuristic
 from alpha_cc.agents.mcts.mcts_experience import MCTSExperience
 from alpha_cc.agents.mcts.mcts_node import MCTSNode
+from alpha_cc.agents.value_assignment import NoOpAssignmentStrategy, ValueAssignmentStrategy
 from alpha_cc.engine import Board
 from alpha_cc.nn.nets.default_net import DefaultNet
 from alpha_cc.state import GameState, StateHash
@@ -15,11 +17,19 @@ class MCTSAgent(Agent):
         board_size: int,
         n_rollouts: int = 100,
         rollout_depth: int = 500,
+        value_assignment_strategy: ValueAssignmentStrategy | None = None,
+        apply_heuristic: bool = False,
+        dirichlet_weight: float = 0.0,  # TODO: get good value from paper
     ) -> None:
         self._n_rollouts = n_rollouts
         self._rollout_depth = rollout_depth
-        self._dirichlet_weight = 0.0  # 0.25  # TODO: get good value from paper
+        self._apply_heuristic = apply_heuristic
+        self._dirichlet_weight = dirichlet_weight
         self._nn = DefaultNet(board_size)
+        self._value_assignment_strategy = (
+            value_assignment_strategy if value_assignment_strategy is not None else NoOpAssignmentStrategy()
+        )
+        self._heuristic = Heuristic(board_size, subtract_opponent=True)
         self._trajectory: list[MCTSExperience] = []
         self._nodes: dict[StateHash, MCTSNode] = {}
 
@@ -39,8 +49,15 @@ class MCTSAgent(Agent):
         self._nodes.clear()
         self._trajectory = []
 
-    def on_game_end(self) -> None:
-        pass
+    def on_game_end(self, final_board: Board) -> None:
+        last_exp = self.trajectory[-1]
+        if final_board.info.game_over:
+            # -1 on the reward, since that state is not on the trajectory
+            value = -float(final_board.info.reward)
+        else:
+            value = self._heuristic(last_exp.state) if self._apply_heuristic else last_exp.v_target
+        last_exp.v_target = value
+        self._trajectory = self._value_assignment_strategy(self.trajectory, final_state_value=value)
 
     def choose_move(self, board: Board, training: bool = False) -> int | np.integer:
         def _training_policy(pi: np.ndarray) -> np.ndarray:

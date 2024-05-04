@@ -15,5 +15,5 @@ class Agent(ABC):
         pass
 
     @abstractmethod
-    def on_game_end(self) -> None:
+    def on_game_end(self, final_board: Board) -> None:
         pass

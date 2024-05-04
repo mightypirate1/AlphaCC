@@ -72,12 +72,8 @@ class StandaloneTrainer:  # TODO: remove this class when code stabilizes
             move = board.get_moves()[a]
             board = board.apply(move)
 
-        # TODO: this is a deprecated version of code that is now in worker-thread.
-        # find a home for that, and use it here?
-        last_player_value = self._value_from_perspective_of_last_player(board)
-        trajectory = self._assign_value_targets(agent.trajectory, value=last_player_value)
-        self._agent.on_game_end()
-        return trajectory
+        self._agent.on_game_end(board)
+        return self._agent.trajectory
 
     def _value_from_perspective_of_last_player(self, board: Board) -> float:
         if board.info.game_over:

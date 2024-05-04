@@ -18,7 +18,7 @@ class GreedyAgent(Agent):
     def on_game_start(self) -> None:
         pass
 
-    def on_game_end(self) -> None:
+    def on_game_end(self, _: Board) -> None:
         pass
 
     def _evaluation(self, board: Board) -> np.ndarray:

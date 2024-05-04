@@ -48,13 +48,13 @@ class RunTime:
         ### Be done
         if self._config.verbose:
             print(f"Player {board.info.winner} wins!")  # noqa
-        self._agents_on_game_end()
+        self._agents_on_game_end(board)
         return move_count
 
     def _agents_on_game_start(self) -> None:
         for _, agent in self._agent_dict.items():
             agent.on_game_start()
 
-    def _agents_on_game_end(self) -> None:
+    def _agents_on_game_end(self, board: Board) -> None:
         for _, agent in self._agent_dict.items():
-            agent.on_game_end()
+            agent.on_game_end(board)

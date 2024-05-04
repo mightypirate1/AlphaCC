@@ -7,6 +7,7 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 from tqdm_loggable.auto import tqdm
 
+from alpha_cc.agents.mcts import MCTSExperience
 from alpha_cc.config import Environmnet
 from alpha_cc.db import TrainingDB
 from alpha_cc.entrypoints.logs import init_rootlogger
@@ -41,6 +42,17 @@ def main(
     lr: float,
     verbose: bool,
 ) -> None:
+    def await_sufficient_samples() -> list[list[MCTSExperience]]:
+        trajectories = []
+        n_remaining = n_train_samples
+        with tqdm(desc="awaiting sufficient samples", total=n_train_samples) as pbar:
+            while n_remaining > 0:
+                trajectory = db.fetch_trajectory(blocking=True)
+                trajectories.append(trajectory)
+                n_remaining -= len(trajectory)
+                pbar.update(len(trajectory))
+        return trajectories
+
     init_rootlogger(verbose=verbose)
     db = TrainingDB(host=Environmnet.host_redis)
     replay_buffer = TrainingDataset(max_size=replay_buffer_size)
@@ -55,22 +67,23 @@ def main(
         summary_writer=create_summary_writer(run_id),
     )
 
-    # publish once so workers can start working
-    db.reset_current_weights()
+    db.flush_db()  # redis doesn't clear itself on restart currently...
+
+    # workers will wait for the first weights getting published so everyone has the same net
     curr_index = db.publish_latest_weights(trainer.nn.state_dict())
-    with tqdm("awaiting sufficient samples", total=n_train_samples) as pbar:
-        while len(replay_buffer) < n_train_samples:
-            trajectory = db.fetch_trajectory(blocking=True)
-            replay_buffer.add_trajectory(trajectory)
-            pbar.update(len(trajectory))
 
     while True:
-        trajectories = db.fetch_all_trajectories()
-        logger.info(f"fetched {len(trajectories)} trajectories")
-        if len(trajectories) > 0:
-            trainer.report_rollout_stats(trajectories)
+        # wait until we have enough new samples
+        trajectories = await_sufficient_samples()
+        logger.debug(f"fetched {len(trajectories)} trajectories")
         replay_buffer.add_trajectories(trajectories)
-        trainer.train(replay_buffer.sample(train_size))
+        trainer.report_rollout_stats(trajectories)
+
+        # train on samples
+        train_data = replay_buffer.sample(train_size)
+        trainer.train(train_data)
+
+        # publish weights
         curr_index = db.publish_latest_weights(trainer.nn.state_dict())
         save_weights(run_id, curr_index, trainer.nn.state_dict())
 

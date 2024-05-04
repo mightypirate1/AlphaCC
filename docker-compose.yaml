@@ -12,7 +12,7 @@ services:
       - .env.docker
     command: [
       "alpha-cc-trainer",
-      "--run-id=dbg-31-size-5",
+      "--run-id=dbg-33-size-5",
       "--size=5",
       "--n-train-samples=2000",
       "--epochs-per-update=10",
@@ -20,7 +20,7 @@ services:
       "--value-weight=1.0",
       "--batch-size=64",
       "--lr=1e-6",
-      "--verbose",
+      # "--verbose",
     ]
 
   worker:
@@ -37,7 +37,8 @@ services:
       "--rollout-depth=100",
       "--max-game-length=500",
       "--heuristic",
-      "--verbose",
+      "--reassign-values",
+      # "--verbose",
     ]
 
   tensorboard:
@@ -62,4 +63,4 @@ volumes:
     driver_opts:
       type: none
       o: bind
-      device: "./tmp"
+      device: "./data"

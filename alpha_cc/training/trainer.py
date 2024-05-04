@@ -57,32 +57,30 @@ class Trainer:
             num_samples = game_lengths.sum()
             v_targets = np.array([e.v_target for traj in trajectories for e in traj])
             pi_targets = np.concatenate([e.pi_target.ravel() for traj in trajectories for e in traj])
+            pi, v = self._evaluate(TrainingDataset([exp for traj in trajectories for exp in traj]))
             self._summary_writer.add_scalar("trainer/num-samples", num_samples, global_step=self._global_step)
             self._summary_writer.add_histogram("trainer/pi-target", pi_targets, global_step=self._global_step)
             self._summary_writer.add_histogram("trainer/v-target", v_targets, global_step=self._global_step)
+            self._summary_writer.add_histogram("trainer/pi-pred", pi, global_step=self._global_step)
+            self._summary_writer.add_histogram("trainer/v-pred", v, global_step=self._global_step)
             log_aggregates("game-length", game_lengths)
             log_aggregates("v-targets", v_targets)
             log_aggregates("pi-target", pi_targets)
 
     def _update_nn(self, dataset: TrainingDataset) -> None:
-        def train_epoch(epoch: int) -> tuple[float, float]:
+        def train_epoch() -> tuple[float, float]:
             epoch_value_loss = 0.0
             epoch_policy_loss = 0.0
-            with tqdm(total=len(dataset), desc=f"nn-update/epoch {epoch}") as pbar:
-                for x, pi_mask, target_pi, target_value in dataloader:
-                    self._optimizer.zero_grad()
-                    current_pi_unsoftmaxed, current_value = self._nn(x)
-                    value_loss = compute_value_loss(current_value, target_value)
-                    policy_loss = compute_policy_loss(current_pi_unsoftmaxed, target_pi, pi_mask)
-                    loss = self._value_weight * value_loss + self._policy_weight * policy_loss
-                    loss.backward()
-                    self._optimizer.step()
-                    epoch_value_loss += value_loss.item() / len(dataloader)
-                    epoch_policy_loss += policy_loss.item() / len(dataloader)
-                    pbar.update(x.shape[0])
-                    pbar.set_postfix(
-                        {"value-loss": round(epoch_value_loss, 5), "policy-loss": round(epoch_policy_loss, 5)}
-                    )
+            for x, pi_mask, target_pi, target_value in dataloader:
+                self._optimizer.zero_grad()
+                current_pi_unsoftmaxed, current_value = self._nn(x)
+                value_loss = compute_value_loss(current_value, target_value)
+                policy_loss = compute_policy_loss(current_pi_unsoftmaxed, target_pi, pi_mask)
+                loss = self._value_weight * value_loss + self._policy_weight * policy_loss
+                loss.backward()
+                self._optimizer.step()
+                epoch_value_loss += value_loss.item() / len(dataloader)
+                epoch_policy_loss += policy_loss.item() / len(dataloader)
             return epoch_value_loss, epoch_policy_loss
 
         def compute_value_loss(current_value: torch.Tensor, target_value: torch.Tensor) -> torch.Tensor:
@@ -105,23 +103,29 @@ class Trainer:
 
         total_value_loss = 0.0
         total_policy_loss = 0.0
-        for epoch in range(1, self._epochs_per_update + 1):
-            epoch_value_loss, epoch_policy_loss = train_epoch(epoch)
-            total_value_loss += epoch_value_loss / self._epochs_per_update
-            total_policy_loss += epoch_policy_loss / self._epochs_per_update
+        with tqdm(desc="nn-update", total=self._epochs_per_update) as pbar:
+            for epoch in range(1, self._epochs_per_update + 1):
+                epoch_value_loss, epoch_policy_loss = train_epoch()
+                total_value_loss += epoch_value_loss / self._epochs_per_update
+                total_policy_loss += epoch_policy_loss / self._epochs_per_update
+                pbar.set_postfix(
+                    {
+                        "epoch": epoch,
+                        "value-loss": round(epoch_value_loss, 5),
+                        "policy-loss": round(epoch_policy_loss, 5),
+                    }
+                )
+                pbar.update(1)
         if self._summary_writer is not None:
-            pi, v = self._evaluate(dataset)
             self._summary_writer.add_scalar("trainer/value-loss", total_value_loss, global_step=self._global_step)
             self._summary_writer.add_scalar("trainer/policy-loss", total_policy_loss, global_step=self._global_step)
-            self._summary_writer.add_histogram("trainer/pi-pred", pi, global_step=self._global_step)
-            self._summary_writer.add_histogram("trainer/v-pred", v, global_step=self._global_step)
 
     @torch.no_grad()
-    def evaluate(self, dataset: TrainingDataset) -> tuple[torch.Tensor, torch.Tensor]:
+    def _evaluate(self, dataset: TrainingDataset) -> tuple[torch.Tensor, torch.Tensor]:
         self._nn.eval()
         dataloader = DataLoader(dataset, batch_size=self._batch_size, drop_last=False)
         pis, vs = [], []
-        with tqdm(total=len(dataset), desc="nn-eval/epoch") as pbar:
+        with tqdm(desc="nn-eval/epoch", total=len(dataset)) as pbar:
             for x, pi_mask_batch, _, _ in dataloader:
                 pi_tensor_batch, value_batch = self._nn(x)
                 vs.extend(value_batch)
@@ -130,4 +134,7 @@ class Trainer:
                     pi = torch.nn.functional.softmax(pi_vec, dim=0)
                     pis.append(pi)
                 pbar.update(x.shape[0])
-        return torch.cat(pis, dim=0), torch.cat(vs, dim=0)
+
+        value = torch.as_tensor(vs)
+        pi = torch.cat(pis, dim=0)
+        return pi, value

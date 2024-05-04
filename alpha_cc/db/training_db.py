@@ -11,7 +11,7 @@ logger = logging.getLogger(__file__)
 
 class TrainingDB:
     def __init__(self, host: str = "localhost") -> None:
-        self._db = redis.Redis(host=host)
+        self._db = redis.Redis(host=host, db=0)
 
     @property
     def queue_key(self) -> str:
@@ -28,9 +28,9 @@ class TrainingDB:
     def weight_key(self, index: int | str) -> str:
         return f"weights-{str(index).zfill(4)}"
 
-    def reset_current_weights(self) -> None:
-        logger.debug("reseting weights")
-        self._db.set(self.latest_weights_index_key, 0)
+    def flush_db(self) -> None:
+        logger.debug("reseting db")
+        self._db.flushdb()
 
     def post_trajectory(self, trajectory: list[MCTSExperience]) -> None:
         logger.debug(f"posting {len(trajectory)} experiences")

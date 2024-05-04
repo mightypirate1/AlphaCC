@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Iterable
 
 import numpy as np
 import torch
@@ -10,15 +11,31 @@ from alpha_cc.agents.mcts.mcts_agent import MCTSExperience
 
 
 class TrainingDataset(Dataset):
-    def __init__(self, max_size: int = 10000) -> None:
+    """
+    Has 2 buffers, one for new samples and one main buffer. This is so that one
+    can sample the dataset and be sure to see the most recent ones along with a
+    random selection of "old" samples.
+
+    - on `add_trajectories` and `add_trajectory`, experiences are added as "new
+    - on `sample`, "new" experiments are sampled, and then if there's enough
+      room left, "old" samples are added. All "new" samples are moved to "old"
+      once they have been sampled once.
+
+    """
+
+    def __init__(self, experiences: Iterable[MCTSExperience] | None = None, max_size: int = 10000) -> None:
         self._max_size = max_size
         self._experiences = deque[MCTSExperience](maxlen=max_size)
+        self._new_experiences: list[MCTSExperience] = [] if experiences is None else list(experiences)
 
     def __len__(self) -> int:
-        return len(self._experiences)
+        return len(self._new_experiences) + len(self._experiences)
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        exp = self._experiences[index]
+        n_new = len(self._new_experiences)
+        # faster than concatenating
+        exp = self._new_experiences[index] if index < n_new else self._experiences[index - n_new]
+
         x = exp.state.tensor
         pi_mask = torch.as_tensor(exp.state.action_mask)
         pi_target = self._create_pi_target_tensor(exp)
@@ -26,16 +43,26 @@ class TrainingDataset(Dataset):
         return x.float(), pi_mask.bool(), pi_target.float(), value_target.float()
 
     def sample(self, batch_size: int) -> TrainingDataset:
-        dataset_sample = TrainingDataset(max_size=self._max_size)
-        sampled_experiences = np.random.choice(self._experiences, batch_size).tolist()  # type: ignore
-        dataset_sample.add_trajectory(sampled_experiences)
+        dataset_sample = TrainingDataset(experiences=self._new_experiences, max_size=self._max_size)
+        remaining = batch_size - len(dataset_sample)
+        if remaining > 0:
+            sampled_experiences = np.random.choice(
+                self._experiences,  # type: ignore
+                min(remaining, len(self._experiences)),
+            ).tolist()
+            dataset_sample.add_trajectory(sampled_experiences)
+        self._move_new_experiences_to_main_buffer()
         return dataset_sample
 
     def add_trajectories(self, trajectories: list[list[MCTSExperience]]) -> None:
-        self._experiences.extendleft([exp for traj in trajectories for exp in traj])
+        self._new_experiences.extend([exp for traj in trajectories for exp in traj])
 
     def add_trajectory(self, trajectory: list[MCTSExperience]) -> None:
-        self._experiences.extendleft(trajectory)
+        self._new_experiences.extend(trajectory)
+
+    def _move_new_experiences_to_main_buffer(self) -> None:
+        self._experiences.extendleft(self._experiences)
+        self._experiences.clear()
 
     def _create_pi_target_tensor(self, exp: MCTSExperience) -> torch.Tensor:
         """

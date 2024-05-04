@@ -10,8 +10,8 @@ from alpha_cc.runtime.runtime import RunTime, RunTimeConfig
 @click.argument("weights", type=click.Path(exists=True, dir_okay=False))
 @click.option("--size", type=int, default=9)
 @click.option("--slow", is_flag=True, default=False)
-@click.option("--n-rollouts", type=int, default=1000)
-@click.option("--rollout-depth", type=int, default=20)
+@click.option("--n-rollouts", type=int, default=100)
+@click.option("--rollout-depth", type=int, default=100)
 @click.option("--training", is_flag=True)
 def main(
     weights: str,
