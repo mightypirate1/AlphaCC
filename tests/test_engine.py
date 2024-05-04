@@ -1,8 +1,27 @@
 import pytest
 
-from alpha_cc.engine import create_move_index_map, create_move_mask
+from alpha_cc.agents.heuristic_agents.greedy_agent import GreedyAgent
+from alpha_cc.engine import Board, create_move_index_map, create_move_mask
 
 from .common import get_random_board_state
+
+
+def test_game() -> None:
+    board_size = 9
+    move_count = 0
+    expected_number_of_moves = 121  # chosen since this was the actual value to complete a game
+
+    board = Board(board_size)
+    agent = GreedyAgent(board_size)
+    while not board.info.game_over:
+        move_count += 1
+        assert move_count < 1000, "game seems infinite"
+        action = agent.choose_move(board)
+        move = board.get_moves()[action]
+        board = board.apply(move)
+    assert move_count == board.info.duration
+    assert move_count == expected_number_of_moves, "incorrect number of moves"
+    assert board.info.game_over, "game not over"
 
 
 @pytest.mark.parametrize("board_size", [3, 5, 7, 9])
