@@ -4,6 +4,7 @@ import hashlib
 from typing import NewType
 
 import numpy as np
+import torch
 
 from alpha_cc.engine import Board, BoardInfo, HexCoord, Move, create_move_index_map, create_move_mask
 
@@ -11,9 +12,14 @@ StateHash = NewType("StateHash", bytes)
 
 
 class GameState:
+    """
+    Wrapper for a `Board` that manages common manipulations on it.
+    """
+
     def __init__(self, board: Board) -> None:
         self._board = board
         self._matrix: np.ndarray | None = None
+        self._tensor: torch.Tensor | None = None
         self._action_mask: np.ndarray | None = None
         self._action_mask_indices: dict[int, tuple[HexCoord, HexCoord]] | None = None
         self._children: list[GameState] | None = None
@@ -51,6 +57,12 @@ class GameState:
         return self._matrix
 
     @property
+    def tensor(self) -> torch.Tensor:
+        if self._tensor is None:
+            self._tensor = torch.stack([torch.as_tensor(self.matrix == 1), torch.as_tensor(self.matrix == 2)]).float()
+        return self._tensor
+
+    @property
     def action_mask(self) -> np.ndarray:
         if self._action_mask is None:
             moves = self.board.get_moves()
@@ -80,6 +92,7 @@ class GameState:
     def __setstate__(self, board: Board) -> None:
         self._board = board
         self._matrix = None
+        self._tensor = None
         self._action_mask = None
         self._action_mask_indices = None
         self._children = None

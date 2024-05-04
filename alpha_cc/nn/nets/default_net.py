@@ -2,14 +2,12 @@ import numpy as np
 import torch
 from lru import LRU
 
-from alpha_cc.agents.mcts.mcts_experience import MCTSExperience
 from alpha_cc.engine.engine_utils import action_indexer
 from alpha_cc.nn.blocks import PolicySoftmax, ResBlock
-from alpha_cc.nn.nets.dual_head_net import DualHeadNet
 from alpha_cc.state import GameState, StateHash
 
 
-class DefaultNet(torch.nn.Module, DualHeadNet[list[list[MCTSExperience]]]):
+class DefaultNet(torch.nn.Module):
     def __init__(self, board_size: int, cache_size: int = 10000, dropout: float = 0.3) -> None:
         super().__init__()
         self._cache: LRU[StateHash, tuple[torch.Tensor, torch.Tensor]] = LRU(cache_size)
@@ -17,7 +15,7 @@ class DefaultNet(torch.nn.Module, DualHeadNet[list[list[MCTSExperience]]]):
 
         self._encoder = torch.nn.ModuleList(
             [
-                ResBlock(1, 64, 3),
+                ResBlock(2, 64, 3),
                 ResBlock(64, 128, 5),
             ]
         )
@@ -84,8 +82,6 @@ class DefaultNet(torch.nn.Module, DualHeadNet[list[list[MCTSExperience]]]):
     @torch.no_grad()
     def _create_or_get_cached_output(self, state: GameState) -> tuple[torch.Tensor, torch.Tensor]:
         if state.hash not in self._cache:
-            d = self._board_size
-            input_shape = (1, 1, d, d)
-            x = torch.as_tensor(state.matrix)[:d, :d].reshape(input_shape).float()
+            x = state.tensor.unsqueeze(0).float()
             self._cache[state.hash] = self(x)
         return self._cache[state.hash]
