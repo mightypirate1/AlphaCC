@@ -253,10 +253,8 @@ impl Board {
             duration: self.duration,
             game_over: winner > 0,
             reward: match winner {
-                1 => if self.current_player == 1 {-1} else {1},
-                2 => if self.current_player == 2 {-1} else {1},
                 0 => 0,
-                _ => unreachable!()
+                _ => if self.current_player == winner {1} else {-1},
             }
         }
     }

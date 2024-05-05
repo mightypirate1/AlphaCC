@@ -46,18 +46,12 @@ class MCTSAgent(Agent):
         return self._nodes
 
     def on_game_start(self) -> None:
-        self._nodes.clear()
+        self.nodes.clear()
+        self.nn.clear_cache()
         self._trajectory = []
 
     def on_game_end(self, final_board: Board) -> None:
-        last_exp = self.trajectory[-1]
-        if final_board.info.game_over:
-            # -1 on the reward, since that state is not on the trajectory
-            value = -float(final_board.info.reward)
-        else:
-            value = self._heuristic(last_exp.state) if self._apply_heuristic else last_exp.v_target
-        last_exp.v_target = value
-        self._trajectory = self._value_assignment_strategy(self.trajectory, final_state_value=value)
+        self._trajectory = self._value_assignment_strategy(self.trajectory, final_board)
 
     def choose_move(self, board: Board, training: bool = False) -> int | np.integer:
         def _training_policy(pi: np.ndarray) -> np.ndarray:
