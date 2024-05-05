@@ -5,7 +5,7 @@ import click
 
 from alpha_cc.agents import MCTSAgent
 from alpha_cc.agents.mcts import MCTSExperience
-from alpha_cc.agents.value_assignment import DefaultAssignmentStrategy
+from alpha_cc.agents.value_assignment import DefaultAssignmentStrategy, DefaultAssignmentStrategyWithHeuristic
 from alpha_cc.config import Environmnet
 from alpha_cc.db import TrainingDB
 from alpha_cc.engine import Board
@@ -33,8 +33,8 @@ def main(
 ) -> None:
     def rollout_trajectory() -> list[MCTSExperience]:
         board = Board(size)
-        agent.on_game_start()
         agent.nn.eval()
+        agent.on_game_start()
         while not board.info.game_over and board.info.duration < max_game_length:
             moves = board.get_moves()
             a = agent.choose_move(board, training=True)
@@ -42,21 +42,25 @@ def main(
         agent.on_game_end(board)
         return agent.trajectory
 
-    def initialize_agent() -> None:
+    def initialize_agent() -> int:
         while not db.first_weights_published():
             time.sleep(0.1)
-        update_weights()
+        return update_weights()
 
     def update_weights() -> int:
         if db.weights_is_latest(current_weights):
             return current_weights
         weight_index, weights = db.fetch_latest_weights_with_index()
         agent.nn.load_state_dict(weights)
-        logger.debug(f"updated weights {current_weights}->{weight_index}")
+        logger.info(f"updated weights {current_weights}->{weight_index}")
         return weight_index
 
     init_rootlogger(verbose=verbose)
-    value_assignment_strategy = DefaultAssignmentStrategy(gamma=0.99) if reassign_values else None
+    value_assignment_strategy = None
+    if reassign_values:
+        value_assignment_strategy = (
+            DefaultAssignmentStrategyWithHeuristic(size) if heuristic else DefaultAssignmentStrategy()
+        )
     agent = MCTSAgent(
         size,
         n_rollouts,
@@ -66,8 +70,10 @@ def main(
     )
     db = TrainingDB(host=Environmnet.host_redis)
 
+    # the trainer needs to start and flush the db, so we wait
+    time.sleep(10)  # TODO: figure out why workers can start before trainer
     current_weights = 0
-    initialize_agent()
+    current_weights = initialize_agent()
     while True:
         traj = rollout_trajectory()
         db.post_trajectory(traj)

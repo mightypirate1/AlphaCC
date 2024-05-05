@@ -56,6 +56,7 @@ def main(
     init_rootlogger(verbose=verbose)
     db = TrainingDB(host=Environmnet.host_redis)
     replay_buffer = TrainingDataset(max_size=replay_buffer_size)
+    summary_writer = create_summary_writer(run_id)
     trainer = Trainer(
         size,
         DefaultNet(size),
@@ -64,7 +65,7 @@ def main(
         value_weight=value_weight,
         batch_size=batch_size,
         lr=lr,
-        summary_writer=create_summary_writer(run_id),
+        summary_writer=summary_writer,
     )
 
     db.flush_db()  # redis doesn't clear itself on restart currently...
