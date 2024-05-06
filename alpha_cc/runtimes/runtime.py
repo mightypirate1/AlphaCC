@@ -1,16 +1,8 @@
 import time
-from dataclasses import dataclass
 
-from alpha_cc.agents.agent import Agent
+from alpha_cc.agents import Agent
 from alpha_cc.engine import Board
-
-
-@dataclass
-class RunTimeConfig:
-    verbose: bool = False
-    render: bool = False
-    slow: bool = False  # Does nothing if render is False
-    debug: bool = False  # Currently doesn't do anything
+from alpha_cc.runtimes.runtime_config import RunTimeConfig
 
 
 class RunTime:
@@ -25,36 +17,31 @@ class RunTime:
         self._config = config or RunTimeConfig()
 
     def play_game(self, training: bool = False) -> int:
-        ### Initialize
         self._agents_on_game_start()
         board = self._board.reset()
-        move_count = 0
 
-        ### Play!
         while not board.info.game_over:
             agent = self._agent_dict[board.info.current_player]
             a = agent.choose_move(board, training=training)
             move = board.get_moves()[a]
             board = board.apply(move)
 
-            move_count += 1
             if self._config.render:
                 board.render()
             if self._config.slow:
                 time.sleep(1)
             if self._config.verbose:
-                print(f"Move {move_count} played.")  # noqa
+                print(f"Move {board.info.duration} played.")  # noqa
 
-        ### Be done
         if self._config.verbose:
             print(f"Player {board.info.winner} wins!")  # noqa
-        self._agents_on_game_end(board)
-        return move_count
+        self._agents_on_game_end()
+        return board.info.winner
 
     def _agents_on_game_start(self) -> None:
         for _, agent in self._agent_dict.items():
             agent.on_game_start()
 
-    def _agents_on_game_end(self, board: Board) -> None:
+    def _agents_on_game_end(self) -> None:
         for _, agent in self._agent_dict.items():
-            agent.on_game_end(board)
+            agent.on_game_end()

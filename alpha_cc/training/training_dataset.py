@@ -7,7 +7,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from alpha_cc.agents.mcts.mcts_agent import MCTSExperience
+from alpha_cc.agents.mcts import MCTSExperience
 
 
 class TrainingDataset(Dataset):

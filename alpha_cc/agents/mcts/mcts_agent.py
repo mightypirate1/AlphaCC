@@ -3,9 +3,7 @@ import torch
 
 from alpha_cc.agents.agent import Agent
 from alpha_cc.agents.heuristic import Heuristic
-from alpha_cc.agents.mcts.mcts_experience import MCTSExperience
 from alpha_cc.agents.mcts.mcts_node import MCTSNode
-from alpha_cc.agents.value_assignment import NoOpAssignmentStrategy, ValueAssignmentStrategy
 from alpha_cc.engine import Board
 from alpha_cc.nn.nets.default_net import DefaultNet
 from alpha_cc.state import GameState, StateHash
@@ -17,25 +15,14 @@ class MCTSAgent(Agent):
         board_size: int,
         n_rollouts: int = 100,
         rollout_depth: int = 500,
-        value_assignment_strategy: ValueAssignmentStrategy | None = None,
-        apply_heuristic: bool = False,
         dirichlet_weight: float = 0.0,  # TODO: get good value from paper
     ) -> None:
         self._n_rollouts = n_rollouts
         self._rollout_depth = rollout_depth
-        self._apply_heuristic = apply_heuristic
         self._dirichlet_weight = dirichlet_weight
         self._nn = DefaultNet(board_size)
-        self._value_assignment_strategy = (
-            value_assignment_strategy if value_assignment_strategy is not None else NoOpAssignmentStrategy()
-        )
         self._heuristic = Heuristic(board_size, subtract_opponent=True)
-        self._trajectory: list[MCTSExperience] = []
         self._nodes: dict[StateHash, MCTSNode] = {}
-
-    @property
-    def trajectory(self) -> list[MCTSExperience]:
-        return self._trajectory
 
     @property
     def nn(self) -> DefaultNet:
@@ -48,37 +35,35 @@ class MCTSAgent(Agent):
     def on_game_start(self) -> None:
         self.nodes.clear()
         self.nn.clear_cache()
-        self._trajectory = []
 
-    def on_game_end(self, final_board: Board) -> None:
-        self._trajectory = self._value_assignment_strategy(self.trajectory, final_board)
+    def on_game_end(self) -> None:
+        pass
 
-    def choose_move(self, board: Board, training: bool = False) -> int | np.integer:
-        def _training_policy(pi: np.ndarray) -> np.ndarray:
-            dirichlet_noise = np.random.dirichlet(np.full_like(pi, 1 / len(pi)))
-            pi_noised = (1 - self._dirichlet_weight) * pi + self._dirichlet_weight * dirichlet_noise
-            return pi_noised
+    def choose_move(self, board: Board, training: bool = False, temperature: float = 1.0) -> int | np.integer:
+        pi, _ = self.run_rollouts(board, training=training, temperature=temperature)
+        if training:
+            return np.random.choice(len(pi), p=pi)
+        return pi.argmax()
 
+    def run_rollouts(self, board: Board, training: bool = False, temperature: float = 1.0) -> tuple[np.ndarray, float]:
         state = GameState(board)
         value = np.array(
             [-self._rollout(state, remaining_depth=self._rollout_depth) for _ in range(self._n_rollouts)]
         ).mean()
-        pi = self._rollout_policy(state)
+        pi = self._rollout_policy(state, training, temperature)
+        return pi, value
 
-        if training:
-            experience = MCTSExperience(state=state, pi_target=pi, v_target=value)
-            self._trajectory.append(experience)
-            pi = _training_policy(pi)
-            return np.random.choice(len(pi), p=pi)
-        return pi.argmax()
-
-    def _rollout_policy(self, state: GameState, temperature: float = 1.0) -> np.ndarray:
+    def _rollout_policy(self, state: GameState, training: bool = False, temperature: float = 1.0) -> np.ndarray:
         node = self._nodes[state.hash]
         weighted_counts = node.n
         if temperature != 1.0:  # save some flops
             weighted_counts = node.n ** (1 / temperature)
-        normalized_weighted_counts = weighted_counts / weighted_counts.sum()
-        return normalized_weighted_counts
+        pi = weighted_counts / weighted_counts.sum()
+        if not training:
+            return pi
+        dirichlet_noise = np.random.dirichlet(np.full_like(pi, 1 / len(pi)))
+        pi_noised = (1 - self._dirichlet_weight) * pi + self._dirichlet_weight * dirichlet_noise
+        return pi_noised
 
     @torch.no_grad()
     def _rollout(self, state: GameState, remaining_depth: int = 999) -> float:
