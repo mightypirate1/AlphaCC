@@ -1,7 +1,7 @@
 import click
 import torch
 
-from alpha_cc.agents.mcts.mcts_agent import MCTSAgent
+from alpha_cc.agents import GreedyAgent, MCTSAgent
 from alpha_cc.engine import Board
 from alpha_cc.runtimes.runtime import RunTime, RunTimeConfig
 
@@ -12,18 +12,24 @@ from alpha_cc.runtimes.runtime import RunTime, RunTimeConfig
 @click.option("--n-rollouts", type=int, default=100)
 @click.option("--rollout-depth", type=int, default=100)
 @click.option("--training", is_flag=True)
+@click.option("--vs-greedy", is_flag=True)
 def main(
     weights: str,
     size: int,
     n_rollouts: int,
     rollout_depth: int,
     training: bool,
+    vs_greedy: bool,
 ) -> None:
     board = Board(size)
+    greedy_agent = GreedyAgent(size)
     agent = MCTSAgent(size, n_rollouts=n_rollouts, rollout_depth=rollout_depth)
     agent.nn.load_state_dict(torch.load(weights))
     agent.nn.eval()
-    agents = (agent, agent)
+    agents = (
+        agent,
+        greedy_agent if vs_greedy else agent,
+    )
     config = RunTimeConfig(
         verbose=True,
         render=True,
