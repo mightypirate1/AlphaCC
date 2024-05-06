@@ -57,6 +57,8 @@ setup(
         'console_scripts': [
             'alpha-cc-trainer = alpha_cc.entrypoints.trainer_thread:main',
             'alpha-cc-worker = alpha_cc.entrypoints.worker_thread:main',
+            'alpha-cc-singlethread-training = alpha_cc.entrypoints.singlethread_training:main',
+            'alpha-cc-eval-weights = alpha_cc.entrypoints.eval_weights:main',
         ],
     }
 )
