@@ -4,7 +4,7 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm_loggable.auto import tqdm
 
-from alpha_cc.agents.mcts.mcts_agent import MCTSExperience
+from alpha_cc.agents.mcts import MCTSExperience
 from alpha_cc.nn.blocks import PolicyLogSoftmax
 from alpha_cc.nn.nets.default_net import DefaultNet
 from alpha_cc.training.training_dataset import TrainingDataset

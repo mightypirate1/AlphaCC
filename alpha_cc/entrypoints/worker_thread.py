@@ -4,12 +4,15 @@ import time
 import click
 
 from alpha_cc.agents import MCTSAgent
-from alpha_cc.agents.mcts import MCTSExperience
-from alpha_cc.agents.value_assignment import DefaultAssignmentStrategy, DefaultAssignmentStrategyWithHeuristic
+from alpha_cc.agents.value_assignment import (
+    DefaultAssignmentStrategy,
+    DefaultAssignmentStrategyWithHeuristic,
+)
 from alpha_cc.config import Environmnet
 from alpha_cc.db import TrainingDB
 from alpha_cc.engine import Board
 from alpha_cc.entrypoints.logs import init_rootlogger
+from alpha_cc.runtimes import TrainingRunTime
 
 logger = logging.getLogger(__file__)
 
@@ -18,30 +21,19 @@ logger = logging.getLogger(__file__)
 @click.option("--size", type=int, default=9)
 @click.option("--n-rollouts", type=int, default=100)
 @click.option("--rollout-depth", type=int, default=100)
+@click.option("--dirichlet-noise-weight", type=float, default=0.0)
 @click.option("--max-game-length", type=int, default=500)
 @click.option("--heuristic", is_flag=True, default=False)
-@click.option("--reassign-values", is_flag=True, default=False)
 @click.option("--verbose", is_flag=True, default=False)
 def main(
     size: int,
     n_rollouts: int,
     rollout_depth: int,
+    dirichlet_noise_weight: float,
     max_game_length: int,
     heuristic: bool,
-    reassign_values: bool,
     verbose: bool,
 ) -> None:
-    def rollout_trajectory() -> list[MCTSExperience]:
-        board = Board(size)
-        agent.nn.eval()
-        agent.on_game_start()
-        while not board.info.game_over and board.info.duration < max_game_length:
-            moves = board.get_moves()
-            a = agent.choose_move(board, training=True)
-            board = board.apply(moves[a])
-        agent.on_game_end(board)
-        return agent.trajectory
-
     def initialize_agent() -> int:
         while not db.first_weights_published():
             time.sleep(0.1)
@@ -56,16 +48,18 @@ def main(
         return weight_index
 
     init_rootlogger(verbose=verbose)
-    value_assignment_strategy = None
-    if reassign_values:
-        value_assignment_strategy = (
-            DefaultAssignmentStrategyWithHeuristic(size) if heuristic else DefaultAssignmentStrategy()
-        )
+    value_assignment_strategy = (
+        DefaultAssignmentStrategyWithHeuristic(size) if heuristic else DefaultAssignmentStrategy()
+    )
     agent = MCTSAgent(
         size,
         n_rollouts,
         rollout_depth,
-        apply_heuristic=heuristic,
+        dirichlet_weight=dirichlet_noise_weight,
+    )
+    training_runtime = TrainingRunTime(
+        Board(size),
+        agent,
         value_assignment_strategy=value_assignment_strategy,
     )
     db = TrainingDB(host=Environmnet.host_redis)
@@ -75,7 +69,7 @@ def main(
     current_weights = 0
     current_weights = initialize_agent()
     while True:
-        traj = rollout_trajectory()
+        traj = training_runtime.play_game(max_game_length=max_game_length)
         db.post_trajectory(traj)
         logger.debug(f"worker posts {len(traj)} samples")
         current_weights = update_weights()
