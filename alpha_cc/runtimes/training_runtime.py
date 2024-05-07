@@ -26,10 +26,7 @@ class TrainingRunTime:
 
         trajectory: list[MCTSExperience] = []
         while not board.info.game_over and board.info.duration < max_game_duration:
-            pi, value = agent.run_rollouts(board, training=True, temperature=action_temperature)
-            a = np.random.choice(len(pi), p=pi)
-            move = board.get_moves()[a]
-            board = board.apply(move)
+            pi, value = agent.run_rollouts(board, temperature=action_temperature)
             trajectory.append(
                 MCTSExperience(
                     state=GameState(board),
@@ -37,5 +34,8 @@ class TrainingRunTime:
                     v_target=value,
                 )
             )
+            a = np.random.choice(len(pi), p=pi)
+            move = board.get_moves()[a]
+            board = board.apply(move)
         agent.on_game_end()
         return self._value_assignment_strategy(trajectory, final_board=board)

@@ -27,8 +27,8 @@ def main(
     agent.nn.load_state_dict(torch.load(weights))
     agent.nn.eval()
     agents = (
-        agent,
         greedy_agent if vs_greedy else agent,
+        agent,
     )
     config = RunTimeConfig(
         verbose=True,

@@ -1,3 +1,6 @@
+from pathlib import Path
+from typing import Self
+
 import numpy as np
 import torch
 
@@ -15,11 +18,13 @@ class MCTSAgent(Agent):
         board_size: int,
         n_rollouts: int = 100,
         rollout_depth: int = 500,
-        dirichlet_weight: float = 0.0,  # TODO: get good value from paper
+        dirichlet_weight: float = 0.0,
+        dirichlet_alpha: float = 0.03,
     ) -> None:
         self._n_rollouts = n_rollouts
         self._rollout_depth = rollout_depth
         self._dirichlet_weight = dirichlet_weight
+        self._dirichlet_alpha = dirichlet_alpha
         self._nn = DefaultNet(board_size)
         self._heuristic = Heuristic(board_size, subtract_opponent=True)
         self._nodes: dict[StateHash, MCTSNode] = {}
@@ -40,30 +45,31 @@ class MCTSAgent(Agent):
         pass
 
     def choose_move(self, board: Board, training: bool = False, temperature: float = 1.0) -> int | np.integer:
-        pi, _ = self.run_rollouts(board, training=training, temperature=temperature)
+        pi, _ = self.run_rollouts(board, temperature=temperature)
         if training:
             return np.random.choice(len(pi), p=pi)
         return pi.argmax()
 
-    def run_rollouts(self, board: Board, training: bool = False, temperature: float = 1.0) -> tuple[np.ndarray, float]:
+    def run_rollouts(self, board: Board, temperature: float = 1.0) -> tuple[np.ndarray, float]:
         state = GameState(board)
         value = np.array(
             [-self._rollout(state, remaining_depth=self._rollout_depth) for _ in range(self._n_rollouts)]
         ).mean()
-        pi = self._rollout_policy(state, training, temperature)
+        pi = self._rollout_policy(state, temperature)
         return pi, value
 
-    def _rollout_policy(self, state: GameState, training: bool = False, temperature: float = 1.0) -> np.ndarray:
+    def with_weights(self, path: str | Path) -> Self:
+        weights = torch.load(path)
+        self.nn.load_state_dict(weights)
+        return self
+
+    def _rollout_policy(self, state: GameState, temperature: float = 1.0) -> np.ndarray:
         node = self._nodes[state.hash]
         weighted_counts = node.n
         if temperature != 1.0:  # save some flops
             weighted_counts = node.n ** (1 / temperature)
         pi = weighted_counts / weighted_counts.sum()
-        if not training:
-            return pi
-        dirichlet_noise = np.random.dirichlet(np.full_like(pi, 1 / len(pi)))
-        pi_noised = (1 - self._dirichlet_weight) * pi + self._dirichlet_weight * dirichlet_noise
-        return pi_noised
+        return pi
 
     @torch.no_grad()
     def _rollout(self, state: GameState, remaining_depth: int = 999) -> float:
@@ -73,6 +79,11 @@ class MCTSAgent(Agent):
         """
 
         def add_as_new_node(v_hat: float, pi: np.ndarray) -> None:
+            if self._dirichlet_weight > 0.0:
+                # dirichlet_noise = np.random.dirichlet([self._dirichlet_alpha for _ in pi])
+                dirichlet_noise = np.random.dirichlet(self._dirichlet_alpha * pi)
+                pi_noised = (1 - self._dirichlet_weight) * pi + self._dirichlet_weight * dirichlet_noise
+                pi = pi_noised
             self._nodes[state.hash] = MCTSNode(
                 v_hat=v_hat,
                 pi=pi,
