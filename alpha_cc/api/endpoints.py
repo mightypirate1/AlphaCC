@@ -54,7 +54,7 @@ async def apply_move(request: ApplyMoveIO) -> BoardIO:
 @app.post("/request-move")
 async def request_move(request: RequestMoveIO) -> BoardIO:
     try:
-        move, resulting_board = game_manager.request_move(request.game_id, request.time_limit)
+        move, resulting_board = game_manager.request_move(request.game_id)
         return BoardIO.from_board(game_id=request.game_id, board=resulting_board, last_move=move)
     except Exception as e:
         raise ServiceExceptionError(e) from e

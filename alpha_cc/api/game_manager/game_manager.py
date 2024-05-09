@@ -46,10 +46,10 @@ class GameManager:
         self._db.set_entry(game_id, db_state)
         return move, resulting_state.board
 
-    def request_move(self, game_id: str, time_limit: float) -> tuple[Move, Board]:
+    def request_move(self, game_id: str) -> tuple[Move, Board]:
         db_state = self._db.get_entry(game_id)
         agent = self._agents[db_state.state.info.size]
-        sleep(time_limit)  # simulate delay
+        sleep(1)  # simulate delay
         move_index = agent.choose_move(db_state.state.board)
         move = db_state.state.board.get_moves()[move_index]
         resulting_state = db_state.state.children[move_index]
