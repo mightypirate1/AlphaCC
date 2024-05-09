@@ -1,21 +1,18 @@
 ## Tentative road-map:
 The items in each list is very roughly in order of importance.
 
-### Agents
-1. Implement MCTS model (refine this point as needed)
-2. Reward-shaping: some slight bonus for leaving home and for entering the end-zone - ideally subtracted from eventual reward. Make sure it's easy to toggle / scale over time!
-3. Find/implement hex-convolutions if that's a thing. I feel it might be.
+### Optimize Docker images
+1. Move the engine-backend out of the python code.
+2. Figure out how to make uv install only dependencies.
+3. Have a build-stage that prepares the venv with deps and engine installed.
+4. Move the venv over to the final stage which gets the remainder of the code and installs it.
 
-### Game logic
-1. Time limit for games
-2. Fix win condition: seems a stalling tactic is to just not move out of the home, thus forcing draw.
-3. Correct number of starting pieces! (currently 1 row too little)
+### Rust-rollouts
+- Build a rollout-machine in rust using jit-compiled models
+- If faster, make that the default
 
-### Orchestration
-1. Figure out how to parallelize, ideally some  `x * workers + 1 * trainer` setup.
-2. Create a `docker-compose` rig that runs training.
-3. Create a `docker-compose` rig that runs an the interface.
-4. Add `redis` if needed for passing around data.
+### Training
+1. Lot's of weirdness currently since the tensorboard logging is done very unsystematically. Since sending data is currently not at all a bottleneck, we can probably send more data immediately, and have a single SummaryWriter in the `trainer_thread` that is passed to objects as needed that would make this much clearer. Full rewrite?
 
 ### Interface
 1. Build some kind of graphical interface.
@@ -23,7 +20,7 @@ The items in each list is very roughly in order of importance.
 3. Make it so that a human can play against an agent on the backend.
 
 ## REFACTORING thoughts
-1. Once a real nn is in place, the `reward` folder can probably be dropped.
-2. `Runtime` might be redundant soon. Atleast when the webapp takes form.
-5. If we don't use both mask and reverse mask (for nn training) we get rid of one of them
-6. If we do keep the `disallowed_states` thing; figure out a nicer way to implement it!
+1. `Runtime` might be redundant soon. Atleast when the webapp takes form.
+2. If we don't use both mask and reverse mask (for nn training) we get rid of one of them
+3. The division of responsibilities between Agent (in particular MCTSAgent ofc) and `worker_thread` is not ideal. E.g. how the trajectory is formed and manipulated on `on_game_end` is bad.
+4. Now that `Move` is as central as `Board`, an `Agent`'s `choose_move` should surely output a `Move` and not an index for one..?

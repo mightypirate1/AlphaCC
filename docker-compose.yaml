@@ -12,15 +12,14 @@ services:
       - .env.docker
     command: [
       "alpha-cc-trainer",
-      "--run-id=dbg-33-size-5",
+      "--run-id=alpha-cc-0.0.1",
       "--size=5",
       "--n-train-samples=2000",
       "--epochs-per-update=10",
       "--policy-weight=1.0",
       "--value-weight=1.0",
       "--batch-size=64",
-      "--lr=1e-6",
-      # "--verbose",
+      "--lr=1e-4",
     ]
 
   worker:
@@ -35,22 +34,18 @@ services:
       "--size=5",
       "--n-rollouts=100",
       "--rollout-depth=100",
-      "--max-game-length=500",
-      "--heuristic",
-      "--reassign-values",
-      # "--verbose",
+      "--max-game-length=200",
+      # "--dirichlet-noise-weight=0.25",
     ]
 
   tensorboard:
-    network_mode: "host"
-    image: alpha-cc/main
+    image: tensorflow/tensorflow
+    network_mode: host
     depends_on:
       - trainer
     volumes:
       - local:/mnt:ro
     command: ["tensorboard", "--logdir", "/mnt/logdir"]
-    ports:
-      - '6006:6006'
 
   redis:
     image: redislabs/redismod
