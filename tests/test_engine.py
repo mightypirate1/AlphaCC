@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 
 from alpha_cc.agents.heuristic_agents.greedy_agent import GreedyAgent
@@ -30,6 +31,8 @@ def test_moves(board_size: int) -> None:
     moves = board.get_moves()
     move_mask = create_move_mask(moves)
     action_mask_indices = create_move_index_map(moves)
+
+    assert np.array(move_mask).sum() == len(action_mask_indices)
 
     masked_moves = set()
     for i, _ in enumerate(moves):
