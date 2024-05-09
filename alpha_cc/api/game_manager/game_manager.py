@@ -14,7 +14,7 @@ class GameManager:
 
     @property
     def supported_sizes(self) -> list[int]:
-        return list(range(100))
+        return [5, 7, 9]
 
     def create_game(
         self,
