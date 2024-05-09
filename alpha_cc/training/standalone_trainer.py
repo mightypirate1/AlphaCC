@@ -23,7 +23,7 @@ class StandaloneTrainer:
         gamma: float = 1.0,
         gamma_delay: int | float = np.inf,
         lr: float = 1e-4,
-        dataset_size: int = 100000,
+        dataset_size: int = 10000,
         summary_writer: SummaryWriter | None = None,
     ) -> None:
         self._agent = agent
@@ -39,8 +39,6 @@ class StandaloneTrainer:
             value_weight=value_weight,
             epochs_per_update=epochs_per_update,
             batch_size=batch_size,
-            gamma=gamma,
-            gamma_delay=gamma_delay,
             lr=lr,
             summary_writer=summary_writer,
         )

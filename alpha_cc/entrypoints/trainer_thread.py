@@ -24,10 +24,10 @@ logger = logging.getLogger(__file__)
 @click.option("--epochs-per-update", type=int, default=1)
 @click.option("--policy-weight", type=float, default=1.0)
 @click.option("--value-weight", type=float, default=1.0)
-@click.option("--lr", type=float, default=1e-4)
 @click.option("--batch-size", type=int, default=64)
 @click.option("--train-size", type=int, default=5000)
 @click.option("--replay-buffer-size", type=int, default=20000)
+@click.option("--lr", type=float, default=1e-4)
 @click.option("--verbose", is_flag=True, default=False)
 def main(
     run_id: str,
@@ -45,12 +45,13 @@ def main(
     def await_sufficient_samples() -> list[list[MCTSExperience]]:
         trajectories = []
         n_remaining = n_train_samples
-        with tqdm(desc="awaiting sufficient samples", total=n_train_samples) as pbar:
+        with tqdm(desc="awaiting samples", total=n_train_samples) as pbar:
             while n_remaining > 0:
                 trajectory = db.fetch_trajectory(blocking=True)
                 trajectories.append(trajectory)
                 n_remaining -= len(trajectory)
                 pbar.update(len(trajectory))
+                pbar.set_postfix({"n": len(trajectory)})
         return trajectories
 
     init_rootlogger(verbose=verbose)

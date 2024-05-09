@@ -63,7 +63,6 @@ class DefaultNet(torch.nn.Module):
 
         return x_pi, x_value
 
-    @torch.no_grad()
     def policy(self, state: GameState) -> np.ndarray:
         x_pi_all, _ = self._create_or_get_cached_output(state)
         mask = torch.as_tensor(state.action_mask)
@@ -71,7 +70,6 @@ class DefaultNet(torch.nn.Module):
         x_pi_vec = x_pi[:, *action_indexer(state)]
         return x_pi_vec.squeeze(0).numpy()
 
-    @torch.no_grad()
     def value(self, state: GameState) -> np.floating:
         _, x_value = self._create_or_get_cached_output(state)
         return x_value.squeeze().numpy()
@@ -82,6 +80,7 @@ class DefaultNet(torch.nn.Module):
     @torch.no_grad()
     def _create_or_get_cached_output(self, state: GameState) -> tuple[torch.Tensor, torch.Tensor]:
         if state.hash not in self._cache:
+            self.eval()
             x = state.tensor.unsqueeze(0).float()
             self._cache[state.hash] = self(x)
         return self._cache[state.hash]

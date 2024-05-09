@@ -21,16 +21,16 @@ logger = logging.getLogger(__file__)
 @click.option("--size", type=int, default=9)
 @click.option("--n-rollouts", type=int, default=100)
 @click.option("--rollout-depth", type=int, default=100)
-@click.option("--dirichlet-noise-weight", type=float, default=0.0)
 @click.option("--max-game-length", type=int, default=500)
+@click.option("--dirichlet-noise-weight", type=float, default=0.0)
 @click.option("--heuristic", is_flag=True, default=False)
 @click.option("--verbose", is_flag=True, default=False)
 def main(
     size: int,
     n_rollouts: int,
     rollout_depth: int,
-    dirichlet_noise_weight: float,
     max_game_length: int,
+    dirichlet_noise_weight: float,
     heuristic: bool,
     verbose: bool,
 ) -> None:
@@ -43,7 +43,7 @@ def main(
         if db.weights_is_latest(current_weights):
             return current_weights
         weight_index, weights = db.fetch_latest_weights_with_index()
-        agent.nn.load_state_dict(weights)
+        agent.load_weights(weights)
         logger.info(f"updated weights {current_weights}->{weight_index}")
         return weight_index
 

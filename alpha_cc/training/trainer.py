@@ -19,8 +19,6 @@ class Trainer:
         value_weight: float = 1.0,
         epochs_per_update: int = 3,
         batch_size: int = 64,
-        gamma: float = 1.0,
-        gamma_delay: int | float = np.inf,
         lr: float = 1e-4,
         summary_writer: SummaryWriter | None = None,
     ) -> None:
@@ -29,8 +27,6 @@ class Trainer:
         self._value_weight = value_weight
         self._epochs_per_update = epochs_per_update
         self._batch_size = batch_size
-        self._gamma = gamma
-        self._gamma_delay = gamma_delay
         self._policy_log_softmax = PolicyLogSoftmax(board_size)
         self._optimizer = torch.optim.Adam(nn.parameters(), lr=lr, weight_decay=1e-4)
         self._global_step = 0
@@ -75,7 +71,7 @@ class Trainer:
                 self._optimizer.zero_grad()
                 current_pi_unsoftmaxed, current_value = self._nn(x)
                 value_loss = compute_value_loss(current_value, target_value)
-                policy_loss = compute_policy_loss(current_pi_unsoftmaxed, target_pi, pi_mask)
+                policy_loss = compute_policy_loss(current_pi_unsoftmaxed, pi_mask, target_pi)
                 loss = self._value_weight * value_loss + self._policy_weight * policy_loss
                 loss.backward()
                 self._optimizer.step()
@@ -87,7 +83,7 @@ class Trainer:
             return torch.nn.functional.mse_loss(current_value, target_value).mean()
 
         def compute_policy_loss(
-            current_pi_tensor_unsoftmaxed: torch.Tensor, target_pi: torch.Tensor, pi_mask: torch.Tensor
+            current_pi_tensor_unsoftmaxed: torch.Tensor, pi_mask: torch.Tensor, target_pi: torch.Tensor
         ) -> torch.Tensor:
             policy_loss_unmasked = -target_pi * self._policy_log_softmax(current_pi_tensor_unsoftmaxed, pi_mask)
             return torch.where(pi_mask, policy_loss_unmasked, 0).sum() / pi_mask.sum()
@@ -104,13 +100,12 @@ class Trainer:
         total_value_loss = 0.0
         total_policy_loss = 0.0
         with tqdm(desc="nn-update", total=self._epochs_per_update) as pbar:
-            for epoch in range(1, self._epochs_per_update + 1):
+            for _ in range(self._epochs_per_update):
                 epoch_value_loss, epoch_policy_loss = train_epoch()
                 total_value_loss += epoch_value_loss / self._epochs_per_update
                 total_policy_loss += epoch_policy_loss / self._epochs_per_update
                 pbar.set_postfix(
                     {
-                        "epoch": epoch,
                         "value-loss": round(epoch_value_loss, 5),
                         "policy-loss": round(epoch_policy_loss, 5),
                     }

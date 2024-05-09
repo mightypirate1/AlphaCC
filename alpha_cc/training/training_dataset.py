@@ -61,8 +61,8 @@ class TrainingDataset(Dataset):
         self._new_experiences.extend(trajectory)
 
     def _move_new_experiences_to_main_buffer(self) -> None:
-        self._experiences.extendleft(self._experiences)
-        self._experiences.clear()
+        self._experiences.extendleft(self._new_experiences)
+        self._new_experiences.clear()
 
     def _create_pi_target_tensor(self, exp: MCTSExperience) -> torch.Tensor:
         """
