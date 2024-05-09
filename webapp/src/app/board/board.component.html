@@ -1,13 +1,12 @@
-<p>board works!</p>
+Message: {{ board?.message }}
 
-@if (message) {
-    <!-- Message: {{ board.message }} -->
-    Message: {{ message }}
-}
-<br>
-@for (i of board?.matrix; track $index) {
-    @for (j of i; track $index) {
-        {{ j }}
+<div class="board">
+  @for (i of board?.matrix; track i; let row = $index) {
+  <div class="board-row">
+    <div class="board-row-space" [style.width]="row * 25 + 'px'"></div>
+    @for (j of i; track j; let col = $index) {
+    <app-hole [pegType]="j" [point]="{ x: col, y: row }"></app-hole>
     }
-    <br>
-}
+  </div>
+  }
+</div>

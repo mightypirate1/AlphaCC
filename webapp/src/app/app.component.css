@@ -1,0 +1,76 @@
+/* lora-regular - latin */
+@font-face {
+  font-display: swap; /* Check https://developer.mozilla.org/en-US/docs/Web/CSS/@font-face/font-display for other options. */
+  font-family: "Lora";
+  font-style: normal;
+  font-weight: 400;
+  src: url("../fonts/lora-v35-latin-regular.woff2") format("woff2"); /* Chrome 36+, Opera 23+, Firefox 39+, Safari 12+, iOS 10+ */
+}
+/* asul-regular - latin */
+@font-face {
+  font-display: swap; /* Check https://developer.mozilla.org/en-US/docs/Web/CSS/@font-face/font-display for other options. */
+  font-family: "Asul";
+  font-style: normal;
+  font-weight: 400;
+  src: url("../fonts/asul-v21-latin-regular.woff2") format("woff2"); /* Chrome 36+, Opera 23+, Firefox 39+, Safari 12+, iOS 10+ */
+}
+
+html {
+  box-sizing: border-box;
+  font-family: "Lora", serif;
+}
+
+*,
+*:before,
+*:after {
+  box-sizing: inherit;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+  font-size: 100%;
+}
+
+.navbar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-around;
+
+  font-family: Asul, sans-serif;
+  border-bottom: 4px solid rgb(107, 155, 103);
+  letter-spacing: 0.1em;
+}
+
+.nav-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2em;
+}
+
+.nav-links > a {
+  all: unset;
+  font-size: 1.5em;
+}
+
+.nav-links > a:hover {
+  text-decoration-thickness: 2;
+  font-weight: 800;
+}
+
+.site-title {
+  font-size: 4em;
+  flex-shrink: 0;
+}
+
+ul {
+  list-style: none;
+}
+
+.main-wrap {
+  display: flex;
+  height: 100%;
+  justify-content: space-around;
+}

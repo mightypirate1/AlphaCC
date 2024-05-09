@@ -2,13 +2,14 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { Board } from './board';
 import { Observable } from 'rxjs';
+import { environment } from '../environments/environment.development';
 
 @Injectable({
   providedIn: 'root'
 })
 export class BoardService {
 
-  boardUrl: string = 'http://localhost:8000/static-board';
+  boardUrl: string = environment.backendUrl + '/static-board';
 
   constructor(private http: HttpClient) { }
 

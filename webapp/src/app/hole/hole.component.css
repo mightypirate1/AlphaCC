@@ -1,0 +1,16 @@
+.hole {
+  height: 50px;
+  width: 50px;
+  border-radius: 50%;
+  border: 1px solid #000;
+  display: grid;
+}
+
+.peg {
+  position: relative;
+  height: 44px;
+  width: 44px;
+  border-radius: 50%;
+  border: 1px solid #000;
+  place-self: center;
+}
