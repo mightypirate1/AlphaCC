@@ -1,11 +1,11 @@
 import { Component, Input, OnInit } from '@angular/core';
-import { Point } from '../point';
+import { Point } from '../shared/point.model';
 
 @Component({
-    selector: 'app-hole',
+    selector: 'app-board-hole',
     standalone: true,
-    templateUrl: './hole.component.html',
-    styleUrl: './hole.component.css',
+    templateUrl: './board-hole.component.html',
+    styleUrl: './board-hole.component.scss',
     imports: []
 })
 export class HoleComponent implements OnInit {

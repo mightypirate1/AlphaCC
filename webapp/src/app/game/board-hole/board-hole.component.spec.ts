@@ -1,18 +1,18 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
-import { HoleComponent } from './hole.component';
+import { BoardHoleComponent } from './board-hole.component';
 
-describe('HoleComponent', () => {
-  let component: HoleComponent;
-  let fixture: ComponentFixture<HoleComponent>;
+describe('BoardHoleComponent', () => {
+  let component: BoardHoleComponent;
+  let fixture: ComponentFixture<BoardHoleComponent>;
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [HoleComponent]
+      imports: [BoardHoleComponent]
     })
     .compileComponents();
     
-    fixture = TestBed.createComponent(HoleComponent);
+    fixture = TestBed.createComponent(BoardHoleComponent);
     component = fixture.componentInstance;
     fixture.detectChanges();
   });
