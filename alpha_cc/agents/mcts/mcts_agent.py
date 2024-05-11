@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Any, Self
 
+from lru import LRU
 import numpy as np
 import torch
 
@@ -19,13 +20,14 @@ class MCTSAgent(Agent):
         rollout_depth: int = 500,
         dirichlet_weight: float = 0.0,
         dirichlet_alpha: float = 0.03,
+        node_cache_size: int = 1000000,
     ) -> None:
         self._nn = nn
         self._n_rollouts = n_rollouts
         self._rollout_depth = rollout_depth
         self._dirichlet_weight = dirichlet_weight
         self._dirichlet_alpha = dirichlet_alpha
-        self._nodes: dict[StateHash, MCTSNode] = {}
+        self._nodes: LRU[StateHash, MCTSNode] = LRU(size=node_cache_size)
 
     @property
     def nn(self) -> DualHeadEvaluator:
@@ -81,18 +83,16 @@ class MCTSAgent(Agent):
         the return value is the value as seen by the parent node, hence all the minuses.
         """
 
-        def add_as_new_node(pi: np.ndarray, v_hat: float) -> None:
+        def add_as_new_node(pi: np.ndarray, v_hat: float | np.floating) -> None:
             if self._dirichlet_weight > 0.0:
-                # dirichlet_noise = np.random.dirichlet([self._dirichlet_alpha for _ in pi])
                 dirichlet_noise = np.random.dirichlet(self._dirichlet_alpha * pi)
                 pi_noised = (1 - self._dirichlet_weight) * pi + self._dirichlet_weight * dirichlet_noise
                 pi = pi_noised
             self._nodes[state.hash] = MCTSNode(
                 pi=pi,
                 v_hat=v_hat,
-                n=np.zeros(len(state.children), dtype=np.integer),
-                q=np.zeros(len(state.children)),
-                moves=state.moves,
+                n=np.zeros(len(state.children), dtype=np.uint16),
+                q=np.zeros(len(state.children), dtype=np.float32),
             )
 
         # if game is over, we stop
@@ -103,7 +103,7 @@ class MCTSAgent(Agent):
         # - (if depth not reached) initialize the node with nn estimates and zeros for N(s,a), and Q(s,a)
         # - return value from the perspective of the player on the previous move
         if state.hash not in self._nodes or remaining_depth == 0:
-            v_hat = float(self.nn.value(state))
+            v_hat = self.nn.value(state)
             pi = self.nn.policy(state)
             if remaining_depth > 0:
                 add_as_new_node(pi, v_hat)
@@ -111,7 +111,7 @@ class MCTSAgent(Agent):
 
         node = self._nodes[state.hash]
         a = self._find_best_action(state)
-        s_prime = GameState(state.board.apply(node.moves[a]))
+        s_prime = GameState(state.board.apply(state.board.get_moves()[a]))
         v = self._rollout(s_prime, remaining_depth=remaining_depth - 1)
 
         # update node

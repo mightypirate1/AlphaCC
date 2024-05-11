@@ -11,4 +11,3 @@ class MCTSNode:
     v_hat: float
     n: np.ndarray
     q: np.ndarray
-    moves: list[Move]
