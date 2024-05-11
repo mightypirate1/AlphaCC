@@ -4,13 +4,16 @@ from uuid import uuid4
 from alpha_cc.agents import MCTSAgent
 from alpha_cc.api.game_manager.db import DB, DBGameState
 from alpha_cc.engine import Board, Move
+from alpha_cc.nn.nets import DefaultNet
 from alpha_cc.state import GameState
 
 
 class GameManager:
     def __init__(self, db: DB) -> None:
         self._db = db
-        self._agents = {size: MCTSAgent(size, n_rollouts=100, rollout_depth=10) for size in self.supported_sizes}
+        self._agents = {
+            size: MCTSAgent(DefaultNet(size), n_rollouts=100, rollout_depth=10) for size in self.supported_sizes
+        }
 
     @property
     def supported_sizes(self) -> list[int]:

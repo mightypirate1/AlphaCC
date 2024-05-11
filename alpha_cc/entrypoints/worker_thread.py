@@ -8,10 +8,11 @@ from alpha_cc.agents.value_assignment import (
     DefaultAssignmentStrategy,
     DefaultAssignmentStrategyWithHeuristic,
 )
-from alpha_cc.config import Environmnet
-from alpha_cc.db import TrainingDB
+from alpha_cc.config import Environment
+from alpha_cc.db import PredictionDB, TrainingDB
 from alpha_cc.engine import Board
 from alpha_cc.entrypoints.logs import init_rootlogger
+from alpha_cc.nn.service.nn_remote import NNRemote
 from alpha_cc.runtimes import TrainingRunTime
 
 logger = logging.getLogger(__file__)
@@ -34,25 +35,13 @@ def main(
     heuristic: bool,
     verbose: bool,
 ) -> None:
-    def initialize_agent() -> int:
-        while not db.first_weights_published():
-            time.sleep(0.1)
-        return update_weights()
-
-    def update_weights() -> int:
-        if db.weights_is_latest(current_weights):
-            return current_weights
-        weight_index, weights = db.fetch_latest_weights_with_index()
-        agent.load_weights(weights)
-        logger.info(f"updated weights {current_weights}->{weight_index}")
-        return weight_index
-
     init_rootlogger(verbose=verbose)
     value_assignment_strategy = (
         DefaultAssignmentStrategyWithHeuristic(size) if heuristic else DefaultAssignmentStrategy()
     )
+    nn_remote = NNRemote(pred_db=PredictionDB(host=Environment.host_redis))
     agent = MCTSAgent(
-        size,
+        nn_remote,
         n_rollouts,
         rollout_depth,
         dirichlet_weight=dirichlet_noise_weight,
@@ -62,14 +51,11 @@ def main(
         agent,
         value_assignment_strategy=value_assignment_strategy,
     )
-    db = TrainingDB(host=Environmnet.host_redis)
+    db = TrainingDB(host=Environment.host_redis)
 
     # the trainer needs to start and flush the db, so we wait
     time.sleep(10)  # TODO: figure out why workers can start before trainer
-    current_weights = 0
-    current_weights = initialize_agent()
     while True:
         traj = training_runtime.play_game(max_game_length=max_game_length)
         db.post_trajectory(traj)
         logger.debug(f"worker posts {len(traj)} samples")
-        current_weights = update_weights()

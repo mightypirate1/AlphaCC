@@ -6,7 +6,7 @@ from tqdm_loggable.auto import tqdm
 
 from alpha_cc.agents.mcts import MCTSExperience
 from alpha_cc.nn.blocks import PolicyLogSoftmax
-from alpha_cc.nn.nets.default_net import DefaultNet
+from alpha_cc.nn.nets import DualHeadNet
 from alpha_cc.training.training_dataset import TrainingDataset
 
 
@@ -14,7 +14,7 @@ class Trainer:
     def __init__(
         self,
         board_size: int,
-        nn: DefaultNet,
+        nn: DualHeadNet,
         policy_weight: float = 1.0,
         value_weight: float = 1.0,
         epochs_per_update: int = 3,
@@ -33,7 +33,7 @@ class Trainer:
         self._summary_writer = summary_writer
 
     @property
-    def nn(self) -> DefaultNet:
+    def nn(self) -> DualHeadNet:
         return self._nn
 
     def train(self, dataset: TrainingDataset) -> None:

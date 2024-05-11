@@ -12,7 +12,7 @@ services:
       - .env.docker
     command: [
       "alpha-cc-trainer",
-      "--run-id=alpha-cc-0.0.1",
+      "--run-id=dbg-100-dirichlet-0.25",
       "--size=5",
       "--n-train-samples=2000",
       "--epochs-per-update=10",
@@ -28,14 +28,24 @@ services:
       - trainer
     env_file:
       - .env.docker
-    scale: 2
+    scale: 4
     command: [
       "alpha-cc-worker",
       "--size=5",
       "--n-rollouts=100",
       "--rollout-depth=100",
       "--max-game-length=200",
-      # "--dirichlet-noise-weight=0.25",
+      "--dirichlet-noise-weight=0.25",
+    ]
+  nn_service:
+    image: alpha-cc/training
+    depends_on:
+      - trainer
+    env_file:
+      - .env.docker
+    command: [
+      "alpha-cc-nn-service",
+      "--size=5",
     ]
 
   tensorboard:
@@ -51,6 +61,7 @@ services:
     image: redislabs/redismod
     ports:
       - '6379:6379'
+    command: ["redis-server", "--loglevel", "warning"]
 
 volumes:
   local:
