@@ -13,9 +13,6 @@ export class HoleComponent implements OnInit {
   @Input() pegType: number | undefined;
   @Input() point: Point | undefined;
 
-  // @Output() moveFrom = new EventEmitter<Point>();
-  // @Output() moveTo: Point;
-
   color: string = '';
 
   ngOnInit(): void {
