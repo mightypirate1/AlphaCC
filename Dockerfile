@@ -32,7 +32,9 @@ RUN bash -c ' \
 '
 
 FROM rust-base as training
-COPY . .
+RUN mkdir -p $WORKDIR/alpha_cc/
+COPY ./alpha_cc $WORKDIR/alpha_cc
+COPY ./setup.* $WORKDIR
 RUN uv pip install . 
 CMD ["bash"]
 
