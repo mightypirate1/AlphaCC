@@ -1,1 +1,1 @@
-from alpha_cc.config.environment import Environmnet
+from alpha_cc.config.environment import Environment

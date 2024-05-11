@@ -5,32 +5,30 @@ import numpy as np
 import torch
 
 from alpha_cc.agents.agent import Agent
-from alpha_cc.agents.heuristic import Heuristic
 from alpha_cc.agents.mcts.mcts_node import MCTSNode
 from alpha_cc.engine import Board
-from alpha_cc.nn.nets.default_net import DefaultNet
+from alpha_cc.nn.nets import DualHeadEvaluator
 from alpha_cc.state import GameState, StateHash
 
 
 class MCTSAgent(Agent):
     def __init__(
         self,
-        board_size: int,
+        nn: DualHeadEvaluator,
         n_rollouts: int = 100,
         rollout_depth: int = 500,
         dirichlet_weight: float = 0.0,
         dirichlet_alpha: float = 0.03,
     ) -> None:
+        self._nn = nn
         self._n_rollouts = n_rollouts
         self._rollout_depth = rollout_depth
         self._dirichlet_weight = dirichlet_weight
         self._dirichlet_alpha = dirichlet_alpha
-        self._nn = DefaultNet(board_size)
-        self._heuristic = Heuristic(board_size, subtract_opponent=True)
         self._nodes: dict[StateHash, MCTSNode] = {}
 
     @property
-    def nn(self) -> DefaultNet:
+    def nn(self) -> DualHeadEvaluator:
         return self._nn
 
     @property
@@ -63,6 +61,8 @@ class MCTSAgent(Agent):
         return self
 
     def load_weights(self, weights: dict[str, Any]) -> None:
+        if not isinstance(self.nn, torch.nn.Module):
+            raise ValueError(f"Can't load weights into non-torch.nn.Module object {self.nn.__class__.__name__}.")
         self.nn.clear_cache()
         self.nn.load_state_dict(weights)
 

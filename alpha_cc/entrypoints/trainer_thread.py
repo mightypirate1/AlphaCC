@@ -8,7 +8,7 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm_loggable.auto import tqdm
 
 from alpha_cc.agents.mcts import MCTSExperience
-from alpha_cc.config import Environmnet
+from alpha_cc.config import Environment
 from alpha_cc.db import TrainingDB
 from alpha_cc.entrypoints.logs import init_rootlogger
 from alpha_cc.nn.nets.default_net import DefaultNet
@@ -55,7 +55,7 @@ def main(
         return trajectories
 
     init_rootlogger(verbose=verbose)
-    db = TrainingDB(host=Environmnet.host_redis)
+    db = TrainingDB(host=Environment.host_redis)
     replay_buffer = TrainingDataset(max_size=replay_buffer_size)
     summary_writer = create_summary_writer(run_id)
     trainer = Trainer(
@@ -91,14 +91,14 @@ def main(
 
 
 def save_weights(run_id: str, curr_index: int, weights: dict[str, Any]) -> None:
-    path = f"{Environmnet.model_dir}/{run_id}/{str(curr_index).zfill(4)}.pth"
-    latest_path = f"{Environmnet.model_dir}/{run_id}/latest.pth"
+    path = f"{Environment.model_dir}/{run_id}/{str(curr_index).zfill(4)}.pth"
+    latest_path = f"{Environment.model_dir}/{run_id}/latest.pth"
     Path(path).parent.mkdir(exist_ok=True, parents=True)
     torch.save(weights, latest_path)
     torch.save(weights, path)
 
 
 def create_summary_writer(run_id: str) -> SummaryWriter:
-    logdir = f"{Environmnet.tb_logdir}/{run_id}"
+    logdir = f"{Environment.tb_logdir}/{run_id}"
     Path(logdir).mkdir(parents=True, exist_ok=True)
     return SummaryWriter(log_dir=logdir)
