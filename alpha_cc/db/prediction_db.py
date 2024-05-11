@@ -25,7 +25,7 @@ class PredictionDB:
     def await_pred(self, state: GameState, timeout: float = 1.0) -> tuple[torch.Tensor, torch.Tensor]:
         start_time = perf_counter_ns()
         while (pred := self._pred_db.get(state.hash)) is None:
-            sleep(0.001)
+            sleep(0.0000001)
             if start_time + timeout > perf_counter_ns():
                 raise ValueError("timeout fetching pred")
         return dill.loads(pred)  # noqa
