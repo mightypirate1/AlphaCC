@@ -3,6 +3,7 @@ mod r#move;
 mod hexcoord;
 mod moves;
 mod board_info;
+pub mod rollouts;
 
 pub use board::Board;
 pub use r#move::Move;

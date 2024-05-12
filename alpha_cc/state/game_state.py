@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from typing import NewType, Self
+from typing import NewType
 
 import numpy as np
 import torch
@@ -85,8 +85,8 @@ class GameState:
             hash_bytes = hashlib.sha256(self.matrix.tobytes()).digest()
             self._hash = StateHash(hash_bytes)
         return self._hash
-    
-    def apply(self, move: Move) -> Self:
+
+    def apply(self, move: Move) -> GameState:
         return GameState(self.board.apply(move))
 
     def __getstate__(self) -> object:

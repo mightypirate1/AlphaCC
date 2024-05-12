@@ -4,8 +4,9 @@ from typing import Any
 import torch
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from alpha_cc.db.prediction_db import PredictionDB
-from alpha_cc.db.training_db import TrainingDB
+from alpha_cc.db import TrainingDB
+from alpha_cc.engine import Board, NNPred, PredDB
+from alpha_cc.engine.engine_utils import action_indexer
 from alpha_cc.state import GameState
 
 logger = logging.getLogger(__file__)
@@ -17,7 +18,7 @@ class NNService:
     def __init__(
         self,
         nn: torch.nn.Module,
-        pred_db: PredictionDB,
+        pred_db: PredDB,
         training_db: TrainingDB,
         reload_frequency: int,
         log_frequency: int = 60,
@@ -29,32 +30,38 @@ class NNService:
         self._current_weights_index = 0
         self._n_preds = 0
         self._n_batches = 0
+        self._pred_db.flush_preds()
         self._initialize_scheduler(reload_frequency, log_frequency)
 
     def run(self) -> None:
+        logger.info("Starting NNService")
         while True:
-            states = self._pred_db.fetch_all_states()
-            self._process_request(states)
+            boards = self._pred_db.fetch_all()
+            self._process_request(boards)
 
     def update_weights(self, weights: dict[str, Any]) -> None:
         self._nn.load_state_dict(weights)
         self._nn.eval()
         self._pred_db.flush_preds()
 
-    def _process_request(self, states: list[GameState]) -> None:
+    def _process_request(self, boards: list[Board]) -> None:
+        states = [GameState(board) for board in boards]
         x = self._prepare_input(states)
         with torch.no_grad():
             x_pis, x_vals = self._nn(x)
         self._post_predictions(states, x_pis, x_vals)
-        self._n_preds += len(states)
+        self._n_preds += len(boards)
         self._n_batches += 1
 
     def _prepare_input(self, states: list[GameState]) -> torch.Tensor:
         return torch.stack([state.tensor for state in states], dim=0)
 
     def _post_predictions(self, states: list[GameState], x_pis: torch.Tensor, x_vals: torch.Tensor) -> None:
-        for state, pi, val in zip(states, x_pis, x_vals):
-            self._pred_db.post_pred(state, pi, val)
+        for state, pi_tensor_unsoftmaxed, val in zip(states, x_pis, x_vals):
+            pi_unsoftmaxed = pi_tensor_unsoftmaxed[*action_indexer(state)]
+            pi = torch.nn.functional.softmax(pi_unsoftmaxed, dim=0)
+            nn_pred = NNPred(pi.numpy().tolist(), val.item())
+            self._pred_db.post_pred(state.board, nn_pred)
 
     def _initialize_scheduler(self, reload_frequency: int, log_frequency: int) -> None:
         def reload_weights() -> None:

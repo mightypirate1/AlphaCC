@@ -8,6 +8,7 @@ and less bug prone
      
 */
 
+use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 extern crate pyo3;
 use pyo3::prelude::*;
@@ -23,6 +24,7 @@ type BoardMatrix = [[i8; MAX_SIZE]; MAX_SIZE];
 
 
 #[pyclass(module="alpha_cc_engine")]
+#[derive(Clone)]
 pub struct Board {
     size: usize,
     duration: u16,
@@ -67,7 +69,7 @@ impl Board {
         self.matrix[coord.x][coord.y] == 0
     }
 
-    pub fn apply_move(&self, r#move: Move) -> Board {
+    pub fn apply_move(&self, r#move: &Move) -> Board {
         /*
         we attempt to save a copy by flipping once (copy),
         and then perform the move on the flipped matrix:
@@ -121,6 +123,12 @@ impl Board {
         if one_wins(self) {return self.current_player}
         if two_wins(self) {return 3 - self.current_player}
         0
+    }
+
+    pub fn compute_hash(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.hash(&mut hasher);
+        hasher.finish()
     }
 
     #[allow(clippy::needless_range_loop)]
@@ -220,7 +228,7 @@ impl Board {
     pub fn get_next_states(&self) -> Vec<Board> {
         let mut next_states: Vec<Board> = Vec::new();
         for r#move in self.get_moves() {
-            next_states.push(self.apply_move(r#move));
+            next_states.push(self.apply_move(&r#move));
         }
         next_states
     }
@@ -229,7 +237,7 @@ impl Board {
         self.matrix
     }
 
-    pub fn apply(&self, r#move: Move) -> Board {
+    pub fn apply(&self, r#move: &Move) -> Board {
         self.apply_move(r#move)
     }
     
@@ -290,6 +298,10 @@ impl Board {
     }
 
     pub fn __getstate__(&self, py: Python) -> PyResult<PyObject> {
+        Ok(PyBytes::new_bound(py, &self.serialize_rs()).to_object(py))
+    }
+
+    pub fn serialize_rs(&self) -> Vec<u8> {
         let data = (
             self.size,
             self.duration,
@@ -297,6 +309,22 @@ impl Board {
             self.matrix,
             self.current_player,
         );
-        Ok(PyBytes::new_bound(py, &serialize(&data).unwrap()).to_object(py))
+        serialize(&data).unwrap()
+    }
+    
+    #[staticmethod]
+    pub fn deserialize_rs(data: Vec<u8>) -> Board {
+        let (size, duration, home_size, matrix, current_player) = deserialize(&data).unwrap();
+        Board {
+            size,
+            duration,
+            home_size,
+            matrix,
+            current_player,
+        }
+    }
+
+    pub fn __hash__(&self) -> u64 {
+        self.compute_hash()
     }
 }
