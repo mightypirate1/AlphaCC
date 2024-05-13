@@ -4,7 +4,7 @@ import numpy as np
 
 
 @dataclass
-class MCTSNode:
+class MCTSNodePy:
     pi: np.ndarray  # this is the nn-output; not mcts pi
     v_hat: float | np.floating
     n: np.ndarray

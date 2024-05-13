@@ -1,7 +1,7 @@
 from time import sleep
 from uuid import uuid4
 
-from alpha_cc.agents import MCTSAgent
+from alpha_cc.agents import StandaloneMCTSAgent
 from alpha_cc.api.game_manager.db import DB, DBGameState
 from alpha_cc.engine import Board, Move
 from alpha_cc.nn.nets import DefaultNet
@@ -12,7 +12,8 @@ class GameManager:
     def __init__(self, db: DB) -> None:
         self._db = db
         self._agents = {
-            size: MCTSAgent(DefaultNet(size), n_rollouts=100, rollout_depth=10) for size in self.supported_sizes
+            size: StandaloneMCTSAgent(DefaultNet(size), n_rollouts=100, rollout_depth=10)
+            for size in self.supported_sizes
         }
 
     @property
