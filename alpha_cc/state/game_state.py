@@ -86,6 +86,9 @@ class GameState:
             self._hash = StateHash(hash_bytes)
         return self._hash
 
+    def apply(self, move: Move) -> GameState:
+        return GameState(self.board.apply(move))
+
     def __getstate__(self) -> object:
         return self._board
 

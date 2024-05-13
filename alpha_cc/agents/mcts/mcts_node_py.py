@@ -2,13 +2,10 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from alpha_cc.engine import Move
-
 
 @dataclass
-class MCTSNode:
+class MCTSNodePy:
     pi: np.ndarray  # this is the nn-output; not mcts pi
-    v_hat: float
+    v_hat: float | np.floating
     n: np.ndarray
     q: np.ndarray
-    moves: list[Move]

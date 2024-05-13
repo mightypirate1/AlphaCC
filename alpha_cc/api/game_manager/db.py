@@ -1,14 +1,14 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-from alpha_cc.agents.mcts import MCTSNode
+from alpha_cc.agents.mcts import MCTSNodePy
 from alpha_cc.state import GameState
 
 
 @dataclass
 class DBGameState:
     state: GameState
-    nodes: list[MCTSNode]
+    nodes: list[MCTSNodePy]
 
 
 class DB(ABC):

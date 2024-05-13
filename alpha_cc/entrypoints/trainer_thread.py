@@ -42,18 +42,6 @@ def main(
     lr: float,
     verbose: bool,
 ) -> None:
-    def await_sufficient_samples() -> list[list[MCTSExperience]]:
-        trajectories = []
-        n_remaining = n_train_samples
-        with tqdm(desc="awaiting samples", total=n_train_samples) as pbar:
-            while n_remaining > 0:
-                trajectory = db.fetch_trajectory(blocking=True)
-                trajectories.append(trajectory)
-                n_remaining -= len(trajectory)
-                pbar.update(len(trajectory))
-                pbar.set_postfix({"n": len(trajectory)})
-        return trajectories
-
     init_rootlogger(verbose=verbose)
     db = TrainingDB(host=Environment.host_redis)
     replay_buffer = TrainingDataset(max_size=replay_buffer_size)
@@ -76,7 +64,7 @@ def main(
 
     while True:
         # wait until we have enough new samples
-        trajectories = await_sufficient_samples()
+        trajectories = await_samples(db, n_train_samples)
         logger.debug(f"fetched {len(trajectories)} trajectories")
         replay_buffer.add_trajectories(trajectories)
         trainer.report_rollout_stats(trajectories)
@@ -88,6 +76,19 @@ def main(
         # publish weights
         curr_index = db.publish_latest_weights(trainer.nn.state_dict())
         save_weights(run_id, curr_index, trainer.nn.state_dict())
+
+
+def await_samples(db: TrainingDB, n_train_samples: int) -> list[list[MCTSExperience]]:
+    trajectories = []
+    n_remaining = n_train_samples
+    with tqdm(desc="awaiting samples", total=n_train_samples) as pbar:
+        while n_remaining > 0:
+            trajectory = db.fetch_trajectory(blocking=True)
+            trajectories.append(trajectory)
+            n_remaining -= len(trajectory)
+            pbar.update(len(trajectory))
+            pbar.set_postfix({"n": len(trajectory)})
+    return trajectories
 
 
 def save_weights(run_id: str, curr_index: int, weights: dict[str, Any]) -> None:
