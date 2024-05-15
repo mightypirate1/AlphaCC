@@ -1,12 +1,11 @@
 from typing import Self
 
-from pydantic import BaseModel
-
+from alpha_cc.api.io.base_io import BaseIO
 from alpha_cc.api.io.move_io import MoveIO
 from alpha_cc.engine import Board, Move
 
 
-class BoardIO(BaseModel):
+class BoardIO(BaseIO):
     game_id: str
     matrix: list[list[int]]
     current_player: int
