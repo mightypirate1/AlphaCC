@@ -1,6 +1,6 @@
-from pydantic import BaseModel
+from alpha_cc.api.io.base_io import BaseIO
 
 
-class ApplyMoveIO(BaseModel):
+class ApplyMoveIO(BaseIO):
     game_id: str
     move_index: int

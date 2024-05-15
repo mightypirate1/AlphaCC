@@ -1,8 +1,8 @@
 from typing import Literal
 
-from pydantic import BaseModel
+from alpha_cc.api.io.base_io import BaseIO
 
 
-class NewGameIO(BaseModel):
+class NewGameIO(BaseIO):
     size: Literal[5, 7, 9]
     game_id: str | None
