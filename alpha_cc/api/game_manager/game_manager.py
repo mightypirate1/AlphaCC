@@ -1,5 +1,6 @@
 from time import sleep
 from uuid import uuid4
+from pathlib import Path
 
 from alpha_cc.agents import StandaloneMCTSAgent
 from alpha_cc.api.game_manager.db import DB, DBGameState
@@ -8,11 +9,21 @@ from alpha_cc.nn.nets import DefaultNet
 from alpha_cc.state import GameState
 
 
+def get_agent(size: int) -> StandaloneMCTSAgent:
+    weight_dict = {
+        5: Path(__file__).parents[3] / "data/models/test-00-size-5.pth",
+    }
+    model = StandaloneMCTSAgent(DefaultNet(size), n_rollouts=100, rollout_depth=100)
+    if size in weight_dict:
+        return model.with_weights(weight_dict[size])
+    return model
+
+
 class GameManager:
     def __init__(self, db: DB) -> None:
         self._db = db
         self._agents = {
-            size: StandaloneMCTSAgent(DefaultNet(size), n_rollouts=100, rollout_depth=10)
+            size: get_agent(size)
             for size in self.supported_sizes
         }
 
