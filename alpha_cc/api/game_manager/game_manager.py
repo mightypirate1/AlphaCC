@@ -1,6 +1,6 @@
+from pathlib import Path
 from time import sleep
 from uuid import uuid4
-from pathlib import Path
 
 from alpha_cc.agents import StandaloneMCTSAgent
 from alpha_cc.api.game_manager.db import DB, DBGameState
@@ -22,10 +22,7 @@ def get_agent(size: int) -> StandaloneMCTSAgent:
 class GameManager:
     def __init__(self, db: DB) -> None:
         self._db = db
-        self._agents = {
-            size: get_agent(size)
-            for size in self.supported_sizes
-        }
+        self._agents = {size: get_agent(size) for size in self.supported_sizes}
 
     @property
     def supported_sizes(self) -> list[int]:
