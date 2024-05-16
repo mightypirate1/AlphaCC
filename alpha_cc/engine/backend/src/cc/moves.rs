@@ -38,6 +38,7 @@ pub fn find_all_moves(board: &Board) -> Vec<Move> {
         for y in 0..size {
             if board.get_matrix()[x][y] == 1 {
                 coord = HexCoord::create(x, y , board.get_size());
+                from_coords.insert(coord);
                 for direction in coord.get_all_directions(){
                     if let Some(to_coord) = coord.get_neighbor(direction, 1) {
                         if board.coord_is_empty(&to_coord) {
@@ -48,7 +49,6 @@ pub fn find_all_moves(board: &Board) -> Vec<Move> {
                                     path: Vec::new(),
                                 }
                             );
-                            from_coords.insert(coord);
                         }
                     }
                 }
