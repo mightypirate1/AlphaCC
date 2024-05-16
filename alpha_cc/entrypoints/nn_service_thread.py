@@ -25,4 +25,3 @@ def main(size: int, reload_frequency: int, verbose: bool) -> None:
         reload_frequency=reload_frequency,
     )
     nn_service.run()
-
