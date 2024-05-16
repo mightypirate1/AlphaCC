@@ -6,7 +6,7 @@ import click
 from alpha_cc.agents import MCTSAgent
 from alpha_cc.agents.value_assignment import (
     DefaultAssignmentStrategy,
-    DefaultAssignmentStrategyWithHeuristic,
+    HeuristicAssignmentStrategy,
 )
 from alpha_cc.config import Environment
 from alpha_cc.db import TrainingDB
@@ -25,6 +25,7 @@ logger = logging.getLogger(__file__)
 @click.option("--dirichlet-noise-weight", type=float, default=0.0)
 @click.option("--argmax-delay", type=int, default=None)
 @click.option("--heuristic", is_flag=True, default=False)
+@click.option("--gamma", type=float, default=1.0)
 @click.option("--verbose", is_flag=True, default=False)
 def main(
     size: int,
@@ -34,11 +35,12 @@ def main(
     dirichlet_noise_weight: float,
     argmax_delay: int | None,
     heuristic: bool,
+    gamma: float,
     verbose: bool,
 ) -> None:
     init_rootlogger(verbose=verbose)
     value_assignment_strategy = (
-        DefaultAssignmentStrategyWithHeuristic(size) if heuristic else DefaultAssignmentStrategy()
+        HeuristicAssignmentStrategy(size, gamma) if heuristic else DefaultAssignmentStrategy(gamma)
     )
     agent = MCTSAgent(
         Environment.host_redis,
@@ -58,8 +60,4 @@ def main(
     time.sleep(10)  # TODO: figure out why workers can start before trainer
     while True:
         traj = training_runtime.play_game(max_game_length=max_game_length)
-        if max_game_length is not None and len(traj) < max_game_length:
-            db.post_trajectory(traj)
-            logger.debug(f"worker posts {len(traj)} samples")
-        else:
-            logger.warn(f"worker dropped {len(traj)} samples")
+        db.post_trajectory(traj)

@@ -2,4 +2,5 @@ from alpha_cc.agents.value_assignment.default_assignment_strategy import Default
 from alpha_cc.agents.value_assignment.default_assignment_strategy_with_heuristic import (
     DefaultAssignmentStrategyWithHeuristic,
 )
+from alpha_cc.agents.value_assignment.heuristic_assignment_strategy import HeuristicAssignmentStrategy
 from alpha_cc.agents.value_assignment.value_assignment_strategy import NoOpAssignmentStrategy, ValueAssignmentStrategy
