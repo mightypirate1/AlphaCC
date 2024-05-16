@@ -92,7 +92,7 @@ def await_samples(db: TrainingDB, n_train_samples: int) -> list[list[MCTSExperie
     # remaining on the queue. thus, we clear the queue so we can train on
     # the latest data. as as bonus, we also get to notice this  happening in
     # tensorboard
-    if (remaining_trajectories := db.fetch_all_trajectories()):
+    if remaining_trajectories := db.fetch_all_trajectories():
         logger.warning(f"trainer is behind by {len(remaining_trajectories)} samples")
         trajectories.extend(remaining_trajectories)
     return trajectories
