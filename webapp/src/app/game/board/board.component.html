@@ -1,11 +1,29 @@
-Message: {{ board?.message }}
-
-<div class="board">
+<div class="board" cdkDropListGroup>
   @for (i of board?.matrix; track i; let row = $index) {
   <div class="board-row">
     <div class="board-row-space" [style.width]="row * 25 + 'px'"></div>
     @for (j of i; track j; let col = $index) {
-    <app-board-hole [pegType]="j" [point]="{ x: col, y: row }"></app-board-hole>
+    <div
+      class="hole"
+      cdkDropList
+      [cdkDropListData]="{ pegType: j, row: row, col: col }"
+      (cdkDropListDropped)="drop($event)"
+      [ngClass]="{
+        selected: board?.isLegalMove(selected.x, selected.y, row, col)
+      }"
+    >
+      <div
+        class="peg"
+        [appPeg]="colors[j]"
+        cdkDrag
+        [cdkDragDisabled]="!board?.isLegalMoveSource(row, col)"
+        (mousedown)="setSelected(row, col)"
+        (mouseup)="setSelected(-1, -1)"
+        (mouseleave)="setSelected(-1, -1)"
+      >
+        <div *cdkDragPlaceholder style="display: none"></div>
+      </div>
+    </div>
     }
   </div>
   }

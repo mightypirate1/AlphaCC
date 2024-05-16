@@ -20,3 +20,27 @@
 .board-row {
   display: flex;
 }
+
+.hole {
+  height: 50px;
+  width: 50px;
+  border-radius: 50%;
+  border: 1px solid #000;
+  overflow: hidden; // find better fix
+  background-color: grey;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.peg {
+  position: relative;
+  height: 40px;
+  width: 40px;
+  border-radius: 50%;
+  overflow: hidden;
+}
+
+.selected {
+  border: 1px solid white;
+}

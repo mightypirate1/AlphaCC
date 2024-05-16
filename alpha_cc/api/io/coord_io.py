@@ -1,6 +1,6 @@
-from pydantic import BaseModel
+from alpha_cc.api.io.base_io import BaseIO
 
 
-class CoordIO(BaseModel):
+class CoordIO(BaseIO):
     x: int
     y: int

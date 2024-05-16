@@ -1,12 +1,11 @@
 from typing import Self
 
-from pydantic import BaseModel
-
+from alpha_cc.api.io.base_io import BaseIO
 from alpha_cc.api.io.coord_io import CoordIO
 from alpha_cc.engine import Board, Move
 
 
-class MoveIO(BaseModel):
+class MoveIO(BaseIO):
     from_coord: CoordIO
     to_coord: CoordIO
     path: list[CoordIO]

@@ -1,5 +1,5 @@
-from pydantic import BaseModel
+from alpha_cc.api.io.base_io import BaseIO
 
 
-class RequestMoveIO(BaseModel):
+class RequestMoveIO(BaseIO):
     game_id: str
