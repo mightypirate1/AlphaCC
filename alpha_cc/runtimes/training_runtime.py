@@ -1,4 +1,5 @@
 import numpy as np
+from tqdm_loggable.auto import tqdm
 
 from alpha_cc.agents import MCTSAgent
 from alpha_cc.agents.mcts import MCTSExperience
@@ -18,23 +19,37 @@ class TrainingRunTime:
         self._agent = agent
         self._value_assignment_strategy = value_assignment_strategy
 
-    def play_game(self, max_game_length: int | None = None, action_temperature: float = 1.0) -> list[MCTSExperience]:
+    def play_game(
+        self,
+        n_rollouts: int | None = None,
+        rollout_depth: int | None = None,
+        action_temperature: float = 1.0,
+        max_game_length: int | None = None,
+    ) -> list[MCTSExperience]:
         board = self._board.reset()
         agent = self._agent
         max_game_duration = np.inf if max_game_length is None else max_game_length
         agent.on_game_start()
 
         trajectory: list[MCTSExperience] = []
-        while not board.info.game_over and board.info.duration < max_game_duration:
-            pi, value = agent.run_rollouts(board, temperature=action_temperature)
-            experience = MCTSExperience(
-                state=GameState(board),
-                pi_target=pi,
-                v_target=value,
-            )
-            trajectory.append(experience)
-            a = np.random.choice(len(pi), p=pi)
-            moves = board.get_moves()
-            board = board.apply(moves[a])
+
+        with tqdm("rollouts") as pbar:
+            while not board.info.game_over and board.info.duration < max_game_duration:
+                pi, value = agent.run_rollouts(
+                    board,
+                    n_rollouts=n_rollouts,
+                    rollout_depth=rollout_depth,
+                    temperature=action_temperature,
+                )
+                experience = MCTSExperience(
+                    state=GameState(board),
+                    pi_target=pi,
+                    v_target=value,
+                )
+                trajectory.append(experience)
+                a = np.random.choice(len(pi), p=pi)
+                moves = board.get_moves()
+                board = board.apply(moves[a])
+                pbar.update(1)
         agent.on_game_end()
         return self._value_assignment_strategy(trajectory, final_board=board)

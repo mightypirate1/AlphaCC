@@ -45,8 +45,16 @@ class MCTSAgent(Agent):
             return np.random.choice(len(pi), p=pi)
         return pi.argmax()
 
-    def run_rollouts(self, board: Board, temperature: float = 1.0) -> tuple[np.ndarray, float]:
-        value = np.array([-self._mcts.run(board, self._rollout_depth) for _ in range(self._n_rollouts)]).mean()
+    def run_rollouts(
+        self,
+        board: Board,
+        temperature: float = 1.0,
+        n_rollouts: int | None = None,
+        rollout_depth: int | None = None,
+    ) -> tuple[np.ndarray, float]:
+        n_rollouts = n_rollouts if n_rollouts is not None else self._n_rollouts
+        rollout_depth = rollout_depth if rollout_depth is not None else self._rollout_depth
+        value = np.array([-self._mcts.run(board, rollout_depth) for _ in range(n_rollouts)]).mean()
         pi = self._rollout_policy(board, temperature)
         return pi, value
 
