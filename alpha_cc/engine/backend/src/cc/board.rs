@@ -29,6 +29,7 @@ pub struct Board {
     size: usize,
     duration: u16,
     home_size: usize,
+    home_capacity: usize,
     matrix: BoardMatrix,
     current_player: i8,
 }
@@ -56,6 +57,7 @@ impl Board {
             size,
             duration: 0,
             home_size: Board::home_size(size),
+            home_capacity: Board::home_capacity(size),
             matrix: Board::initialize_matrix(size),
             current_player: 1,
         }
@@ -66,69 +68,119 @@ impl Board {
     }
 
     pub fn coord_is_empty(&self, coord: &HexCoord) -> bool {
-        self.matrix[coord.x][coord.y] == 0
+        self.get_content(coord) == 0
+    }
+    
+    pub fn coord_is_player1(&self, coord: &HexCoord) -> bool {
+        self.get_content(coord) == 1
+    }
+    
+    pub fn coord_is_player2(&self, coord: &HexCoord) -> bool {
+        self.get_content(coord) == 2
+    }
+
+    pub fn coord_is_player1_home(&self, coord: &HexCoord) -> bool {
+        Board::xy_start_val(coord.x, coord.y, self.size) == 1
+    }
+
+    pub fn coord_is_player2_home(&self, coord: &HexCoord) -> bool {
+        Board::xy_start_val(coord.x, coord.y, self.size) == 2
     }
 
     pub fn apply_move(&self, r#move: &Move) -> Board {
         /*
         we attempt to save a copy by flipping once (copy),
         and then perform the move on the flipped matrix:
-        - reversed coords
-        - played piece is 2
-        */ 
+        - flipped board
+        - flipped coords
+        - played piece is 2 (flipped)
+
+        most moves will leave the from_coord empty, but some moves
+        swap the stone with the opponents stone. thus we will put
+        whatever content is at the to_coord cell at the from_coord cell,
+        and trust the move finding algorithm to have checked that the
+        result is valid.
+        */
+
         let mut matrix = self.flipped_matrix();
-        matrix[self.size -1 - r#move.from_coord.x][self.size -1 - r#move.from_coord.y] = 0;
-        matrix[self.size -1 - r#move.to_coord.x][self.size -1 - r#move.to_coord.y] = 2;
+        let flipped_from_coord = r#move.from_coord.flip();
+        let flipped_to_coord = r#move.to_coord.flip();
+        let to_coord_content = matrix[flipped_to_coord.x][flipped_to_coord.y];  
+
+        matrix[flipped_from_coord.x][flipped_from_coord.y] = to_coord_content;
+        matrix[flipped_to_coord.x][flipped_to_coord.y] = 2;  // 2 is the current player (since the board is flipped)
         Board {
             size: self.size,
             duration: self.duration + 1,
             home_size: self.home_size,
+            home_capacity: self.home_capacity,
             matrix,
             current_player: if self.current_player == 1 {2} else {1},
         }
-    }
-
-    pub fn get_winner(&self) -> i8 {
-        fn one_wins(board: &Board) -> bool {
-            let s = board.size;
-            let hs = board.home_size;
-            let mut at_least_one_one_opponent_home = false;
-            for x in (s-hs)..s {
-                for y in (s-hs)..s {
-                    if Board::xy_start_val(x, y, board.size) == 2 {
-                        if board.matrix[x][y] == 0 {return false}
-                        if board.matrix[x][y] == 1 {
-                            at_least_one_one_opponent_home = true;
-                        }
-                    }
-                }
-            }
-            at_least_one_one_opponent_home
-        }
-        fn two_wins(board: &Board) -> bool {
-            let hs = board.home_size;
-            let mut at_least_one_one_opponent_home = false;
-            for x in 0..hs {
-                for y in 0..hs {
-                    if Board::xy_start_val(x, y, board.size) == 1{
-                        if board.matrix[x][y] == 0 {return false}
-                        if board.matrix[x][y] == 2 {
-                            at_least_one_one_opponent_home = true;
-                        }
-                    }
-                }
-            }
-            at_least_one_one_opponent_home
-        }
-        if one_wins(self) {return self.current_player}
-        if two_wins(self) {return 3 - self.current_player}
-        0
     }
 
     pub fn compute_hash(&self) -> u64 {
         let mut hasher = DefaultHasher::new();
         self.hash(&mut hasher);
         hasher.finish()
+    }
+
+    pub fn compute_reward_and_winner(&self) -> (f32, i8) {
+        /*
+        compute the reward for a board that may or may not be terminal.
+        
+        for terminal states:
+            the reward is 1 if the current player wins, -1 if the opponent wins.
+
+        for non-terminal states:
+            - let the score for a player be the number of stones they have in the opponents home.
+            - the reward is then the difference in score divided by the number of stones that fit
+                in a home region.
+
+         */
+        let s = self.size;
+        let hs = self.home_size;
+        
+        let mut p1_wins: bool = true;
+        let mut n_p1_stones_in_p2_home = 0;
+        let mut at_least_one_stone_in_goal = false;
+        for x in (s-hs)..s {
+            for y in (s-hs)..s {
+                if Board::xy_start_val(x, y, self.size) == 2 {
+                    if self.matrix[x][y] == 1 {
+                        at_least_one_stone_in_goal = true;
+                        n_p1_stones_in_p2_home += 1;
+                    }
+                    if self.matrix[x][y] == 0 {p1_wins = false}
+                }
+            }
+        }
+        p1_wins &= at_least_one_stone_in_goal;
+
+        let mut p2_wins: bool = true;
+        let mut n_p2_stones_in_p1_home = 0;
+        at_least_one_stone_in_goal = false;
+        for x in 0..hs {
+            for y in 0..hs {
+                if Board::xy_start_val(x, y, self.size) == 1{
+                    if self.matrix[x][y] == 2 {
+                        n_p2_stones_in_p1_home += 1;
+                    }
+                    if self.matrix[x][y] == 0 {p2_wins = false}
+                }
+            }
+        }
+        p2_wins &= at_least_one_stone_in_goal;
+
+        if p1_wins {
+            return (1.0, 1);
+        }
+        if p2_wins {
+            return (-1.0, 2);
+        }
+        
+        let reward = (n_p1_stones_in_p2_home - n_p2_stones_in_p1_home) as f32 / self.home_capacity as f32;
+        (reward, 0)
     }
 
     #[allow(clippy::needless_range_loop)]
@@ -146,7 +198,9 @@ impl Board {
                     0 => 0,
                     1 => 2,
                     2 => 1,
-                    _ => panic!("wtf")
+                    _ => {
+                        unreachable!("invalid value on board: {val}")
+                    }
                 };
             } 
         }
@@ -155,6 +209,10 @@ impl Board {
 
     fn empty_matrix() -> BoardMatrix {
         [[0; MAX_SIZE]; MAX_SIZE]
+    }
+
+    fn get_content(&self, coord: &HexCoord) -> i8 {
+        self.matrix[coord.x][coord.y]
     }
 
     #[allow(clippy::needless_range_loop)]
@@ -187,6 +245,11 @@ impl Board {
     fn home_size(size: usize) -> usize {
         (size - 1) / 2
     }
+
+    fn home_capacity(size: usize) -> usize {
+        let hs = Board::home_size(size);
+        (hs * (hs + 1)) / 2
+    }
 }
 
 
@@ -208,6 +271,7 @@ impl Board {
                     size: 9,
                     duration: 0,
                     home_size: 4,
+                    home_capacity: 10,
                     matrix: Board::empty_matrix(),
                     current_player: 1,
                 }
@@ -253,17 +317,14 @@ impl Board {
     
     #[getter]
     pub fn get_info(&self) -> BoardInfo {
-        let winner = self.get_winner();
+        let (reward, winner) = self.compute_reward_and_winner();
         BoardInfo {
             current_player: self.current_player,
             winner,
+            reward,
             size: self.size,
             duration: self.duration,
             game_over: winner > 0,
-            reward: match winner {
-                0 => 0,
-                _ => if self.current_player == winner {1} else {-1},
-            }
         }
     }
 
@@ -288,6 +349,7 @@ impl Board {
                     self.size,
                     self.duration,
                     self.home_size,
+                    self.home_capacity,
                     self.matrix,
                     self.current_player,
                 ) = deserialize(s.as_bytes()).unwrap();
@@ -306,6 +368,7 @@ impl Board {
             self.size,
             self.duration,
             self.home_size,
+            self.home_capacity,
             self.matrix,
             self.current_player,
         );
@@ -314,11 +377,19 @@ impl Board {
     
     #[staticmethod]
     pub fn deserialize_rs(data: Vec<u8>) -> Board {
-        let (size, duration, home_size, matrix, current_player) = deserialize(&data).unwrap();
+        let (
+            size,
+            duration,
+            home_size,
+            home_capacity,
+            matrix,
+            current_player,
+        ) = deserialize(&data).unwrap();
         Board {
             size,
             duration,
             home_size,
+            home_capacity,
             matrix,
             current_player,
         }

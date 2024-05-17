@@ -45,7 +45,7 @@ impl MCTS {
     ) -> f32 {
         let info = board.get_info();
         if info.game_over {
-            return -info.reward as f32;
+            return -info.reward;
         }
         
         // if we haven't seen this board before, or we're at the end of the rollout

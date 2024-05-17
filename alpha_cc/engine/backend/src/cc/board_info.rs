@@ -15,7 +15,7 @@ pub struct BoardInfo {
     #[pyo3(get)]
     pub game_over: bool,
     #[pyo3(get)]
-    pub reward: i8,
+    pub reward: f32,
 }
 
 
