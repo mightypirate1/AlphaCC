@@ -141,44 +141,46 @@ impl Board {
         let s = self.size;
         let hs = self.home_size;
         
-        let mut p1_wins: bool = true;
         let mut n_p1_stones_in_p2_home = 0;
-        let mut at_least_one_stone_in_goal = false;
+        let mut goal_is_full: bool = true;
         for x in (s-hs)..s {
             for y in (s-hs)..s {
                 if Board::xy_start_val(x, y, self.size) == 2 {
                     if self.matrix[x][y] == 1 {
-                        at_least_one_stone_in_goal = true;
                         n_p1_stones_in_p2_home += 1;
                     }
-                    if self.matrix[x][y] == 0 {p1_wins = false}
+                    if self.matrix[x][y] == 0 {
+                        goal_is_full = false;
+                    }
                 }
             }
         }
-        p1_wins &= at_least_one_stone_in_goal;
+        // p1 wins
+        if goal_is_full && n_p1_stones_in_p2_home > 0 {
+            return (1.0, 1);
+        }
 
-        let mut p2_wins: bool = true;
+
         let mut n_p2_stones_in_p1_home = 0;
-        at_least_one_stone_in_goal = false;
+        goal_is_full = true;
         for x in 0..hs {
             for y in 0..hs {
-                if Board::xy_start_val(x, y, self.size) == 1{
+                if Board::xy_start_val(x, y, self.size) == 1 {
                     if self.matrix[x][y] == 2 {
                         n_p2_stones_in_p1_home += 1;
                     }
-                    if self.matrix[x][y] == 0 {p2_wins = false}
+                    if self.matrix[x][y] == 0 {
+                        goal_is_full = false;
+                    }
                 }
             }
         }
-        p2_wins &= at_least_one_stone_in_goal;
-
-        if p1_wins {
-            return (1.0, 1);
-        }
-        if p2_wins {
+        // p2 wins
+        if goal_is_full && n_p2_stones_in_p1_home > 0 {
             return (-1.0, 2);
         }
-        
+
+        // non-terminal state        
         let reward = (n_p1_stones_in_p2_home - n_p2_stones_in_p1_home) as f32 / self.home_capacity as f32;
         (reward, 0)
     }
