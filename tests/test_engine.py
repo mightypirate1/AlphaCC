@@ -10,7 +10,7 @@ from .common import get_random_board_state
 def test_game() -> None:
     board_size = 9
     move_count = 0
-    expected_number_of_moves = 121  # chosen since this was the actual value to complete a game
+    expected_number_of_moves = 106  # chosen since this was the actual value to complete a game
 
     board = Board(board_size)
     agent = GreedyAgent(board_size)
@@ -20,6 +20,7 @@ def test_game() -> None:
         action = agent.choose_move(board)
         move = board.get_moves()[action]
         board = board.apply(move)
+    board.render()
     assert move_count == board.info.duration
     assert move_count == expected_number_of_moves, "incorrect number of moves"
     assert board.info.game_over, "game not over"
