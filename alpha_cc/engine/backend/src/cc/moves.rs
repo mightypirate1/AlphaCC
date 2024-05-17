@@ -29,27 +29,37 @@ pub fn create_move_index_map(moves: Vec<Move>) -> HashMap<usize, (HexCoord, HexC
 
 
 pub fn find_all_moves(board: &Board) -> Vec<Move> {
+    /*
+    there are 2 types of moves (both with 2 variants):
+    - jump moves (see `find_all_jump_moves`)
+    - walk moves (moving to an adjacent cell)
+
+    both of these require that the target cell is empty, - except:
+    if the taget cell is in the opponent's home, and is occupied by one of the
+    opponent's stones; then the move is still legal, and the opponent's stone
+    will be swap places with the moved stone.
+     */
     let size = board.get_size();
     let mut moves: Vec<Move> = Vec::new();
-    let mut coord: HexCoord;
+    let mut from_coord: HexCoord;
     let mut from_coords: IndexSet<HexCoord> = IndexSet::new();
     
     for x in 0..size {
         for y in 0..size {
             if board.get_matrix()[x][y] == 1 {
-                coord = HexCoord::create(x, y , board.get_size());
-                for direction in coord.get_all_directions(){
-                    if let Some(to_coord) = coord.get_neighbor(direction, 1) {
-                        if board.coord_is_empty(&to_coord) {
-                            moves.push(
-                                Move {
-                                    from_coord: coord,
-                                    to_coord,
-                                    path: Vec::new(),
-                                }
-                            );
-                            from_coords.insert(coord);
-                        }
+                from_coord = HexCoord::create(x, y , board.get_size());
+                from_coords.insert(from_coord);
+                for to_coord in from_coord.get_all_neighbours(1) {
+                    if board.coord_is_empty(&to_coord)
+                    || board.coord_is_player2_home(&to_coord)
+                    && board.coord_is_player2(&to_coord) {
+                        moves.push(
+                            Move {
+                                from_coord,
+                                to_coord,
+                                path: Vec::new(),
+                            }
+                        );
                     }
                 }
             }
@@ -85,7 +95,21 @@ fn _recusive_exporation<'a>(
     jump_moves: &'a mut Vec<Move>,
 ) { 
     /*
-    does not explicitly return a value; instead it adds them to the `jump_moves` vec
+    there are 2 types of jumps:
+    1. standard jump:
+        - if a stone is next to another one, and the next cell (in the same direction)
+            is empty, the stone can jump over the other stone to the empty cell.
+        - if from there, there is another jump available, the stone can continue jumping.
+        - one can chain jumps together like this until there are no more jumps available,
+            or stop anywhere along the way.
+    2. swap jump:
+        - if a potential jump is blocked by an opponent's stone that is in it's home still,
+            the stone can swap places with the opponent's stone. i.e. it is not possible to
+            block a jump by camping in one's home.
+        - this type of jump does not allow for further jumps.
+
+    NOTE: this function does not explicitly return a value; instead it adds them to the 
+        `jump_moves` vec.
      */
     for direction in current_coord.get_all_directions() {
         let mb_target_coord = current_coord.get_neighbor(direction, 2);
@@ -93,9 +117,17 @@ fn _recusive_exporation<'a>(
         if mb_target_coord.is_some() && mb_intermediate_coord.is_some() {
             let target_coord = mb_target_coord.unwrap();
             let intermediate_coord = mb_intermediate_coord.unwrap();
-            if board.coord_is_empty(&target_coord)
+
+            let is_standard_jump = board.coord_is_empty(&target_coord)
                 && !board.coord_is_empty(&intermediate_coord)
-                && !final_positions.contains(&target_coord) {
+                && !final_positions.contains(&target_coord);
+            
+            let is_swap_jump = board.coord_is_player2(&target_coord)
+                && board.coord_is_player2_home(&target_coord)
+                && !board.coord_is_empty(&intermediate_coord)
+                && !final_positions.contains(&target_coord);
+
+            if is_standard_jump || is_swap_jump {
                     // If `current_coord` -> `target_coord` woul be a legal jump,
                     // and this is the fist time we encounter `target_coord`:
                     // - Remember that we already know we can get to `target_coord` from `starting_coord`.
@@ -108,13 +140,16 @@ fn _recusive_exporation<'a>(
                             path: Vec::new(),
                         }
                     );
-                    _recusive_exporation(
-                        board,
-                        starting_coord,
-                        &target_coord,
-                        final_positions,
-                        jump_moves,
-                    );
+                    if is_standard_jump {
+                        // If this is a standard jump, we can continue exploring from `target_coord`.
+                        _recusive_exporation(
+                            board,
+                            starting_coord,
+                            &target_coord,
+                            final_positions,
+                            jump_moves,
+                        );
+                    }
                 }
         }
     }

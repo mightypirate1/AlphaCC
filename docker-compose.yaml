@@ -1,6 +1,6 @@
 services:
   trainer:
-    image: alpha-cc/training
+    image: alphacc/training
     build:
       dockerfile: Dockerfile
       target: training
@@ -11,12 +11,12 @@ services:
     env_file:
       - .env.docker
     command: [
-      "alpha-cc-trainer",
-      "--run-id=dbg-101-size-7-01",
+      "alphacc-trainer",
+      "--run-id=dbg-102-size-7",
       "--size=7",
-      "--n-train-samples=10000",
-      "--replay-buffer-size=50000",
-      "--epochs-per-update=10",
+      "--n-train-samples=5000",
+      "--replay-buffer-size=25000",
+      "--epochs-per-update=5",
       "--policy-weight=1.0",
       "--value-weight=1.0",
       "--batch-size=256",
@@ -24,7 +24,7 @@ services:
     ]
 
   worker:
-    image: alpha-cc/training
+    image: alphacc/training
     depends_on:
       - trainer
     env_file:
@@ -32,23 +32,22 @@ services:
     scale: 6
     restart: always
     command: [
-      "alpha-cc-worker",
+      "alphacc-worker",
       "--size=7",
-      "--n-rollouts=100",
+      "--n-rollouts=300",
       "--rollout-depth=100",
-      "--max-game-length=100000",
+      "--max-game-length=500",
       "--dirichlet-noise-weight=0.25",
-      "--argmax-delay=40",
     ]
     
   nn-service:
-    image: alpha-cc/training
+    image: alphacc/training
     depends_on:
       - trainer
     env_file:
       - .env.docker
     command: [
-      "alpha-cc-nn-service",
+      "alphacc-nn-service",
       "--size=7",
     ]
 

@@ -33,7 +33,7 @@ class TrainingRunTime:
 
         trajectory: list[MCTSExperience] = []
 
-        with tqdm("rollouts") as pbar:
+        with tqdm("training-rollout", total=max_game_length) as pbar:
             while not board.info.game_over and board.info.duration < max_game_duration:
                 pi, value = agent.run_rollouts(
                     board,

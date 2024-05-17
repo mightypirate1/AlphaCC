@@ -56,11 +56,11 @@ setup(
     },
     entry_points = {
         "console_scripts": [
-            "alpha-cc-trainer = alpha_cc.entrypoints.trainer_thread:main",
-            "alpha-cc-worker = alpha_cc.entrypoints.worker_thread:main",
-            "alpha-cc-nn-service = alpha_cc.entrypoints.nn_service_thread:main",
-            "alpha-cc-singlethread-training = alpha_cc.entrypoints.singlethread_training:main",
-            "alpha-cc-eval-weights = alpha_cc.entrypoints.eval_weights:main",
+            "alphacc-trainer = alpha_cc.entrypoints.trainer_thread:main",
+            "alphacc-worker = alpha_cc.entrypoints.worker_thread:main",
+            "alphacc-nn-service = alpha_cc.entrypoints.nn_service_thread:main",
+            "alphacc-singlethread-training = alpha_cc.entrypoints.singlethread_training:main",
+            "alphacc-eval-weights = alpha_cc.entrypoints.eval_weights:main",
         ],
     }
 )

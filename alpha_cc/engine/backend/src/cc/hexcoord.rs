@@ -59,6 +59,18 @@ impl HexCoord {
         }
     }
 
+    pub fn flip(self) -> HexCoord {
+        /*
+        the game engine will flip boards so that player 1 is always at the top,
+        so coordinates need to be flipped accordingly
+         */
+        HexCoord::create(
+            self.board_size -1 - self.x,
+            self.board_size -1 - self.y,
+            self.board_size
+        )
+    }
+
     fn as_option(x: i32, y: i32, board_size: usize) -> Option<HexCoord> {
         if (x >= 0 && x < board_size as i32) && (y >= 0 && y < board_size as i32) {
             return Some(HexCoord{x: x as usize, y: y as usize, board_size});

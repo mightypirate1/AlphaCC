@@ -8,7 +8,7 @@ class DefaultAssignmentStrategy(ValueAssignmentStrategy):
         self._gamma = gamma
 
     def __call__(self, trajectory: list[MCTSExperience], final_board: Board) -> list[MCTSExperience]:
-        value = self._value_when_not_game_over(trajectory)
+        value = self._value_when_not_game_over(trajectory, final_board)
         last_exp = trajectory[-1]
         if final_board.info.game_over:
             # the final board is the board AFTER the board on the last experience in the trajectory
@@ -22,5 +22,5 @@ class DefaultAssignmentStrategy(ValueAssignmentStrategy):
             value *= -self._gamma
         return trajectory
 
-    def _value_when_not_game_over(self, trajectory: list[MCTSExperience]) -> float:
-        return trajectory[-1].v_target
+    def _value_when_not_game_over(self, trajectory: list[MCTSExperience], final_board: Board) -> float:  # noqa
+        return -final_board.info.reward

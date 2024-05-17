@@ -79,7 +79,7 @@ class TrainingDataset(Dataset):
 
         size = exp.state.board.info.size
         pi_target = np.zeros((size, size, size, size))
-        for i in range(len(exp.state.children)):
+        for i in range(len(exp.state.moves)):
             from_coord, to_coord = exp.state.action_mask_indices[i]
             pi_target[from_coord.x, from_coord.y, to_coord.x, to_coord.y] = exp.pi_target[i]
         return torch.as_tensor(pi_target)

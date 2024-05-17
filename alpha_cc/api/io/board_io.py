@@ -10,6 +10,7 @@ class BoardIO(BaseIO):
     matrix: list[list[int]]
     current_player: int
     game_over: bool
+    evaluation: float
     winner: int
     legal_moves: list[MoveIO]
     last_move: MoveIO | None = None
@@ -23,6 +24,7 @@ class BoardIO(BaseIO):
             matrix=board.get_unflipped_matrix(),
             current_player=board.info.current_player,
             game_over=board.info.game_over,
+            evaluation=board.info.reward if board.info.current_player == 1 else -board.info.reward,
             winner=board.info.winner,
             legal_moves=legal_move_ios,
             last_move=last_move_io,
