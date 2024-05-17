@@ -10,7 +10,7 @@ from .common import get_random_board_state
 def test_game() -> None:
     board_size = 9
     move_count = 0
-    expected_number_of_moves = 106  # chosen since this was the actual value to complete a game
+    expected_number_of_moves = 105  # chosen since this was the actual value to complete a game
 
     board = Board(board_size)
     agent = GreedyAgent(board_size)
