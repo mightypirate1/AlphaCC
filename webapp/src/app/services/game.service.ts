@@ -2,13 +2,13 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { Board } from '../types/board.model';
 import { Observable, map } from 'rxjs';
-import { environment } from '../../../environments/environment.development';
-import { BoardIO } from '../types/board-io';
+import { environment } from '../../environments/environment.development';
+import { BoardIO } from '../types/board-io.model';
 
 @Injectable({
   providedIn: 'root',
 })
-export class BoardService {
+export class GameService {
   staticBoardUrl: string = environment.backendUrl + '/static-board';
   newGameUrl: string = environment.backendUrl + '/new-game';
   applyMoveUrl: string = environment.backendUrl + '/apply-move';

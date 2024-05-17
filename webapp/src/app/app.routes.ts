@@ -1,10 +1,10 @@
 import { Routes } from '@angular/router';
-import { BoardComponent } from './game/board/board.component';
+import { GameComponent } from './components/game/game.component';
 
 export const routes: Routes = [
   { path: '', redirectTo: '/home', pathMatch: 'full' },
-  { path: 'home', component: BoardComponent },
-  { path: 'new-game', component: BoardComponent },
-  { path: 'inspect-game', component: BoardComponent },
-  { path: 'about', component: BoardComponent },
+  { path: 'home', component: GameComponent },
+  { path: 'new-game', component: GameComponent },
+  { path: 'inspect-game', component: GameComponent },
+  { path: 'about', component: GameComponent },
 ];

@@ -1,7 +1,7 @@
 import { Component } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
-import { HeaderComponent } from './header/header.component';
-import { BoardComponent } from './game/board/board.component';
+import { HeaderComponent } from './components/header/header.component';
+import { GameBoardComponent } from './components/game-board/game-board.component';
 
 @Component({
   selector: 'app-root',
@@ -11,7 +11,7 @@ import { BoardComponent } from './game/board/board.component';
     RouterLink,
     RouterLinkActive,
     HeaderComponent,
-    BoardComponent,
+    GameBoardComponent,
   ],
   templateUrl: './app.component.html',
   styleUrl: './app.component.scss',
