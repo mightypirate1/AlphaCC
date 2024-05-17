@@ -1,4 +1,4 @@
-import { BoardIO } from './board-io';
+import { BoardIO } from './board-io.model';
 import { Move } from './move.model';
 
 export class Board {

@@ -1,0 +1,10 @@
+<app-game-board
+  [board]="board"
+  (applyMoveEvent)="applyMove($event)"
+></app-game-board>
+<app-game-info
+  [gameId]="board ? board.gameId : ''"
+  [currentPlayer]="board ? board.currentPlayer : 0"
+  [gameOver]="board ? board.gameOver : false"
+  [winner]="board ? board.winner : 0"
+></app-game-info>

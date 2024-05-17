@@ -1,20 +1,11 @@
-:host {
-  border: 2px solid black;
-  display: flex;
-  justify-content: center;
-}
-
 .board {
-  background-color: darkolivegreen;
-  border: 5px solid;
-  display: grid;
+  background-color: green;
+  border: 5px solid black;
   gap: 50x;
   display: flex;
   flex-direction: column;
-
   margin: 50px 50px;
   padding: 20px 20px;
-  width: max-content;
 }
 
 .board-row {
@@ -26,7 +17,7 @@
   width: 50px;
   border-radius: 50%;
   border: 1px solid #000;
-  overflow: hidden; // find better fix
+  overflow: hidden;
   background-color: grey;
   display: flex;
   justify-content: center;
