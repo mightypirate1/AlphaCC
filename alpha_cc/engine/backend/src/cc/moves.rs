@@ -111,13 +111,10 @@ fn _recusive_exporation<'a>(
     NOTE: this function does not explicitly return a value; instead it adds them to the 
         `jump_moves` vec.
      */
-    for direction in current_coord.get_all_directions() {
-        let mb_target_coord = current_coord.get_neighbor(direction, 2);
-        let mb_intermediate_coord = current_coord.get_neighbor(direction, 1);
-        if mb_target_coord.is_some() && mb_intermediate_coord.is_some() {
-            let target_coord = mb_target_coord.unwrap();
-            let intermediate_coord = mb_intermediate_coord.unwrap();
 
+    for direction in current_coord.get_all_directions() {
+        if let Some(target_coord) = current_coord.get_neighbor(direction, 2) {
+            if let Some(intermediate_coord) = current_coord.get_neighbor(direction, 1) {
             let is_standard_jump = board.coord_is_empty(&target_coord)
                 && !board.coord_is_empty(&intermediate_coord)
                 && !final_positions.contains(&target_coord);
@@ -140,17 +137,18 @@ fn _recusive_exporation<'a>(
                             path: Vec::new(),
                         }
                     );
-                    if is_standard_jump {
-                        // If this is a standard jump, we can continue exploring from `target_coord`.
-                        _recusive_exporation(
-                            board,
-                            starting_coord,
-                            &target_coord,
-                            final_positions,
-                            jump_moves,
-                        );
-                    }
                 }
+            if is_standard_jump {
+                // If this is a standard jump, we can continue exploring from `target_coord`.
+                _recusive_exporation(
+                    board,
+                    starting_coord,
+                    &target_coord,
+                    final_positions,
+                    jump_moves,
+                );
+            }
+            }
         }
     }
 }
