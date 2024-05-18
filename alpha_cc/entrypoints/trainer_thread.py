@@ -24,6 +24,7 @@ logger = logging.getLogger(__file__)
 @click.option("--epochs-per-update", type=int, default=1)
 @click.option("--policy-weight", type=float, default=1.0)
 @click.option("--value-weight", type=float, default=1.0)
+@click.option("--entropy-weight", type=float, default=0.0)
 @click.option("--batch-size", type=int, default=64)
 @click.option("--train-size", type=int, default=5000)
 @click.option("--replay-buffer-size", type=int, default=20000)
@@ -36,6 +37,7 @@ def main(
     epochs_per_update: int,
     policy_weight: float,
     value_weight: float,
+    entropy_weight: float,
     batch_size: int,
     train_size: int,
     replay_buffer_size: int,
@@ -52,6 +54,7 @@ def main(
         epochs_per_update=epochs_per_update,
         policy_weight=policy_weight,
         value_weight=value_weight,
+        entropy_weight=entropy_weight,
         batch_size=batch_size,
         lr=lr,
         summary_writer=summary_writer,
