@@ -58,11 +58,16 @@ class GameManager:
         self._db.set_entry(game_id, db_state)
         return move, resulting_state.board
 
-    def request_move(self, game_id: str) -> tuple[Move, Board]:
+    def request_move(self, game_id: str, n_rollouts: int, rollout_depth: int, temperature: float) -> tuple[Move, Board]:
         db_state = self._db.get_entry(game_id)
         agent = self._agents[db_state.state.info.size]
         sleep(1)  # simulate delay
-        move_index = agent.choose_move(db_state.state.board)
+        move_index = agent.choose_move(
+            db_state.state.board,
+            rollout_depth=rollout_depth,
+            n_rollouts=n_rollouts,
+            temperature=temperature,
+        )
         move = db_state.state.board.get_moves()[move_index]
         resulting_state = db_state.state.children[move_index]
         self._db.set_entry(game_id, db_state)

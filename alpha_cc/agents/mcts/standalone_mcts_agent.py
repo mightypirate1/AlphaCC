@@ -50,10 +50,17 @@ class StandaloneMCTSAgent(Agent):
     def on_game_end(self) -> None:
         pass
 
-    def choose_move(self, board: Board, training: bool = False, temperature: float = 1.0) -> int | np.integer:
+    def choose_move(  # type: ignore[override]
+        self,
+        board: Board,
+        n_rollouts: int | None = None,
+        rollout_depth: int | None = None,
+        temperature: float = 1.0,
+        training: bool = False,
+    ) -> int | np.integer:
         if self._argmax_delay is not None:
             self._steps_left_to_argmax -= 1
-        pi, _ = self.run_rollouts(board, temperature=temperature)
+        pi, _ = self.run_rollouts(board, n_rollouts=n_rollouts, rollout_depth=rollout_depth, temperature=temperature)
         if training and self._steps_left_to_argmax > 0:
             return np.random.choice(len(pi), p=pi)
         return pi.argmax()
