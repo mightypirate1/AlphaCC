@@ -55,7 +55,7 @@ impl HexCoord {
             3 => HexCoord::as_option(x + 0, y - d, self.board_size),
             4 => HexCoord::as_option(x + d, y - d, self.board_size),
             5 => HexCoord::as_option(x + d, y + 0, self.board_size),
-            _ => panic!("{} is not a valid direction", direction),
+            _ => unreachable!("{} is not a valid direction", direction),
         }
     }
 

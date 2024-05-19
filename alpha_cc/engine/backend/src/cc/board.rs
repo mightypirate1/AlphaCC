@@ -157,7 +157,7 @@ impl Board {
         }
         // p1 wins
         if goal_is_full && n_p1_stones_in_p2_home > 0 {
-            return (1.0, 1);
+            return (1.0, self.current_player);
         }
 
 
@@ -177,7 +177,7 @@ impl Board {
         }
         // p2 wins
         if goal_is_full && n_p2_stones_in_p1_home > 0 {
-            return (-1.0, 2);
+            return (-1.0, 3 - self.current_player);
         }
 
         // non-terminal state        
@@ -269,14 +269,7 @@ impl Board {
                 panic!("expected a single int as input");
             },
             0 => {
-                Board {
-                    size: 9,
-                    duration: 0,
-                    home_size: 4,
-                    home_capacity: 10,
-                    matrix: Board::empty_matrix(),
-                    current_player: 1,
-                }
+                Board::create(9)
             },
             _ => {unreachable!()}
         }

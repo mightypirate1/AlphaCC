@@ -72,7 +72,15 @@ class MCTSNode:
     def v(self) -> float: ...
 
 class MCTS:
-    def __init__(self, url: str, cache_size: int, dirichlet_weight: float, dirichlet_alpha: float) -> None:
+    def __init__(
+        self,
+        url: str,
+        cache_size: int,
+        dirichlet_weight: float,
+        dirichlet_alpha: float,
+        c_puct_init: float,
+        c_puct_base: float,
+    ) -> None:
         """
         MCTS agent
 

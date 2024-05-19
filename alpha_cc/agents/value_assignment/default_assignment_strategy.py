@@ -14,7 +14,7 @@ class DefaultAssignmentStrategy(ValueAssignmentStrategy):
             # the final board is the board AFTER the board on the last experience in the trajectory
             # thus, it's viewed from the perspective of the other player, and we need to multiply
             # by -1 to get the correct reward
-            value = -float(final_board.info.reward)
+            value = -final_board.info.reward
         last_exp.v_target = value
 
         for exp in reversed(trajectory):

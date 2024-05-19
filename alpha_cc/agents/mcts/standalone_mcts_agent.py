@@ -29,6 +29,8 @@ class StandaloneMCTSAgent(Agent):
         dirichlet_weight: float = 0.0,
         dirichlet_alpha: float = 0.03,
         argmax_delay: int | None = None,
+        c_puct_init: float = 2.5,
+        c_puct_base: float = 19652.0,
     ) -> None:
         self._nn = nn
         self._n_rollouts = n_rollouts
@@ -36,6 +38,8 @@ class StandaloneMCTSAgent(Agent):
         self._dirichlet_weight = dirichlet_weight
         self._dirichlet_alpha = dirichlet_alpha
         self._argmax_delay = argmax_delay
+        self._c_puct_init = c_puct_init
+        self._c_puct_base = c_puct_base
         self._steps_left_to_argmax = argmax_delay or np.inf
         self._nodes: LRU[StateHash, MCTSNodePy] = LRU(cache_size)
 
@@ -144,10 +148,7 @@ class StandaloneMCTSAgent(Agent):
 
     def _find_best_action(self, state: GameState) -> int:
         def node_c_puct() -> float:  # TODO: look at this again
-            # according to some paper i forgot to reference...
-            c_puct_init = 2.5
-            c_puct_base = 19652
-            return c_puct_init + np.log((sum_n + c_puct_base + 1) / c_puct_base)
+            return self._c_puct_init + np.log((sum_n + self._c_puct_base + 1) / self._c_puct_base)
 
         node = self._nodes[state.hash]
         sum_n = sum(node.n)

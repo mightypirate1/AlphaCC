@@ -13,6 +13,8 @@ class MCTSAgent(Agent):
         rollout_depth: int = 500,
         dirichlet_weight: float = 0.0,
         dirichlet_alpha: float = 0.03,
+        c_puct_init: float = 2.5,
+        c_puct_base: float = 19652.0,
         argmax_delay: int | None = None,
     ) -> None:
         self._redis_host = redis_host
@@ -21,18 +23,15 @@ class MCTSAgent(Agent):
         self._rollout_depth = rollout_depth
         self._dirichlet_weight = dirichlet_weight
         self._dirichlet_alpha = dirichlet_alpha
+        self._c_puct_init = c_puct_init
+        self._c_puct_base = c_puct_base
         self._argmax_delay = argmax_delay
         self._steps_left_to_argmax = argmax_delay or np.inf
-        self._mcts = MCTS(redis_host, cache_size, dirichlet_weight, dirichlet_alpha)
+        self._mcts = self._recreate_mcts()
 
     def on_game_start(self) -> None:
         self._steps_left_to_argmax = (self._argmax_delay or np.inf) + 1
-        self._mcts = MCTS(
-            self._redis_host,
-            self._cache_size,
-            self._dirichlet_weight,
-            self._dirichlet_alpha,
-        )
+        self._mcts = self._recreate_mcts()
 
     def on_game_end(self) -> None:
         pass
@@ -65,3 +64,13 @@ class MCTSAgent(Agent):
             weighted_counts = weighted_counts ** (1 / temperature)
         pi = weighted_counts / weighted_counts.sum()
         return pi
+
+    def _recreate_mcts(self) -> MCTS:
+        return MCTS(
+            self._redis_host,
+            self._cache_size,
+            self._dirichlet_weight,
+            self._dirichlet_alpha,
+            self._c_puct_init,
+            self._c_puct_base,
+        )
