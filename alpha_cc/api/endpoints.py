@@ -45,8 +45,8 @@ async def new_game(request: NewGameIO) -> BoardIO:
 @app.post("/apply-move")
 async def apply_move(request: ApplyMoveIO) -> BoardIO:
     try:
-        move, board = game_manager.apply_move(request.game_id, request.move_index)
-        return BoardIO.from_board(game_id=request.game_id, board=board, last_move=move)
+        applied_move, resulting_board = game_manager.apply_move(request.game_id, request.move_index)
+        return BoardIO.from_board(game_id=request.game_id, board=resulting_board, last_move=applied_move)
     except Exception as e:
         raise ServiceExceptionError(e) from e
 
@@ -54,10 +54,10 @@ async def apply_move(request: ApplyMoveIO) -> BoardIO:
 @app.post("/request-move")
 async def request_move(request: RequestMoveIO) -> BoardIO:
     try:
-        move, resulting_board = game_manager.request_move(
+        applied_move, resulting_board = game_manager.request_move(
             request.game_id, request.n_rollouts, request.rollout_depth, request.temperature
         )
-        return BoardIO.from_board(game_id=request.game_id, board=resulting_board, last_move=move)
+        return BoardIO.from_board(game_id=request.game_id, board=resulting_board, last_move=applied_move)
     except Exception as e:
         raise ServiceExceptionError(e) from e
 
