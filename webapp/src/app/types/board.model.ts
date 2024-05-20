@@ -43,6 +43,14 @@ export class Board {
     });
   }
 
+  isCoordOfLastMove(x: number, y: number): boolean {
+    if (this.lastMove === null) return false;
+    return (
+      (this.lastMove.fromCoord.x === x && this.lastMove.fromCoord.y === y) ||
+      (this.lastMove.toCoord.x === x && this.lastMove.toCoord.y === y)
+    );
+  }
+
   isLegalMoveSource(fromX: number, fromY: number): boolean {
     return this.legalMoves
       .map((move) => move.fromCoord)
