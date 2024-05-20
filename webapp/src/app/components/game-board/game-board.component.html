@@ -6,15 +6,16 @@
     <div
       class="hole"
       cdkDropList
-      [cdkDropListData]="{ pegType: j, row: row, col: col }"
+      [cdkDropListData]="{ row: row, col: col }"
       (cdkDropListDropped)="drop($event)"
       [ngClass]="{
-        selected: board?.isLegalMove(selected.x, selected.y, row, col)
+        'legal-target': board?.isLegalMove(selected.x, selected.y, row, col),
+        'last-move': board?.isCoordOfLastMove(row, col)
       }"
     >
-      <div
-        class="peg"
-        [appPeg]="colors[j]"
+      @if (j !== 0) {
+      <app-board-peg
+        [pegColor]="colors[j]"
         cdkDrag
         [cdkDragDisabled]="!board?.isLegalMoveSource(row, col)"
         (mousedown)="setSelected(row, col)"
@@ -22,7 +23,8 @@
         (mouseleave)="setSelected(-1, -1)"
       >
         <div *cdkDragPlaceholder style="display: none"></div>
-      </div>
+      </app-board-peg>
+      }
     </div>
     }
   </div>

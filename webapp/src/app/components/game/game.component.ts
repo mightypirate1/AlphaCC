@@ -23,9 +23,6 @@ export class GameComponent implements OnInit {
   }
 
   applyMove(event: { gameId: string; moveIndex: number }): void {
-    console.log('GameId', event.gameId);
-    console.log('moveIndex', event.moveIndex);
-
     this.gameService
       .applyMove(event.gameId, event.moveIndex)
       .subscribe((board: Board) => {

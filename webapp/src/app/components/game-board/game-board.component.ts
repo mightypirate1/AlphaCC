@@ -4,14 +4,14 @@ import { CdkDragDrop, DragDropModule } from '@angular/cdk/drag-drop';
 
 import { Board } from '../../types/board.model';
 import { Point } from '../../types/point.model';
-import { PegDirective } from '../../directives/peg.directive';
+import { BoardPegComponent } from '../board-peg/board-peg.component';
 
 @Component({
   selector: 'app-game-board',
   standalone: true,
   templateUrl: './game-board.component.html',
   styleUrl: './game-board.component.scss',
-  imports: [CommonModule, PegDirective, DragDropModule],
+  imports: [CommonModule, DragDropModule, BoardPegComponent],
 })
 export class GameBoardComponent {
   @Input() board: Board | undefined;
@@ -28,9 +28,7 @@ export class GameBoardComponent {
     this.selected = { x: x, y: y };
   }
 
-  drop(
-    $event: CdkDragDrop<{ pegType: number; row: number; col: number }>
-  ): void {
+  drop($event: CdkDragDrop<{ row: number; col: number }>): void {
     const fromX = $event.item.dropContainer.data.row;
     const fromY = $event.item.dropContainer.data.col;
     const toX = $event.container.data.row;
