@@ -1,5 +1,5 @@
 .board {
-  background-color: green;
+  background-color: #475c6c;
   border: 5px solid black;
   gap: 50x;
   display: flex;
@@ -16,22 +16,18 @@
   height: 50px;
   width: 50px;
   border-radius: 50%;
-  border: 1px solid #000;
+  border: 2px solid #000;
   overflow: hidden;
-  background-color: grey;
+  background-color: rgb(145, 144, 144);
   display: flex;
   justify-content: center;
   align-items: center;
 }
 
-.peg {
-  position: relative;
-  height: 40px;
-  width: 40px;
-  border-radius: 50%;
-  overflow: hidden;
+.legal-target {
+  border: 2px solid white;
 }
 
-.selected {
-  border: 1px solid white;
+.hole.last-move {
+  background-color: rgb(128, 100, 100);
 }
