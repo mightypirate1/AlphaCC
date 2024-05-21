@@ -1,0 +1,6 @@
+<button (click)="changeCurrentMoveIndex(0)">|<</button>
+<button (click)="changeCurrentMoveIndex(currentBoardIndex - 1)"><</button>
+<button (click)="changeCurrentMoveIndex(currentBoardIndex + 1)">></button>
+<button (click)="changeCurrentMoveIndex(maxBoardIndex)">>|</button>
+
+Move {{ currentBoardIndex }} of {{ maxBoardIndex }}.

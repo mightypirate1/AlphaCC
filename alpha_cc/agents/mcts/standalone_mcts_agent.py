@@ -47,6 +47,10 @@ class StandaloneMCTSAgent(Agent):
     def nn(self) -> DualHeadEvaluator:
         return self._nn
 
+    @property
+    def nodes(self) -> LRU:
+        return self._nodes
+
     def on_game_start(self) -> None:
         self._steps_left_to_argmax = (self._argmax_delay or np.inf) + 1
         self._nodes.clear()
@@ -61,13 +65,13 @@ class StandaloneMCTSAgent(Agent):
         rollout_depth: int | None = None,
         temperature: float = 1.0,
         training: bool = False,
-    ) -> int | np.integer:
+    ) -> int:
         if self._argmax_delay is not None:
             self._steps_left_to_argmax -= 1
         pi, _ = self.run_rollouts(board, n_rollouts=n_rollouts, rollout_depth=rollout_depth, temperature=temperature)
         if training and self._steps_left_to_argmax > 0:
             return np.random.choice(len(pi), p=pi)
-        return pi.argmax()
+        return int(pi.argmax())
 
     def run_rollouts(
         self,

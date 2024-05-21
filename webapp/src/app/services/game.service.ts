@@ -1,38 +1,31 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable } from '@angular/core';
-import { Board } from '../types/board.model';
 import { Observable, map } from 'rxjs';
 import { environment } from '../../environments/environment.development';
-import { BoardIO } from '../types/board-io.model';
+import { GameIO } from '../types/game-io';
+import { Game } from '../types/game.model';
 
 @Injectable({
   providedIn: 'root',
 })
 export class GameService {
-  staticBoardUrl: string = environment.backendUrl + '/static-board';
   newGameUrl: string = environment.backendUrl + '/new-game';
   applyMoveUrl: string = environment.backendUrl + '/apply-move';
 
   constructor(private http: HttpClient) {}
 
-  getStaticBoard(): Observable<Board> {
+  getNewGameBoard(): Observable<Game> {
     return this.http
-      .get<BoardIO>(this.staticBoardUrl)
-      .pipe(map((boardIo) => new Board(boardIo)));
+      .post<GameIO>(this.newGameUrl, { size: 9, gameId: null })
+      .pipe(map((gameIo) => new Game(gameIo)));
   }
 
-  getNewGameBoard(): Observable<Board> {
+  applyMove(gameId: string, moveIndex: number): Observable<Game> {
     return this.http
-      .post<BoardIO>(this.newGameUrl, { size: 9, gameId: null })
-      .pipe(map((boardIo) => new Board(boardIo)));
-  }
-
-  applyMove(gameId: string, moveIndex: number): Observable<Board> {
-    return this.http
-      .post<BoardIO>(this.applyMoveUrl, {
+      .post<GameIO>(this.applyMoveUrl, {
         gameId: gameId,
         moveIndex: moveIndex,
       })
-      .pipe(map((boardIo) => new Board(boardIo)));
+      .pipe(map((gameIo) => new Game(gameIo)));
   }
 }

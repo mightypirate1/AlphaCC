@@ -6,7 +6,6 @@ from alpha_cc.engine import Board, Move
 
 
 class BoardIO(BaseIO):
-    game_id: str
     matrix: list[list[int]]
     current_player: int
     game_over: bool
@@ -16,11 +15,14 @@ class BoardIO(BaseIO):
     last_move: MoveIO | None = None
 
     @classmethod
-    def from_board(cls: type[Self], game_id: str, board: Board, last_move: Move | None = None) -> Self:
-        legal_move_ios = [MoveIO.from_move(move, board, index=i) for i, move in enumerate(board.get_moves())]
-        last_move_io = MoveIO.from_move(last_move, board) if last_move is not None else None
+    def from_board(cls: type[Self], board: Board, last_move: Move | None = None) -> Self:
+        last_player = 3 - board.info.current_player
+        legal_move_ios = [
+            MoveIO.from_move(move, board.info.current_player, board.info.size, index=i)
+            for i, move in enumerate(board.get_moves())
+        ]
+        last_move_io = MoveIO.from_move(last_move, last_player, board.info.size) if last_move is not None else None
         return cls(
-            game_id=game_id,
             matrix=board.get_unflipped_matrix(),
             current_player=board.info.current_player,
             game_over=board.info.game_over,
