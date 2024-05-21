@@ -15,10 +15,7 @@ import { BoardPegComponent } from '../board-peg/board-peg.component';
 })
 export class GameBoardComponent {
   @Input() board: Board | undefined;
-  @Output() applyMoveEvent = new EventEmitter<{
-    gameId: string;
-    moveIndex: number;
-  }>();
+  @Output() applyMoveEvent = new EventEmitter<number>();
   colors = ['', 'orange', 'rebeccapurple'];
   selected: Point = { x: -1, y: -1 };
 
@@ -35,10 +32,7 @@ export class GameBoardComponent {
     const toY = $event.container.data.col;
     if (this.board?.isLegalMove(fromX, fromY, toX, toY)) {
       const moveIndex = this.board?.getMoveIndex(fromX, fromY, toX, toY);
-      this.applyMoveEvent.emit({
-        gameId: this.board.gameId,
-        moveIndex: moveIndex,
-      });
+      this.applyMoveEvent.emit(moveIndex);
     }
   }
 }

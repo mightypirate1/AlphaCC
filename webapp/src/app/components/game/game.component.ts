@@ -2,7 +2,7 @@ import { Component, OnInit } from '@angular/core';
 import { GameBoardComponent } from '../game-board/game-board.component';
 import { GameInfoComponent } from '../game-info/game-info.component';
 import { GameService } from '../../services/game.service';
-import { Board } from '../../types/board.model';
+import { Game } from '../../types/game.model';
 
 @Component({
   selector: 'app-game',
@@ -12,21 +12,24 @@ import { Board } from '../../types/board.model';
   styleUrl: './game.component.scss',
 })
 export class GameComponent implements OnInit {
-  board: Board | undefined;
+  game: Game | null = null;
+  currentBoardIndex = 0;
 
   constructor(private gameService: GameService) {}
 
   ngOnInit(): void {
-    this.gameService.getNewGameBoard().subscribe((board: Board) => {
-      this.board = board;
+    this.gameService.getNewGameBoard().subscribe((game: Game) => {
+      this.game = game;
     });
   }
 
-  applyMove(event: { gameId: string; moveIndex: number }): void {
+  applyMove(event: number): void {
+    if (this.game === null) return;
     this.gameService
-      .applyMove(event.gameId, event.moveIndex)
-      .subscribe((board: Board) => {
-        this.board = board;
+      .applyMove(this.game.gameId, event)
+      .subscribe((game: Game) => {
+        this.game = game;
+        this.currentBoardIndex++;
       });
   }
 }

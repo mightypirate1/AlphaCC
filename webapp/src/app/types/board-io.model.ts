@@ -1,10 +1,10 @@
 import { Move } from './move.model';
 
 export interface BoardIO {
-  gameId: string;
   matrix: number[][];
   currentPlayer: number;
   gameOver: boolean;
+  evaluation: number;
   winner: number;
   legalMoves: Move[];
   lastMove: Move;

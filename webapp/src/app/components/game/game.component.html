@@ -1,10 +1,12 @@
+@if(game !== null) {
 <app-game-board
-  [board]="board"
+  [board]="game.boards[this.currentBoardIndex]"
   (applyMoveEvent)="applyMove($event)"
 ></app-game-board>
 <app-game-info
-  [gameId]="board ? board.gameId : ''"
-  [currentPlayer]="board ? board.currentPlayer : 0"
-  [gameOver]="board ? board.gameOver : false"
-  [winner]="board ? board.winner : 0"
+  [gameId]="game.gameId"
+  [currentPlayer]="game.boards[this.currentBoardIndex].currentPlayer"
+  [gameOver]="game.boards[this.currentBoardIndex].gameOver"
+  [winner]="game.boards[this.currentBoardIndex].winner"
 ></app-game-info>
+}
