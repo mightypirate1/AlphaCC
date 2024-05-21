@@ -1,12 +1,20 @@
-@if(game !== null) {
+@if(game) {
 <app-game-board
   [board]="game.boards[this.currentBoardIndex]"
+  [moveDisabled]="game.boards.length - 1 !== currentBoardIndex"
   (applyMoveEvent)="applyMove($event)"
 ></app-game-board>
-<app-game-info
-  [gameId]="game.gameId"
-  [currentPlayer]="game.boards[this.currentBoardIndex].currentPlayer"
-  [gameOver]="game.boards[this.currentBoardIndex].gameOver"
-  [winner]="game.boards[this.currentBoardIndex].winner"
-></app-game-info>
+<div class="info-controls-wrapper">
+  <app-game-info
+    [gameId]="game.gameId"
+    [currentPlayer]="game.boards[this.currentBoardIndex].currentPlayer"
+    [gameOver]="game.boards[this.currentBoardIndex].gameOver"
+    [winner]="game.boards[this.currentBoardIndex].winner"
+  ></app-game-info>
+  <app-game-controls
+    [currentBoardIndex]="currentBoardIndex"
+    [maxBoardIndex]="game.boards.length - 1"
+    (newBoardIndexEvent)="changeCurrentBoardIndex($event)"
+  ></app-game-controls>
+</div>
 }

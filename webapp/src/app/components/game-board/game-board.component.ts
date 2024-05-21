@@ -15,11 +15,10 @@ import { BoardPegComponent } from '../board-peg/board-peg.component';
 })
 export class GameBoardComponent {
   @Input() board: Board | undefined;
-  @Output() applyMoveEvent = new EventEmitter<number>();
+  @Input() moveDisabled: boolean = false;
+  @Output() applyMoveEvent: EventEmitter<number> = new EventEmitter<number>();
   colors = ['', 'orange', 'rebeccapurple'];
   selected: Point = { x: -1, y: -1 };
-
-  constructor() {}
 
   setSelected(x: number, y: number): void {
     this.selected = { x: x, y: y };
