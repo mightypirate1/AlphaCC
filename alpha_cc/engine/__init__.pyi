@@ -78,6 +78,7 @@ class MCTS:
         self,
         url: str,
         cache_size: int,
+        rollout_gamma: float,
         dirichlet_weight: float,
         dirichlet_alpha: float,
         c_puct_init: float,

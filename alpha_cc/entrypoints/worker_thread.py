@@ -22,6 +22,7 @@ logger = logging.getLogger(__file__)
 @click.option("--n-rollouts", type=int, default=100)
 @click.option("--rollout-depth", type=int, default=100)
 @click.option("--max-game-length", type=int)
+@click.option("--rollout-gamma", type=float, default=1.0)
 @click.option("--dirichlet-noise-weight", type=float, default=0.0)
 @click.option("--argmax-delay", type=int, default=None)
 @click.option("--heuristic", is_flag=True, default=False)
@@ -32,6 +33,7 @@ def main(
     n_rollouts: int,
     rollout_depth: int,
     max_game_length: int | None,
+    rollout_gamma: float,
     dirichlet_noise_weight: float,
     argmax_delay: int | None,
     heuristic: bool,
@@ -44,8 +46,9 @@ def main(
     )
     agent = MCTSAgent(
         Environment.host_redis,
-        n_rollouts,
-        rollout_depth,
+        n_rollouts=n_rollouts,
+        rollout_depth=rollout_depth,
+        rollout_gamma=rollout_gamma,
         dirichlet_weight=dirichlet_noise_weight,
         argmax_delay=argmax_delay,
     )

@@ -27,6 +27,7 @@ pub struct MCTS {
 
 #[derive(Clone)]
 pub struct MCTSParams {
+    pub gamma: f32,
     pub dirichlet_weight: f32,
     pub dirichlet_alpha: f32,
     pub c_puct_init: f32,
@@ -75,7 +76,7 @@ impl MCTS {
             let s_prime = board.apply(&moves[a]);
             
             // continue rollout
-            let v = MCTS::rollout(
+            let v = mcts_params.gamma * MCTS::rollout(
                 s_prime,
                 nn_remote,
                 nodes,
@@ -155,6 +156,7 @@ impl MCTS {
     fn create(
         url: String,
         cache_size: usize,
+        gamma: f32,
         dirichlet_weight: f32,
         dirichlet_alpha: f32,
         c_puct_init: f32,
@@ -164,6 +166,7 @@ impl MCTS {
             NNRemote::new(PredDB::new(&url)),
             cache_size,
             MCTSParams {
+                gamma,
                 dirichlet_weight,
                 dirichlet_alpha,
                 c_puct_init,
