@@ -42,6 +42,10 @@ class TrainingDataset(Dataset):
         value_target = torch.as_tensor(exp.v_target)
         return x.float(), pi_mask.bool(), pi_target.float(), value_target.float()
 
+    @property
+    def samples(self) -> list[MCTSExperience]:
+        return self._new_experiences + list(self._experiences)
+
     def sample(self, batch_size: int) -> TrainingDataset:
         dataset_sample = TrainingDataset(experiences=self._new_experiences, max_size=self._max_size)
         remaining = batch_size - len(dataset_sample)
@@ -53,6 +57,12 @@ class TrainingDataset(Dataset):
             dataset_sample.add_trajectory(sampled_experiences)
         self._move_new_experiences_to_main_buffer()
         return dataset_sample
+
+    def split(self, frac: float) -> tuple[TrainingDataset, TrainingDataset]:
+        samples = self.samples
+        np.random.shuffle(samples)  # type: ignore
+        n = int(len(samples) * frac)
+        return TrainingDataset(samples[:n]), TrainingDataset(samples[n:])
 
     def add_trajectories(self, trajectories: list[list[MCTSExperience]]) -> None:
         self._new_experiences.extend([exp for traj in trajectories for exp in traj])
