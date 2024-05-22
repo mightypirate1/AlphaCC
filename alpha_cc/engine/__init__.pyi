@@ -57,6 +57,8 @@ class HexCoord:
     x: int
     y: int
 
+    def get_all_neighbors(self, distance: int) -> list[HexCoord]: ...
+
 class Move:
     from_coord: HexCoord
     to_coord: HexCoord
