@@ -18,10 +18,9 @@ class BoardIO(BaseIO):
     def from_board(cls: type[Self], board: Board, last_move: Move | None = None) -> Self:
         last_player = 3 - board.info.current_player
         legal_move_ios = [
-            MoveIO.from_move(move, board.info.current_player, board.info.size, index=i)
-            for i, move in enumerate(board.get_moves())
+            MoveIO.from_move(move, board.info.current_player, index=i) for i, move in enumerate(board.get_moves())
         ]
-        last_move_io = MoveIO.from_move(last_move, last_player, board.info.size) if last_move is not None else None
+        last_move_io = MoveIO.from_move(last_move, last_player) if last_move is not None else None
         return cls(
             matrix=board.get_unflipped_matrix(),
             current_player=board.info.current_player,
