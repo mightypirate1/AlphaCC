@@ -58,6 +58,7 @@ class HexCoord:
     y: int
 
     def get_all_neighbors(self, distance: int) -> list[HexCoord]: ...
+    def flip(self) -> HexCoord: ...
 
 class Move:
     from_coord: HexCoord
@@ -78,6 +79,7 @@ class MCTS:
         self,
         url: str,
         cache_size: int,
+        rollout_gamma: float,
         dirichlet_weight: float,
         dirichlet_alpha: float,
         c_puct_init: float,

@@ -8,7 +8,7 @@ and less bug prone
      
 */
 
-use std::collections::hash_map::DefaultHasher;
+use std::collections::{HashMap, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
 extern crate pyo3;
 use pyo3::prelude::*;
@@ -324,17 +324,24 @@ impl Board {
     }
 
     pub fn render(&self) {
+        let tokens = HashMap::from([
+            (0, "⎔"),  // ･ · ᐧ ･ ･ ᐧ
+            (1, "⬣"),  // ⏣
+            (2, "⌬"),  // ۞  ࿊  ࿉ ℧ ⌾ ⎉ ⎔ ⏣ ⏺ ◉ ☯ ❁ ⌬ ⏣ ⬣
+        ]);
         let matrix = self.get_unflipped_matrix();
+        println!();
         for (i, row) in matrix[0..self.size].iter().enumerate() {
             for _ in  0..i {
                 print!(" ");
             }
             for val in row[0..self.size].iter() {
-                print!("{val} ");
+                print!("{} ", tokens.get(val).unwrap());
             }
             println!();
         }
-        println!("current player: {}", self.current_player);
+        println!();
+        println!("current player: {} ({})", tokens.get(&self.current_player).unwrap(), self.current_player);
     }
 
     pub fn __setstate__(&mut self, py: Python, state: PyObject) -> PyResult<()> {

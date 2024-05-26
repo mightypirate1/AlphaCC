@@ -11,6 +11,7 @@ from alpha_cc.runtimes.runtime import RunTime, RunTimeConfig
 @click.option("--size", type=int, default=9)
 @click.option("--n-rollouts", type=int, default=100)
 @click.option("--rollout-depth", type=int, default=100)
+@click.option("--rollout-gamma", type=float, default=1.0)
 @click.option("--argmax-delay", type=int, default=None)
 @click.option("--training", is_flag=True)
 @click.option("--vs-greedy", is_flag=True)
@@ -21,6 +22,7 @@ def main(
     size: int,
     n_rollouts: int,
     rollout_depth: int,
+    rollout_gamma: float,
     argmax_delay: int | None,
     training: bool,
     vs_greedy: bool,
@@ -30,6 +32,7 @@ def main(
     def get_agent(path: str) -> StandaloneMCTSAgent:
         agent = StandaloneMCTSAgent(
             DefaultNet(size),
+            rollout_gamma=rollout_gamma,
             n_rollouts=n_rollouts,
             rollout_depth=rollout_depth,
             argmax_delay=argmax_delay,

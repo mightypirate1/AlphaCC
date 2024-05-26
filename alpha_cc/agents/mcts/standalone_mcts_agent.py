@@ -26,6 +26,7 @@ class StandaloneMCTSAgent(Agent):
         cache_size: int = 1000000,
         n_rollouts: int = 100,
         rollout_depth: int = 500,
+        rollout_gamma: float = 1.0,
         dirichlet_weight: float = 0.0,
         dirichlet_alpha: float = 0.03,
         argmax_delay: int | None = None,
@@ -34,6 +35,7 @@ class StandaloneMCTSAgent(Agent):
     ) -> None:
         self._nn = nn
         self._n_rollouts = n_rollouts
+        self._rollout_gamma = rollout_gamma
         self._rollout_depth = rollout_depth
         self._dirichlet_weight = dirichlet_weight
         self._dirichlet_alpha = dirichlet_alpha
@@ -142,7 +144,7 @@ class StandaloneMCTSAgent(Agent):
         node = self._nodes[state.hash]
         a = self._find_best_action(state)
         s_prime = GameState(state.board.apply(state.board.get_moves()[a]))
-        v = self._rollout(s_prime, remaining_depth=remaining_depth - 1)
+        v = self._rollout_gamma * self._rollout(s_prime, remaining_depth=remaining_depth - 1)
 
         # update node
         node.q[a] = (node.n[a] * node.q[a] + v) / (node.n[a] + 1)

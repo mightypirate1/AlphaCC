@@ -33,6 +33,7 @@ class Trainer:
         self._policy_softmax = PolicySoftmax(board_size)
         self._optimizer = torch.optim.AdamW(nn.parameters(), lr=lr, weight_decay=1e-4)
         self._global_step = 0
+        self._eval_step = 0
         self._summary_writer = summary_writer
 
     @property
@@ -80,10 +81,11 @@ class Trainer:
 
     def _update_nn(self, dataset: TrainingDataset) -> None:
         def train_epoch() -> tuple[float, float, float]:
+            self._nn.train()
             epoch_value_loss = 0.0
             epoch_policy_loss = 0.0
             epoch_entropy_loss = 0.0
-            for x, pi_mask, target_pi, target_value in dataloader:
+            for x, pi_mask, target_pi, target_value in train_dataloader:
                 self._optimizer.zero_grad()
                 current_pi_unsoftmaxed, current_value = self._nn(x)
                 value_loss = compute_value_loss(current_value, target_value)
@@ -96,9 +98,9 @@ class Trainer:
                 )
                 loss.backward()
                 self._optimizer.step()
-                epoch_value_loss += value_loss.item() / len(dataloader)
-                epoch_policy_loss += policy_loss.item() / len(dataloader)
-                epoch_entropy_loss += entropy_loss.item() / len(dataloader)
+                epoch_value_loss += value_loss.item() / len(train_dataloader)
+                epoch_policy_loss += policy_loss.item() / len(train_dataloader)
+                epoch_entropy_loss += entropy_loss.item() / len(train_dataloader)
             return epoch_value_loss, epoch_policy_loss, epoch_entropy_loss
 
         def compute_value_loss(current_value: torch.Tensor, target_value: torch.Tensor) -> torch.Tensor:
@@ -118,13 +120,39 @@ class Trainer:
             sample_entropy = (pi_masked * torch.log(pi_masked.clip(1e-6))).reshape((pi_mask.shape[0], -1)).sum(dim=1)
             return sample_entropy.mean()
 
-        self._nn.train()
+        @torch.no_grad()
+        def epoch_eval() -> tuple[float, float, float]:
+            self._nn.eval()
+            epoch_value_loss = 0.0
+            epoch_policy_loss = 0.0
+            epoch_entropy_loss = 0.0
+            for x, pi_mask, target_pi, target_value in test_dataloader:
+                current_pi_unsoftmaxed, current_value = self._nn(x)
+                value_loss = compute_value_loss(current_value, target_value)
+                policy_loss = compute_policy_loss(current_pi_unsoftmaxed, pi_mask, target_pi)
+                entropy_loss = compute_entropy_loss(current_pi_unsoftmaxed, pi_mask)
+                epoch_value_loss += value_loss.item() / len(test_dataloader)
+                epoch_policy_loss += policy_loss.item() / len(test_dataloader)
+                epoch_entropy_loss += entropy_loss.item() / len(test_dataloader)
+            if self._summary_writer is not None:
+                self._summary_writer.add_scalar("eval/policy-loss", epoch_policy_loss, global_step=self._eval_step)
+                self._summary_writer.add_scalar("eval/value-loss", epoch_value_loss, global_step=self._eval_step)
+                self._summary_writer.add_scalar("eval/entropy-loss", epoch_entropy_loss, global_step=self._eval_step)
+                self._eval_step += 1
+            return epoch_value_loss, epoch_policy_loss, epoch_entropy_loss
+
         self._nn.clear_cache()
-        dataloader = DataLoader(
-            dataset,
+        train_data, test_data = dataset.split(0.9)
+        train_dataloader = DataLoader(
+            train_data,
             batch_size=self._batch_size,
             shuffle=True,
             drop_last=True,
+        )
+        test_dataloader = DataLoader(
+            test_data,
+            batch_size=self._batch_size,
+            drop_last=False,
         )
 
         total_value_loss = 0.0
@@ -143,6 +171,7 @@ class Trainer:
                         "e": round(epoch_value_loss, 5),
                     }
                 )
+                epoch_test_value_loss, epoch_test_policy_loss, epoch_test_entropy_loss = epoch_eval()
                 pbar.update(1)
         if self._summary_writer is not None:
             self._summary_writer.add_scalar("trainer/policy-loss", total_policy_loss, global_step=self._global_step)

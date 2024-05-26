@@ -11,6 +11,7 @@ class MCTSAgent(Agent):
         cache_size: int = 1000000,
         n_rollouts: int = 100,
         rollout_depth: int = 500,
+        rollout_gamma: float = 1.0,
         dirichlet_weight: float = 0.0,
         dirichlet_alpha: float = 0.03,
         c_puct_init: float = 2.5,
@@ -21,6 +22,7 @@ class MCTSAgent(Agent):
         self._cache_size = cache_size
         self._n_rollouts = n_rollouts
         self._rollout_depth = rollout_depth
+        self._rollout_gamma = rollout_gamma
         self._dirichlet_weight = dirichlet_weight
         self._dirichlet_alpha = dirichlet_alpha
         self._c_puct_init = c_puct_init
@@ -69,6 +71,7 @@ class MCTSAgent(Agent):
         return MCTS(
             self._redis_host,
             self._cache_size,
+            self._rollout_gamma,
             self._dirichlet_weight,
             self._dirichlet_alpha,
             self._c_puct_init,
