@@ -1,5 +1,5 @@
 <h2>Game information</h2>
-<p>Game ID: {{ gameId }}</p>
-<p>Current player: {{ currentPlayer }}</p>
-<p>Game over: {{ gameOver }}</p>
-<p>Winner: {{ winner }}</p>
+<p>Game ID: {{ gameId$ | async }}</p>
+<p>Current player: {{ currentPlayer$ | async }}</p>
+<p>Game over: {{ gameOver$ | async }}</p>
+<p>Winner: {{ winner$ | async }}</p>

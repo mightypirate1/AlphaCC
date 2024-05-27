@@ -1,27 +1,71 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, OnDestroy } from '@angular/core';
+import { AsyncPipe, CommonModule } from '@angular/common';
+import { Observable, Subject, takeUntil } from 'rxjs';
 import { CdkDragDrop, DragDropModule } from '@angular/cdk/drag-drop';
 
-import { Board } from '../../types/board.model';
-import { Point } from '../../types/point.model';
+import { GameService } from '../../services/game.service';
 import { BoardPegComponent } from '../board-peg/board-peg.component';
+import { Move } from '../../types/move.model';
+import { Point } from '../../types/point.model';
+import { nullMove, nullPoint } from '../../constants/constants';
 
 @Component({
   selector: 'app-game-board',
   standalone: true,
   templateUrl: './game-board.component.html',
   styleUrl: './game-board.component.scss',
-  imports: [CommonModule, DragDropModule, BoardPegComponent],
+  imports: [AsyncPipe, CommonModule, DragDropModule, BoardPegComponent],
 })
-export class GameBoardComponent {
-  @Input() board: Board | undefined;
-  @Input() moveDisabled: boolean = false;
-  @Output() applyMoveEvent: EventEmitter<number> = new EventEmitter<number>();
+export class GameBoardComponent implements OnDestroy {
   colors = ['', 'orange', 'rebeccapurple'];
-  selected: Point = { x: -1, y: -1 };
+
+  lastMove: Move = nullMove;
+  selected: Point = nullPoint;
+  legalMoves: Move[] = [];
+
+  private readonly onDestroy = new Subject<void>();
+  currentBoardMatrix$: Observable<number[][]>;
+
+  constructor(private gameService: GameService) {
+    this.currentBoardMatrix$ = gameService.getCurrentBoardMatrix();
+
+    gameService
+      .getLastMove()
+      .pipe(takeUntil(this.onDestroy))
+      .subscribe((move) => {
+        if (move !== null) {
+          this.lastMove = move;
+        }
+      });
+    gameService
+      .getDragableMoves()
+      .pipe(takeUntil(this.onDestroy))
+      .subscribe((moves) => {
+        this.legalMoves = moves;
+      });
+  }
+  ngOnDestroy(): void {
+    this.onDestroy.next();
+  }
 
   setSelected(x: number, y: number): void {
     this.selected = { x: x, y: y };
+  }
+
+  isLegalTarget(targetX: number, targetY: number): boolean {
+    return this.legalMoves.some(
+      (move) =>
+        move.toCoord.x === targetX &&
+        move.toCoord.y === targetY &&
+        move.fromCoord.x === this.selected.x &&
+        move.fromCoord.y === this.selected.y
+    );
+  }
+
+  isLegalSource(sourceX: number, sourceY: number): boolean {
+    return this.legalMoves.some(
+      (move) => move.fromCoord.x === sourceX && move.fromCoord.y === sourceY
+    );
   }
 
   drop($event: CdkDragDrop<{ row: number; col: number }>): void {
@@ -29,9 +73,14 @@ export class GameBoardComponent {
     const fromY = $event.item.dropContainer.data.col;
     const toX = $event.container.data.row;
     const toY = $event.container.data.col;
-    if (this.board?.isLegalMove(fromX, fromY, toX, toY)) {
-      const moveIndex = this.board?.getMoveIndex(fromX, fromY, toX, toY);
-      this.applyMoveEvent.emit(moveIndex);
-    }
+
+    const move: Move = {
+      fromCoord: { x: fromX, y: fromY },
+      toCoord: { x: toX, y: toY },
+      path: [],
+      index: -1,
+    };
+
+    this.gameService.applyMove(move);
   }
 }

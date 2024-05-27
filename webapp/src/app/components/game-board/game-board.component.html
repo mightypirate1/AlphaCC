@@ -1,15 +1,15 @@
-@if(board) {
 <div class="board" cdkDropListGroup>
-  @for (i of board.matrix; track i; let row = $index) {
+  @for (i of (currentBoardMatrix$ | async); track i; let row = $index) {
   <div class="board-row">
     <div class="board-row-space" [style.width]="row * 25 + 'px'"></div>
     @for (j of i; track j; let col = $index) {
     <div
       class="hole"
       [ngClass]="{
-        'legal-target':
-          board.isLegalMove(selected.x, selected.y, row, col) && !moveDisabled,
-        'last-move': board.isCoordOfLastMove(row, col)
+        'legal-target': isLegalTarget(row, col),
+        'last-move':
+          (lastMove.fromCoord.x === row && lastMove.fromCoord.y === col) ||
+          (lastMove.toCoord.x === row && lastMove.toCoord.y === col)
       }"
       cdkDropList
       [cdkDropListData]="{ row: row, col: col }"
@@ -22,7 +22,7 @@
         (mouseup)="setSelected(-1, -1)"
         (mouseleave)="setSelected(-1, -1)"
         cdkDrag
-        [cdkDragDisabled]="!board.isLegalMoveSource(row, col) || moveDisabled"
+        [cdkDragDisabled]="!isLegalSource(row, col)"
       >
         <div *cdkDragPlaceholder style="display: none"></div>
       </app-board-peg>
@@ -32,4 +32,3 @@
   </div>
   }
 </div>
-}

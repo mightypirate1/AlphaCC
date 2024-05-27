@@ -1,6 +1,23 @@
-<button (click)="changeCurrentMoveIndex(0)">|<</button>
-<button (click)="changeCurrentMoveIndex(currentBoardIndex - 1)"><</button>
-<button (click)="changeCurrentMoveIndex(currentBoardIndex + 1)">></button>
-<button (click)="changeCurrentMoveIndex(maxBoardIndex)">>|</button>
-
-Move {{ currentBoardIndex }} of {{ maxBoardIndex }}.
+<div
+  *ngIf="{
+    current: currentBoardIndex$ | async,
+    max: maxBoardIndex$ | async
+  } as index"
+>
+  @if (index.current !== null && index.max !== null) {
+  <button (click)="changeCurrentMoveIndex(0)">|<</button>
+  <button
+    (click)="changeCurrentMoveIndex(index.current - 1)"
+    [disabled]="index.current - 1 < 0"
+  >
+    <
+  </button>
+  <button
+    (click)="changeCurrentMoveIndex(index.current + 1)"
+    [disabled]="index.current + 1 > index.max"
+  >
+    >
+  </button>
+  <button (click)="changeCurrentMoveIndex(index.max)">>|</button>
+  } Move {{ currentBoardIndex$ | async }} of {{ maxBoardIndex$ | async }}.
+</div>
