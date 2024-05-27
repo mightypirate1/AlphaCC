@@ -10,9 +10,10 @@ import {
   withLatestFrom,
 } from 'rxjs';
 
-import { Game } from '../types/game.model';
 import { DataService } from './data.service';
+import { Game } from '../types/game.model';
 import { Move } from '../types/move.model';
+import { nullMove } from '../constants/constants';
 
 @Injectable({
   providedIn: 'root',
@@ -26,7 +27,6 @@ export class GameService implements OnDestroy {
   constructor(private dataService: DataService) {
     this.game$ = new Subject<Game>();
     this.currentBoardIndex$ = new BehaviorSubject<number>(0);
-    this.currentBoardIndex$.next(0);
 
     this.dataService.getNewGame().subscribe((game: Game) => {
       this.game$.next(game);
@@ -35,7 +35,7 @@ export class GameService implements OnDestroy {
     this.moveToApply$
       .pipe(
         takeUntil(this.onDestroy),
-        withLatestFrom(this.getLegalMoves(), this.game$),
+        withLatestFrom(this.getDragableMoves(), this.game$),
         map<[Move, Move[], Game], [Move[], Game]>(
           ([moveToApply, legalMoves, game]) => [
             legalMoves.filter((move) => {
@@ -85,14 +85,24 @@ export class GameService implements OnDestroy {
   }
 
   getLastMove(): Observable<Move> {
-    return this.game$.pipe(
-      map((game) => game.boards[game.boards.length - 1].lastMove)
+    return combineLatest([this.game$, this.currentBoardIndex$]).pipe(
+      map<[Game, number], Move>(([game, currentBoardIndex]) => {
+        if (currentBoardIndex <= 0) {
+          return nullMove;
+        }
+        return game.boards[currentBoardIndex].lastMove;
+      })
     );
   }
 
-  getLegalMoves(): Observable<Move[]> {
-    return this.game$.pipe(
-      map((game) => game.boards[game.boards.length - 1].legalMoves)
+  getDragableMoves(): Observable<Move[]> {
+    return combineLatest([this.game$, this.currentBoardIndex$]).pipe(
+      map<[Game, number], Move[]>(([game, currentBoardIndex]) => {
+        if (game.boards.length - 1 <= currentBoardIndex) {
+          return game.boards[game.boards.length - 1].legalMoves;
+        }
+        return [];
+      })
     );
   }
 }

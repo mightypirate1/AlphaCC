@@ -7,6 +7,7 @@ import { GameService } from '../../services/game.service';
 import { BoardPegComponent } from '../board-peg/board-peg.component';
 import { Move } from '../../types/move.model';
 import { Point } from '../../types/point.model';
+import { nullMove, nullPoint } from '../../constants/constants';
 
 @Component({
   selector: 'app-game-board',
@@ -17,19 +18,13 @@ import { Point } from '../../types/point.model';
 })
 export class GameBoardComponent implements OnDestroy {
   colors = ['', 'orange', 'rebeccapurple'];
-  selected: Point = { x: -1, y: -1 };
+
+  lastMove: Move = nullMove;
+  selected: Point = nullPoint;
+  legalMoves: Move[] = [];
 
   private readonly onDestroy = new Subject<void>();
   currentBoardMatrix$: Observable<number[][]>;
-
-  lastMove: Move = {
-    fromCoord: { x: -1, y: -1 },
-    toCoord: { x: -1, y: -1 },
-    path: [],
-    index: -1,
-  };
-
-  legalMoves: Move[] = [];
 
   constructor(private gameService: GameService) {
     this.currentBoardMatrix$ = gameService.getCurrentBoardMatrix();
@@ -43,7 +38,7 @@ export class GameBoardComponent implements OnDestroy {
         }
       });
     gameService
-      .getLegalMoves()
+      .getDragableMoves()
       .pipe(takeUntil(this.onDestroy))
       .subscribe((moves) => {
         this.legalMoves = moves;
