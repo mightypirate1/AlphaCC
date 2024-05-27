@@ -1,5 +1,5 @@
 import { Board } from './board.model';
-import { GameIO } from './game-io';
+import { GameIO } from './game-io.model';
 
 export class Game {
   gameId: string;
