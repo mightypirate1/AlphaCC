@@ -2,29 +2,36 @@ use pyo3::prelude::*;
 use redis::{Client, Commands, Connection, ConnectionLike, RedisResult, RedisError};
 
 use crate::cc::Board;
-use crate::cc::rollouts::nn_pred::NNPred;
+use crate::cc::pred_db::nn_pred::NNPred;
 
-
-const PRED_QUEUE: &str = "pred-queue";
 
 #[pyclass(module="alpha_cc_engine")]
-pub struct PredDB {
+pub struct PredDBChannel {
     queue_conn: Connection,
     pred_conn: Connection,
+    channel: usize,
+    pred_queue: String,
+    pred_bucket: String,
 }
 
 
-impl PredDB {
-    pub fn new(url: &str) -> Self {
-        let queue_conn = PredDB::connect(url, 1);        
-        let pred_conn = PredDB::connect(url, 2);        
+impl PredDBChannel {
+    pub fn new(url: &str, channel: usize) -> Self {
+        let queue_conn = PredDBChannel::connect(url, 1);        
+        let pred_conn = PredDBChannel::connect(url, 2);        
 
-        PredDB { queue_conn, pred_conn }
+        PredDBChannel { 
+            queue_conn,
+            pred_conn,
+            channel,
+            pred_queue: format!("pred-queue-{}", channel),
+            pred_bucket: format!("pred-bucket-{}", channel),
+         }
     }
 
     pub fn add_to_pred_queue(&mut self, board: &Board) {
         let value = board.serialize_rs();
-        let result: RedisResult<()> = self.queue_conn.rpush(PRED_QUEUE, value);
+        let result: RedisResult<()> = self.queue_conn.rpush(&self.pred_queue, value);
         match result {
             Ok(_) => {},
             Err(e) => {
@@ -34,14 +41,14 @@ impl PredDB {
     }
 
     pub fn has_pred(&mut self, board: &Board) -> bool {
-        let key = board.compute_hash();
-        self.pred_conn.exists(key).unwrap()
+        let field = board.compute_hash();
+        self.pred_conn.hexists(&self.pred_bucket, field).unwrap()
     }
 
     pub fn set_pred(&mut self, board: &Board, nn_pred: &NNPred) {
-        let key = board.compute_hash();
+        let field = board.compute_hash();
         let encoded = nn_pred.serialize();
-        let result: RedisResult<()> = self.pred_conn.set(key, encoded);
+        let result: RedisResult<()> = self.pred_conn.hset(&self.pred_bucket, field, encoded);
         match result {
             Ok(_) => {},
             Err(e) => {
@@ -51,8 +58,8 @@ impl PredDB {
     }
 
     pub fn get_pred(&mut self, board: &Board) -> Option<NNPred> {
-        let key = board.compute_hash();
-        match self.pred_conn.get(key) {
+        let field = board.compute_hash();
+        match self.pred_conn.hget(&self.pred_bucket, field) {
             Ok(encoded) => {
                 Some(NNPred::deserialize(encoded))
             },
@@ -69,7 +76,7 @@ impl PredDB {
 
     fn pop_bytes_from_queue(&mut self) -> Option<Vec<u8>> {
         let encoded_board: Vec<u8>;
-        match self.queue_conn.lpop(PRED_QUEUE, None) {
+        match self.queue_conn.lpop(&self.pred_queue, None) {
             Ok(encoded) => {
                 encoded_board = encoded;
                 if !encoded_board.is_empty() {
@@ -86,7 +93,7 @@ impl PredDB {
     fn bpop_bytes_from_queue(&mut self) -> Option<Vec<u8>> {
         let encoded_board: Vec<u8>;
         let queue_and_result: Result<(String, Vec<u8>), RedisError> = self.queue_conn.blpop(
-            PRED_QUEUE, 0.0
+            &self.pred_queue, 0.0
         );
         match queue_and_result {
             Ok((_, encoded)) => {
@@ -113,7 +120,7 @@ impl PredDB {
     fn pop_board_from_queue(&mut self) -> Option<Board> {
         match self.pop_bytes_from_queue() {
             Some(encoded_board) => {
-                PredDB::decode_bytes_as_board(encoded_board)
+                PredDBChannel::decode_bytes_as_board(encoded_board)
             },
             None => None,
         }
@@ -121,7 +128,7 @@ impl PredDB {
     fn bpop_board_from_queue(&mut self) -> Option<Board> {
         match self.bpop_bytes_from_queue() {
             Some(encoded_board) => {
-                PredDB::decode_bytes_as_board(encoded_board)
+                PredDBChannel::decode_bytes_as_board(encoded_board)
             },
             None => None,
         }
@@ -136,13 +143,26 @@ impl PredDB {
 }
 
 #[pymethods]
-impl PredDB {
+impl PredDBChannel {
     #[new]
-    fn new_py(url: &str) -> Self {
-        PredDB::new(url)
+    fn new_py(url: &str, channel: usize) -> Self {
+        PredDBChannel::new(url, channel)
+    }
+
+    #[getter]
+    fn get_channel(&self) -> usize {
+        self.channel
     }
 
     pub fn fetch_all(&mut self) -> Vec<Board> {
+        let mut boards: Vec<Board>= Vec::new();
+        while let Some(board) = self.pop_board_from_queue() {
+            boards.push(board);
+        }
+        boards
+    }
+
+    pub fn bfetch_all(&mut self) -> Vec<Board> {
         let mut boards: Vec<Board>= Vec::new();
         if let Some(board) = self.bpop_board_from_queue() {
             boards.push(board);

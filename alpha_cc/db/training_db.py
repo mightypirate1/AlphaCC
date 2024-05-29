@@ -22,6 +22,10 @@ class TrainingDB:
         return "weights-latest"
 
     @property
+    def current_models_key(self) -> str:
+        return "update-models"
+
+    @property
     def latest_weights_index_key(self) -> str:
         return "latest-weights-index"
 
@@ -53,6 +57,20 @@ class TrainingDB:
         logger.debug(f"fetched {len(traj)} experiences")
         return traj
 
+    def set_current_model(self, channel: int, weight_index: int) -> None:
+        self._db.hset(self.current_models_key, key=str(channel), value=str(weight_index))
+
+    def remove_model(self, channel: int) -> None:
+        self._db.hdel(self.current_models_key, str(channel))
+
+    def get_current_models(self) -> dict[int, int]:
+        channels = self._db.hkeys(self.current_models_key)
+        if channels is None:
+            return {}
+        return {
+            int(channel): int(self._db.hget(self.current_models_key, channel)) for channel in channels  # type: ignore
+        }
+
     def publish_latest_weights(self, state_dict: dict[str, Any]) -> int:
         payload = dill.dumps(state_dict)
         self._db.set(self.latest_weights_key, payload)
@@ -79,15 +97,3 @@ class TrainingDB:
         index = 0 if response is None else int(response)  # type: ignore
         logger.debug(f"latest index: {index}")
         return index
-
-    def weights_is_latest(self, current_index: int) -> bool:
-        latest_index = self.fetch_latest_weight_index()
-        is_latest = latest_index <= current_index
-        logger.debug(f"weights {current_index} is latest: {is_latest}")
-        return is_latest
-
-    def first_weights_published(self) -> bool:
-        response = self._db.get(self.latest_weights_index_key)
-        is_published = response is not None
-        logger.debug(f"first weights published: {is_published}")
-        return is_published

@@ -64,6 +64,7 @@ def main(
 
     # workers will wait for the first weights getting published so everyone has the same net
     curr_index = db.publish_latest_weights(trainer.nn.state_dict())
+    db.set_current_model(0, curr_index)
 
     while True:
         # wait until we have enough new samples
@@ -78,6 +79,7 @@ def main(
 
         # publish weights
         curr_index = db.publish_latest_weights(trainer.nn.state_dict())
+        db.set_current_model(0, curr_index)
         save_weights(run_id, curr_index, trainer.nn.state_dict())
 
 

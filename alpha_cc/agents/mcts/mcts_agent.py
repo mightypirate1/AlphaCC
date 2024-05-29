@@ -8,6 +8,7 @@ class MCTSAgent(Agent):
     def __init__(
         self,
         redis_host: str,
+        pred_channel: int = 0,
         cache_size: int = 1000000,
         n_rollouts: int = 100,
         rollout_depth: int = 500,
@@ -19,6 +20,7 @@ class MCTSAgent(Agent):
         argmax_delay: int | None = None,
     ) -> None:
         self._redis_host = redis_host
+        self._pred_channel = pred_channel
         self._cache_size = cache_size
         self._n_rollouts = n_rollouts
         self._rollout_depth = rollout_depth
@@ -70,6 +72,7 @@ class MCTSAgent(Agent):
     def _recreate_mcts(self) -> MCTS:
         return MCTS(
             self._redis_host,
+            self._pred_channel,
             self._cache_size,
             self._rollout_gamma,
             self._dirichlet_weight,
