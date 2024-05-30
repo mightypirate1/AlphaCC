@@ -2,6 +2,7 @@ tmp
 tests
 Dockerfile
 .venv
+alpha_cc/engine/backend/target
 
 # Misc
 .*
