@@ -63,4 +63,4 @@ def main(
     time.sleep(10)  # TODO: figure out why workers can start before trainer
     while True:
         traj = training_runtime.play_game(max_game_length=max_game_length)
-        db.post_trajectory(traj)
+        db.trajectory_post(traj)

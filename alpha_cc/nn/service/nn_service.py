@@ -90,7 +90,7 @@ class ServedNN:
         if self._nn is None:
             logger.warn(f"[Channel-{self._pred_db_channel.channel}]: attempted reload but is deactivated")
             return
-        target_weight_index = self._training_db.get_current_models().get(self.channel)
+        target_weight_index = self._training_db.model_get_current().get(self.channel)
         if target_weight_index is None:
             logger.warn(f"[Channel-{self._pred_db_channel.channel}]: attempted reload but has no target weights")
             return
@@ -99,7 +99,7 @@ class ServedNN:
             return
 
         self._current_weights_index = target_weight_index
-        weights = self._training_db.fetch_weights(target_weight_index)
+        weights = self._training_db.weights_fetch(target_weight_index)
         self._nn.load_state_dict(weights)
         self._nn.eval()
         self._pred_db_channel.flush_preds()
@@ -161,7 +161,7 @@ class NNService:
 
     def _initialize_scheduler(self) -> None:
         def update_served_nets() -> None:
-            current_channels = self._training_db.get_current_models().keys()
+            current_channels = self._training_db.model_get_current().keys()
             for channel in current_channels:
                 if not self.has_channel(channel):
                     self.add_channel(channel)

@@ -1,4 +1,5 @@
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
@@ -63,8 +64,8 @@ def main(
     db.flush_db()  # redis doesn't clear itself on restart currently...
 
     # workers will wait for the first weights getting published so everyone has the same net
-    curr_index = db.publish_latest_weights(trainer.nn.state_dict())
-    db.set_current_model(0, curr_index)
+    curr_index = db.weights_publish_latest(trainer.nn.state_dict())
+    db.model_set_current(0, curr_index)
 
     while True:
         # wait until we have enough new samples
@@ -78,8 +79,8 @@ def main(
         trainer.train(train_data)
 
         # publish weights
-        curr_index = db.publish_latest_weights(trainer.nn.state_dict())
-        db.set_current_model(0, curr_index)
+        curr_index = db.weights_publish_latest(trainer.nn.state_dict())
+        db.model_set_current(0, curr_index)
         save_weights(run_id, curr_index, trainer.nn.state_dict())
 
 
@@ -88,7 +89,7 @@ def await_samples(db: TrainingDB, n_train_samples: int) -> list[list[MCTSExperie
     n_remaining = n_train_samples
     with tqdm(desc="awaiting samples", total=n_train_samples) as pbar:
         while n_remaining > 0:
-            trajectory = db.fetch_trajectory(blocking=True)
+            trajectory = db.trajectory_fetch(blocking=True)
             trajectories.append(trajectory)
             n_remaining -= len(trajectory)
             pbar.update(len(trajectory))
@@ -97,10 +98,46 @@ def await_samples(db: TrainingDB, n_train_samples: int) -> list[list[MCTSExperie
     # remaining on the queue. thus, we clear the queue so we can train on
     # the latest data. as as bonus, we also get to notice this  happening in
     # tensorboard
-    if remaining_trajectories := db.fetch_all_trajectories():
+    if remaining_trajectories := db.trajectory_fetch_all():
         logger.warning(f"trainer is behind by {len(remaining_trajectories)} samples")
         trajectories.extend(remaining_trajectories)
     return trajectories
+
+
+def run_tournament(
+    training_db: TrainingDB, weight_indices: list[int], n_repeats: int = 5
+) -> dict[int, dict[int, float]]:
+    # assign weights to tournament channels
+    for channel, weight_index in enumerate(weight_indices, start=1):
+        training_db.model_set_current(channel, weight_index)
+
+    # reset tournament counter and add matches
+    training_db.tournament_reset()
+    expected_games = len(weight_indices) * (len(weight_indices) - 1) * n_repeats
+    players = list(range(1, 1 + len(weight_indices)))
+    for _ in range(n_repeats):
+        for player_1 in players:
+            for player_2 in players:
+                if player_1 == player_2:
+                    continue
+                for _ in range(n_repeats):
+                    training_db.tournament_add_match(player_1, player_2)
+
+    # await match completion
+    with tqdm(desc="awaiting tournament", total=expected_games) as pbar:
+        last_completed_games = 0
+        while (completed_games := training_db.tournament_get_n_completed_games()) < expected_games:
+            pbar.update(completed_games - last_completed_games)
+            last_completed_games = completed_games
+            time.sleep(1)
+
+    # get results
+    results = training_db.tournament_get_results()  # dict[player_1][player_2] -> n wins for player_1 vs player_2
+    win_rates = {
+        player_1: {player_2: results[player_1][player_2] / n_repeats for player_2 in players if player_1 != player_2}
+        for player_1 in players
+    }
+    return win_rates
 
 
 def save_weights(run_id: str, curr_index: int, weights: dict[str, Any]) -> None:
