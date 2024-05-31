@@ -20,6 +20,7 @@ def test_properties(board_size: int) -> None:
     state.action_mask_indices  # noqa
     state.hash  # noqa
     state.matrix  # noqa
+    state.unflipped_matrix  # noqa
     state.tensor  # noqa
 
 
@@ -56,6 +57,7 @@ def test_pickling(board_size: int) -> None:
     assert len(state.children) == len(recreated_state.children)
     assert (state.tensor == recreated_state.tensor).all()
     assert (recreated_state.matrix == state.matrix).all()
+    assert (recreated_state.unflipped_matrix == state.unflipped_matrix).all()
     assert state.hash == recreated_state.hash
     for move, rec_move in zip(state.moves, recreated_state.moves, strict=True):
         assert_coords_eq(move.from_coord, rec_move.from_coord)

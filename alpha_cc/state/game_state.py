@@ -19,6 +19,7 @@ class GameState:
     def __init__(self, board: Board) -> None:
         self._board = board
         self._matrix: np.ndarray | None = None
+        self._unflipped_matrix: np.ndarray | None = None
         self._tensor: torch.Tensor | None = None
         self._action_mask: np.ndarray | None = None
         self._action_mask_indices: dict[int, tuple[HexCoord, HexCoord]] | None = None
@@ -55,6 +56,13 @@ class GameState:
             d = self.board.info.size
             self._matrix = np.array(self.board.get_matrix())[:d, :d]
         return self._matrix
+
+    @property
+    def unflipped_matrix(self) -> np.ndarray:
+        if self._unflipped_matrix is None:
+            d = self.board.info.size
+            self._unflipped_matrix = np.array(self.board.get_unflipped_matrix())[:d, :d]
+        return self._unflipped_matrix
 
     @property
     def tensor(self) -> torch.Tensor:
@@ -95,6 +103,7 @@ class GameState:
     def __setstate__(self, board: Board) -> None:
         self._board = board
         self._matrix = None
+        self._unflipped_matrix = None
         self._tensor = None
         self._action_mask = None
         self._action_mask_indices = None
