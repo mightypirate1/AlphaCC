@@ -12,7 +12,7 @@ from alpha_cc.config import Environment
 from alpha_cc.db import TrainingDB
 from alpha_cc.engine import Board
 from alpha_cc.entrypoints.logs import init_rootlogger
-from alpha_cc.runtimes import TrainingRunTime
+from alpha_cc.runtimes import TournamentRuntime, TrainingRunTime
 
 logger = logging.getLogger(__file__)
 
@@ -40,27 +40,41 @@ def main(
     gamma: float,
     verbose: bool,
 ) -> None:
+    def create_model(channel: int) -> MCTSAgent:
+        return MCTSAgent(
+            Environment.host_redis,
+            pred_channel=channel,
+            n_rollouts=n_rollouts,
+            rollout_depth=rollout_depth,
+            rollout_gamma=rollout_gamma,
+            dirichlet_weight=dirichlet_noise_weight,
+            argmax_delay=argmax_delay,
+        )
+
     init_rootlogger(verbose=verbose)
     value_assignment_strategy = (
         HeuristicAssignmentStrategy(size, gamma) if heuristic else DefaultAssignmentStrategy(gamma)
     )
-    agent = MCTSAgent(
-        Environment.host_redis,
-        n_rollouts=n_rollouts,
-        rollout_depth=rollout_depth,
-        rollout_gamma=rollout_gamma,
-        dirichlet_weight=dirichlet_noise_weight,
-        argmax_delay=argmax_delay,
-    )
+    db = TrainingDB(host=Environment.host_redis)
+    agent = create_model(0)
     training_runtime = TrainingRunTime(
         Board(size),
         agent,
         value_assignment_strategy=value_assignment_strategy,
     )
-    db = TrainingDB(host=Environment.host_redis)
+    tournament_runtime = TournamentRuntime(size, db, max_game_length=max_game_length)
 
     # the trainer needs to start and flush the db, so we wait
     time.sleep(10)  # TODO: figure out why workers can start before trainer
     while True:
+        while (pairing := db.tournament_get_match()) is not None:
+            # if a tournament is on, we partake
+            player_1, player_2 = pairing
+            tournament_runtime.play_and_record_game(
+                {
+                    player_1: create_model(player_1),
+                    player_2: create_model(player_2),
+                }
+            )
         traj = training_runtime.play_game(max_game_length=max_game_length)
         db.trajectory_post(traj)

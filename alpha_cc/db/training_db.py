@@ -5,6 +5,7 @@ import dill
 import redis
 
 from alpha_cc.agents.mcts import MCTSExperience
+from alpha_cc.db.models.tournament_results import TournamentResult
 
 logger = logging.getLogger(__file__)
 
@@ -54,8 +55,8 @@ class TrainingDB:
     def weight_key(self, index: int | str) -> str:
         return f"weights-{str(index).zfill(4)}"
 
-    def tournament_result_key(self, winner: int, looser: int) -> str:
-        return f"{winner}-{looser}"
+    def tournament_result_key(self, channel_1: int, channel_2: int, winner: int) -> str:
+        return f"{channel_1}-{channel_2}-{winner}"
 
     def flush_db(self) -> None:
         logger.debug("reseting db")
@@ -136,8 +137,11 @@ class TrainingDB:
         self._db.delete(self.tournament_queue_key)
         self._db.delete(self.tournament_results_key)
 
-    def tournament_add_match(self, player_1: int, player_2: int) -> None:
-        paring = (player_1, player_2)
+    def tournament_increment_counter(self) -> None:
+        self._db.incr(self.tournament_counter_key, 1)
+
+    def tournament_add_match(self, channel_1: int, channel_2: int) -> None:
+        paring = (channel_1, channel_2)
         self._db.lpush(self.tournament_queue_key, dill.dumps(paring))
 
     def tournament_get_match(self) -> tuple[int, int] | None:
@@ -149,18 +153,9 @@ class TrainingDB:
     def tournament_get_n_completed_games(self) -> int:
         return int(self._db.get(self.tournament_counter_key))  # type: ignore
 
-    def tournament_add_result(self, winner: int, looser: int) -> None:
-        pairing_key = self.tournament_result_key(winner, looser)
+    def tournament_add_result(self, channel_1: int, channel_2: int, winner: int) -> None:
+        pairing_key = self.tournament_result_key(channel_1, channel_2, winner)
         self._db.hincrby(self.tournament_results_key, pairing_key, 1)
 
-    def tournament_get_results(self) -> dict[int, dict[int, int]]:
-        def get_result(pairing_key: str) -> int:
-            return int(self._db.hget(self.tournament_results_key, pairing_key))  # type: ignore
-
-        results: dict[int, dict[int, int]] = {}
-        pairing_keys = self._db.hkeys(self.tournament_results_key)
-        for pairing_key in pairing_keys:  # type: ignore
-            result = get_result(pairing_key)
-            player_1, player_2 = map(int, pairing_key.split("-"))
-            results[player_1][player_2] = result
-        return results
+    def tournament_get_results(self) -> TournamentResult:
+        return TournamentResult.from_db(self.tournament_results_key, self._db)

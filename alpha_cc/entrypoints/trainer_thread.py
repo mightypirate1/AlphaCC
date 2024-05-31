@@ -1,5 +1,4 @@
 import logging
-import time
 from pathlib import Path
 from typing import Any
 
@@ -11,8 +10,10 @@ from tqdm_loggable.auto import tqdm
 from alpha_cc.agents.mcts import MCTSExperience
 from alpha_cc.config import Environment
 from alpha_cc.db import TrainingDB
+from alpha_cc.db.models import TournamentResult
 from alpha_cc.entrypoints.logs import init_rootlogger
 from alpha_cc.nn.nets.default_net import DefaultNet
+from alpha_cc.runtimes import TournamentRuntime
 from alpha_cc.training import Trainer, TrainingDataset
 
 logger = logging.getLogger(__file__)
@@ -23,6 +24,7 @@ logger = logging.getLogger(__file__)
 @click.option("--size", type=int, default=9)
 @click.option("--n-train-samples", type=int, default=1024)
 @click.option("--epochs-per-update", type=int, default=1)
+@click.option("--tournament-freq", type=int, default=10)
 @click.option("--policy-weight", type=float, default=1.0)
 @click.option("--value-weight", type=float, default=1.0)
 @click.option("--entropy-weight", type=float, default=0.0)
@@ -36,6 +38,7 @@ def main(
     size: int,
     n_train_samples: int,
     epochs_per_update: int,
+    tournament_freq: int,
     policy_weight: float,
     value_weight: float,
     entropy_weight: float,
@@ -60,12 +63,15 @@ def main(
         lr=lr,
         summary_writer=summary_writer,
     )
+    tournament_runtime = TournamentRuntime(size, db)
 
     db.flush_db()  # redis doesn't clear itself on restart currently...
 
     # workers will wait for the first weights getting published so everyone has the same net
     curr_index = db.weights_publish_latest(trainer.nn.state_dict())
     db.model_set_current(0, curr_index)
+    n_iterations = 0
+    champion_index = curr_index
 
     while True:
         # wait until we have enough new samples
@@ -82,6 +88,14 @@ def main(
         curr_index = db.weights_publish_latest(trainer.nn.state_dict())
         db.model_set_current(0, curr_index)
         save_weights(run_id, curr_index, trainer.nn.state_dict())
+
+        if (n_iterations := n_iterations + 1) % tournament_freq == 0:
+            tournament_results = tournament_runtime.run_tournament([curr_index, champion_index], n_rounds=5)
+            win_rate, win_rate_as_white, win_rate_as_black = extract_winrate(tournament_results)
+            if win_rate > 0.55:
+                champion_index = curr_index
+                logger.info(f"new champion: {champion_index}! (winrate={win_rate})")
+            log_winrate(win_rate, win_rate_as_white, win_rate_as_black, champion_index, n_iterations, summary_writer)
 
 
 def await_samples(db: TrainingDB, n_train_samples: int) -> list[list[MCTSExperience]]:
@@ -104,40 +118,32 @@ def await_samples(db: TrainingDB, n_train_samples: int) -> list[list[MCTSExperie
     return trajectories
 
 
-def run_tournament(
-    training_db: TrainingDB, weight_indices: list[int], n_repeats: int = 5
-) -> dict[int, dict[int, float]]:
-    # assign weights to tournament channels
-    for channel, weight_index in enumerate(weight_indices, start=1):
-        training_db.model_set_current(channel, weight_index)
+def extract_winrate(
+    tournament_results: TournamentResult,
+) -> tuple[float, float, float]:
+    # assumes exactly two players were queued to play the tournament:
+    #  1. current weights
+    #  2. champion weights
+    win_rate_as_white = tournament_results[1, 2]
+    win_rate_as_black = 1 - tournament_results[2, 1]
+    win_rate = (win_rate_as_white + win_rate_as_black) / 2
+    return win_rate, win_rate_as_white, win_rate_as_black
 
-    # reset tournament counter and add matches
-    training_db.tournament_reset()
-    expected_games = len(weight_indices) * (len(weight_indices) - 1) * n_repeats
-    players = list(range(1, 1 + len(weight_indices)))
-    for _ in range(n_repeats):
-        for player_1 in players:
-            for player_2 in players:
-                if player_1 == player_2:
-                    continue
-                for _ in range(n_repeats):
-                    training_db.tournament_add_match(player_1, player_2)
 
-    # await match completion
-    with tqdm(desc="awaiting tournament", total=expected_games) as pbar:
-        last_completed_games = 0
-        while (completed_games := training_db.tournament_get_n_completed_games()) < expected_games:
-            pbar.update(completed_games - last_completed_games)
-            last_completed_games = completed_games
-            time.sleep(1)
-
-    # get results
-    results = training_db.tournament_get_results()  # dict[player_1][player_2] -> n wins for player_1 vs player_2
-    win_rates = {
-        player_1: {player_2: results[player_1][player_2] / n_repeats for player_2 in players if player_1 != player_2}
-        for player_1 in players
-    }
-    return win_rates
+def log_winrate(
+    win_rate: float,
+    win_rate_as_white: float,
+    win_rate_as_black: float,
+    champion_index: int,
+    step: int,
+    summary_writer: SummaryWriter,
+) -> float:
+    logger.info(f"WINRATES: total={win_rate} as_white={win_rate_as_white}, as_black={win_rate_as_black}")
+    summary_writer.add_scalar("tournament/win-rate", win_rate, step)
+    summary_writer.add_scalar("tournament/win-rate-as-white", win_rate_as_white, step)
+    summary_writer.add_scalar("tournament/win-rate-as-black", win_rate_as_black, step)
+    summary_writer.add_scalar("tournament/champion-index", champion_index, step)
+    return win_rate
 
 
 def save_weights(run_id: str, curr_index: int, weights: dict[str, Any]) -> None:

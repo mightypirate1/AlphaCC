@@ -41,7 +41,7 @@ class ServedNN:
 
     def process_requests(self) -> None:
         if self._nn is None:
-            raise ValueError("can not call a deactivated ServedNN")
+            raise ValueError(f"can not call a deactivated ServedNN[channel={self.channel}]")
         boards = self._pred_db_channel.fetch_all()
         if len(boards) == 0:
             return
