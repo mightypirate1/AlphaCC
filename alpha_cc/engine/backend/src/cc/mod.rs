@@ -4,6 +4,7 @@ mod hexcoord;
 mod moves;
 mod board_info;
 pub mod rollouts;
+pub mod pred_db;
 
 pub use board::Board;
 pub use r#move::Move;

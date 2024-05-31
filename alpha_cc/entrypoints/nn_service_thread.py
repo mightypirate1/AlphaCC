@@ -3,7 +3,6 @@ import time
 import click
 
 from alpha_cc.config import Environment
-from alpha_cc.db import PredDB, TrainingDB
 from alpha_cc.entrypoints.logs import init_rootlogger
 from alpha_cc.nn.nets.default_net import DefaultNet
 from alpha_cc.nn.service import NNService
@@ -16,12 +15,11 @@ from alpha_cc.nn.service import NNService
 def main(size: int, reload_frequency: int, verbose: bool) -> None:
     init_rootlogger(verbose=verbose)
     # let the trainer start and flush the db
-    time.sleep(10)
+    time.sleep(5)
 
     nn_service = NNService(
-        nn=DefaultNet(size),
-        pred_db=PredDB(Environment.host_redis),
-        training_db=TrainingDB(host=Environment.host_redis),
+        nn_creator=lambda: DefaultNet(size),
+        host=Environment.host_redis,
         reload_frequency=reload_frequency,
     )
     nn_service.run()

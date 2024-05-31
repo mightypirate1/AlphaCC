@@ -12,9 +12,7 @@ use crate::cc::board::Board;
 use crate::cc::moves::find_all_moves;
 use crate::cc::rollouts::nn_remote::NNRemote;
 use crate::cc::rollouts::mcts_node::MCTSNode;
-use crate::cc::rollouts::nn_pred::NNPred;
-use crate::cc::rollouts::pred_db::PredDB;
-
+use crate::cc::pred_db::{NNPred, PredDBChannel};
 
 
 #[pyclass(module="alpha_cc_engine")]
@@ -152,9 +150,11 @@ impl MCTS {
 
 #[pymethods]
 impl MCTS {
+    #[allow(clippy::too_many_arguments)]
     #[new]
     fn create(
         url: String,
+        channel: usize,
         cache_size: usize,
         gamma: f32,
         dirichlet_weight: f32,
@@ -163,7 +163,7 @@ impl MCTS {
         c_puct_base: f32,
     ) -> MCTS {
         MCTS::new(
-            NNRemote::new(PredDB::new(&url)),
+            NNRemote::new(PredDBChannel::new(&url, channel)),
             cache_size,
             MCTSParams {
                 gamma,
