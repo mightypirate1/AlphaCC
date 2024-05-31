@@ -229,16 +229,12 @@ impl Board {
     }
 
     fn xy_start_val(x: usize, y: usize, size: usize) -> i8 {
-        // no mans land
-        if x >= size || y >= size {
-            return 8;
-        }
         // player 1 home
         if x + y < Board::home_size(size) {
             return 1;
         }
         // player 2 home
-        if x + y >= size + Board::home_size(size) {
+        if x + y >= size + Board::home_size(size) && x < size && y < size {
             return 2;
         }
         0
