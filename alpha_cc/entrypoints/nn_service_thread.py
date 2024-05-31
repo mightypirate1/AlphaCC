@@ -15,7 +15,7 @@ from alpha_cc.nn.service import NNService
 def main(size: int, reload_frequency: int, verbose: bool) -> None:
     init_rootlogger(verbose=verbose)
     # let the trainer start and flush the db
-    time.sleep(10)
+    time.sleep(5)
 
     nn_service = NNService(
         nn_creator=lambda: DefaultNet(size),
