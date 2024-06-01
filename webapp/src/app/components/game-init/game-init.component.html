@@ -1,0 +1,17 @@
+<h2>Start new game</h2>
+<form [formGroup]="newGameForm" (ngSubmit)="onSubmit()">
+  <div>
+    <label for="game-id">Game ID: </label>
+    <input id="game-id" type="text" formControlName="gameId" />
+    (<em>Optional</em>)
+  </div>
+  <div>
+    <label for="game-size">Size: </label>
+    <input type="radio" value="5" formControlName="gameSize" />5x5
+    <input type="radio" value="7" formControlName="gameSize" />7x7
+    <input type="radio" value="9" formControlName="gameSize" />9x9
+  </div>
+  <!-- disabled when input is invalid -->
+  <button type="submit" [disabled]="!newGameForm.valid">Start game!</button>
+  <p>Form Status: {{ newGameForm.status }}</p>
+</form>
