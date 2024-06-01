@@ -38,12 +38,13 @@ export class GameBoardComponent implements OnDestroy {
         }
       });
     gameService
-      .getDragableMoves()
+      .getCurrentBoardLegalMoves()
       .pipe(takeUntil(this.onDestroy))
       .subscribe((moves) => {
         this.legalMoves = moves;
       });
   }
+
   ngOnDestroy(): void {
     this.onDestroy.next();
   }

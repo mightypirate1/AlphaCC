@@ -20,22 +20,15 @@ import { nullMove } from '../constants/constants';
 })
 export class GameService implements OnDestroy {
   private readonly onDestroy = new Subject<void>();
-  game$: Subject<Game>;
-  currentBoardIndex$: BehaviorSubject<number>;
+  game$: Subject<Game> = new Subject<Game>();
+  currentBoardIndex$: BehaviorSubject<number> = new BehaviorSubject<number>(0);
   moveToApply$: Subject<Move> = new Subject<Move>();
 
   constructor(private dataService: DataService) {
-    this.game$ = new Subject<Game>();
-    this.currentBoardIndex$ = new BehaviorSubject<number>(0);
-
-    this.dataService.getNewGame().subscribe((game: Game) => {
-      this.game$.next(game);
-    });
-
     this.moveToApply$
       .pipe(
         takeUntil(this.onDestroy),
-        withLatestFrom(this.getDragableMoves(), this.game$),
+        withLatestFrom(this.getCurrentBoardLegalMoves(), this.game$),
         map<[Move, Move[], Game], [Move[], Game]>(
           ([moveToApply, legalMoves, game]) => [
             legalMoves.filter((move) => {
@@ -62,6 +55,12 @@ export class GameService implements OnDestroy {
           this.currentBoardIndex$.next(this.currentBoardIndex$.getValue() + 1);
         });
       });
+  }
+
+  newGame(gameId: string | null, gameSize: number) {
+    this.dataService.getNewGame(gameId, gameSize).subscribe((game: Game) => {
+      this.game$.next(game);
+    });
   }
 
   ngOnDestroy(): void {
@@ -95,7 +94,7 @@ export class GameService implements OnDestroy {
     );
   }
 
-  getDragableMoves(): Observable<Move[]> {
+  getCurrentBoardLegalMoves(): Observable<Move[]> {
     return combineLatest([this.game$, this.currentBoardIndex$]).pipe(
       map<[Game, number], Move[]>(([game, currentBoardIndex]) => {
         if (game.boards.length - 1 <= currentBoardIndex) {

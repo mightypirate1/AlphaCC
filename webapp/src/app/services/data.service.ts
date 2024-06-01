@@ -14,9 +14,9 @@ export class DataService {
 
   constructor(private http: HttpClient) {}
 
-  getNewGame(): Observable<Game> {
+  getNewGame(gameId: string | null, size: number): Observable<Game> {
     return this.http
-      .post<GameIO>(this.newGameUrl, { size: 9, gameId: null })
+      .post<GameIO>(this.newGameUrl, { gameId: gameId, size: size })
       .pipe(map((gameIo) => new Game(gameIo)));
   }
 

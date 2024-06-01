@@ -1,5 +1,9 @@
+@if (!gameActive) {
+<app-game-init (formGroupChange)="formGroupChange($event)"></app-game-init>
+} @else {
 <app-game-board></app-game-board>
-<div class="info-controls-wrapper">
+<div class="game-sidebar">
   <app-game-info></app-game-info>
   <app-game-controls></app-game-controls>
 </div>
+}
