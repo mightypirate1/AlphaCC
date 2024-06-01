@@ -28,7 +28,7 @@ export class GameService implements OnDestroy {
     this.moveToApply$
       .pipe(
         takeUntil(this.onDestroy),
-        withLatestFrom(this.getCurrentBoardLegalMoves(), this.game$),
+        withLatestFrom(this.getDraggableMoves(), this.game$),
         map<[Move, Move[], Game], [Move[], Game]>(
           ([moveToApply, legalMoves, game]) => [
             legalMoves.filter((move) => {
@@ -94,7 +94,7 @@ export class GameService implements OnDestroy {
     );
   }
 
-  getCurrentBoardLegalMoves(): Observable<Move[]> {
+  getDraggableMoves(): Observable<Move[]> {
     return combineLatest([this.game$, this.currentBoardIndex$]).pipe(
       map<[Game, number], Move[]>(([game, currentBoardIndex]) => {
         if (game.boards.length - 1 <= currentBoardIndex) {

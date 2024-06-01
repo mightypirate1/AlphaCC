@@ -1,4 +1,4 @@
-import { Point } from '@angular/cdk/drag-drop';
+import { Point } from '../types/point.model';
 import { Move } from '../types/move.model';
 
 export const nullPoint: Point = { x: -1, y: -1 };
