@@ -6,6 +6,7 @@ import {
   combineLatest,
   filter,
   map,
+  of,
   takeUntil,
   withLatestFrom,
 } from 'rxjs';
@@ -23,6 +24,7 @@ export class GameService implements OnDestroy {
   game$: Subject<Game> = new Subject<Game>();
   currentBoardIndex$: BehaviorSubject<number> = new BehaviorSubject<number>(0);
   moveToApply$: Subject<Move> = new Subject<Move>();
+  player$: Observable<number> = of(1);
 
   constructor(private dataService: DataService) {
     this.moveToApply$
@@ -45,8 +47,8 @@ export class GameService implements OnDestroy {
         filter(([filteredMoves]) => {
           return filteredMoves.length !== 0;
         }),
-        map<[Move[], Game], [number, string]>(([move, game]) => {
-          return [move[0].index, game.gameId];
+        map<[Move[], Game], [number, string]>(([filteredMoves, game]) => {
+          return [filteredMoves[0].index, game.gameId];
         })
       )
       .subscribe(([moveIndex, gameId]) => {
@@ -54,17 +56,24 @@ export class GameService implements OnDestroy {
           this.game$.next(game);
           this.currentBoardIndex$.next(this.currentBoardIndex$.getValue() + 1);
         });
+        dataService.requestMove(gameId, 500, 100, 1).subscribe((game) => {
+          this.game$.next(game);
+          this.currentBoardIndex$.next(this.currentBoardIndex$.getValue() + 1);
+        });
       });
-  }
-
-  newGame(gameId: string | null, gameSize: number) {
-    this.dataService.getNewGame(gameId, gameSize).subscribe((game: Game) => {
-      this.game$.next(game);
-    });
   }
 
   ngOnDestroy(): void {
     this.onDestroy.next();
+  }
+
+  newGame(gameId: string | null, gameSize: number) {
+    this.dataService
+      .getNewGame(gameId, gameSize)
+      .pipe(takeUntil(this.onDestroy))
+      .subscribe((game: Game) => {
+        this.game$.next(game);
+      });
   }
 
   applyMove(move: Move): void {
@@ -95,13 +104,23 @@ export class GameService implements OnDestroy {
   }
 
   getDraggableMoves(): Observable<Move[]> {
-    return combineLatest([this.game$, this.currentBoardIndex$]).pipe(
-      map<[Game, number], Move[]>(([game, currentBoardIndex]) => {
-        if (game.boards.length - 1 <= currentBoardIndex) {
-          return game.boards[game.boards.length - 1].legalMoves;
+    return combineLatest([
+      this.game$,
+      this.currentBoardIndex$,
+      this.player$,
+    ]).pipe(
+      map<[Game, number, number], Move[]>(
+        ([game, currentBoardIndex, player]) => {
+          if (
+            game.boards.length - 1 <= currentBoardIndex &&
+            game.boards[currentBoardIndex].currentPlayer === player &&
+            game.boards[currentBoardIndex].gameOver === false
+          ) {
+            return game.boards[game.boards.length - 1].legalMoves;
+          }
+          return [];
         }
-        return [];
-      })
+      )
     );
   }
 }

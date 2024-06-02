@@ -11,6 +11,7 @@ import { HttpClient } from '@angular/common/http';
 export class DataService {
   newGameUrl: string = environment.backendUrl + '/new-game';
   applyMoveUrl: string = environment.backendUrl + '/apply-move';
+  requestMoveUrl: string = environment.backendUrl + '/request-move';
 
   constructor(private http: HttpClient) {}
 
@@ -25,6 +26,22 @@ export class DataService {
       .post<GameIO>(this.applyMoveUrl, {
         gameId: gameId,
         moveIndex: moveIndex,
+      })
+      .pipe(map((gameIo) => new Game(gameIo)));
+  }
+
+  requestMove(
+    gameId: string,
+    nRollouts: number,
+    rolloutDepth: number,
+    temperature: number
+  ): Observable<Game> {
+    return this.http
+      .post<GameIO>(this.requestMoveUrl, {
+        gameId: gameId,
+        nRollouts: nRollouts,
+        rolloutDepth: rolloutDepth,
+        temperature: temperature,
       })
       .pipe(map((gameIo) => new Game(gameIo)));
   }
