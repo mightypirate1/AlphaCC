@@ -4,23 +4,22 @@
     <div class="board-row-space" [style.width]="row * 25 + 'px'"></div>
     @for (j of i; track j; let col = $index) {
     <div
-      class="hole"
+      class="board-hole"
       [ngClass]="{
         'legal-target': isLegalTarget(row, col),
         'last-move':
           (lastMove.fromCoord.x === row && lastMove.fromCoord.y === col) ||
-          (lastMove.toCoord.x === row && lastMove.toCoord.y === col)
+          (lastMove.toCoord.x === row && lastMove.toCoord.y === col),
       }"
       cdkDropList
       [cdkDropListData]="{ row: row, col: col }"
       (cdkDropListDropped)="drop($event)"
     >
-      @if (j !== 0) {
+      @if (j !== 0){
       <app-board-peg
         [pegColor]="colors[j]"
         (mousedown)="setSelected(row, col)"
         (mouseup)="setSelected(-1, -1)"
-        (mouseleave)="setSelected(-1, -1)"
         cdkDrag
         [cdkDragDisabled]="!isLegalSource(row, col)"
       >

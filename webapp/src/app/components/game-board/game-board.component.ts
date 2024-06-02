@@ -21,7 +21,7 @@ export class GameBoardComponent implements OnDestroy {
 
   lastMove: Move = nullMove;
   selected: Point = nullPoint;
-  legalMoves: Move[] = [];
+  draggableMoves: Move[] = [];
 
   private readonly onDestroy = new Subject<void>();
   currentBoardMatrix$: Observable<number[][]>;
@@ -38,12 +38,13 @@ export class GameBoardComponent implements OnDestroy {
         }
       });
     gameService
-      .getDragableMoves()
+      .getDraggableMoves()
       .pipe(takeUntil(this.onDestroy))
       .subscribe((moves) => {
-        this.legalMoves = moves;
+        this.draggableMoves = moves;
       });
   }
+
   ngOnDestroy(): void {
     this.onDestroy.next();
   }
@@ -53,7 +54,7 @@ export class GameBoardComponent implements OnDestroy {
   }
 
   isLegalTarget(targetX: number, targetY: number): boolean {
-    return this.legalMoves.some(
+    return this.draggableMoves.some(
       (move) =>
         move.toCoord.x === targetX &&
         move.toCoord.y === targetY &&
@@ -63,7 +64,7 @@ export class GameBoardComponent implements OnDestroy {
   }
 
   isLegalSource(sourceX: number, sourceY: number): boolean {
-    return this.legalMoves.some(
+    return this.draggableMoves.some(
       (move) => move.fromCoord.x === sourceX && move.fromCoord.y === sourceY
     );
   }

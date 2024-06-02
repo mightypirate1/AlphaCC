@@ -7,10 +7,6 @@ export class Game {
 
   constructor(gameIo: GameIO) {
     this.gameId = gameIo.gameId;
-    this.boards = [];
-
-    gameIo.boards.forEach((boardIo) => {
-      this.boards.push(new Board(boardIo));
-    });
+    this.boards = gameIo.boards;
   }
 }
