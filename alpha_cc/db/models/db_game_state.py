@@ -1,9 +1,8 @@
-from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Self
 
 from alpha_cc.agents.mcts import MCTSNodePy
-from alpha_cc.engine import Move
+from alpha_cc.engine import Board, Move
 from alpha_cc.state import GameState
 from alpha_cc.state.game_state import StateHash
 
@@ -23,23 +22,5 @@ class DBGameState:
         return self.states[-1]
 
     @classmethod
-    def from_state(cls: type[Self], state: GameState) -> Self:
-        return cls(states=[state], move_idxs=[], nodes={})
-
-
-class DB(ABC):
-    @abstractmethod
-    def get_entry(self, game_id: str) -> DBGameState:
-        pass
-
-    @abstractmethod
-    def list_entries(self) -> list[str]:
-        pass
-
-    @abstractmethod
-    def set_entry(self, game_id: str, state: DBGameState) -> None:
-        pass
-
-    @abstractmethod
-    def remove_entry(self, game_id: str) -> bool:
-        pass
+    def new(cls: type[Self], size: int) -> Self:
+        return cls(states=[GameState(Board(size))], move_idxs=[], nodes={})
