@@ -1,7 +1,7 @@
 import numpy as np
 
 from alpha_cc.agents.agent import Agent
-from alpha_cc.engine import MCTS, Board
+from alpha_cc.engine import MCTS, Board, Move
 
 
 class MCTSAgent(Agent):
@@ -40,13 +40,15 @@ class MCTSAgent(Agent):
     def on_game_end(self) -> None:
         pass
 
-    def choose_move(self, board: Board, training: bool = False, temperature: float = 1.0) -> int | np.integer:
+    def choose_move(self, board: Board, training: bool = False, temperature: float = 1.0) -> Move:
         if self._argmax_delay is not None:
             self._steps_left_to_argmax -= 1
         pi, _ = self.run_rollouts(board, temperature=temperature)
+
+        action_index = int(pi.argmax())
         if training and self._steps_left_to_argmax > 0:
-            return np.random.choice(len(pi), p=pi)
-        return pi.argmax()
+            action_index = np.random.choice(len(pi), p=pi)
+        return board.get_moves()[action_index]
 
     def run_rollouts(
         self,

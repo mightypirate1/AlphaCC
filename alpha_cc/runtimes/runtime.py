@@ -22,8 +22,7 @@ class RunTime:
 
         while not board.info.game_over:
             agent = self._agent_dict[board.info.current_player]
-            a = agent.choose_move(board, training=training)
-            move = board.get_moves()[a]
+            move = agent.choose_move(board, training=training)
             board = board.apply(move)
 
             if self._config.render:

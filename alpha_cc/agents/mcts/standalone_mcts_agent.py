@@ -7,8 +7,8 @@ from lru import LRU
 
 from alpha_cc.agents.agent import Agent
 from alpha_cc.agents.mcts.mcts_node_py import MCTSNodePy
-from alpha_cc.engine import Board
-from alpha_cc.nn.nets import DualHeadEvaluator
+from alpha_cc.engine import Board, Move
+from alpha_cc.nn.nets import DefaultNet
 from alpha_cc.state import GameState, StateHash
 
 
@@ -22,7 +22,7 @@ class StandaloneMCTSAgent(Agent):
 
     def __init__(
         self,
-        nn: DualHeadEvaluator,
+        nn: DefaultNet,
         cache_size: int = 1000000,
         n_rollouts: int = 100,
         rollout_depth: int = 500,
@@ -46,7 +46,7 @@ class StandaloneMCTSAgent(Agent):
         self._nodes: LRU[StateHash, MCTSNodePy] = LRU(cache_size)
 
     @property
-    def nn(self) -> DualHeadEvaluator:
+    def nn(self) -> DefaultNet:
         return self._nn
 
     @property
@@ -60,7 +60,7 @@ class StandaloneMCTSAgent(Agent):
     def on_game_end(self) -> None:
         pass
 
-    def choose_move(  # type: ignore[override]
+    def choose_move_index(
         self,
         board: Board,
         n_rollouts: int | None = None,
@@ -71,9 +71,14 @@ class StandaloneMCTSAgent(Agent):
         if self._argmax_delay is not None:
             self._steps_left_to_argmax -= 1
         pi, _ = self.run_rollouts(board, n_rollouts=n_rollouts, rollout_depth=rollout_depth, temperature=temperature)
+        action_index = int(pi.argmax())
         if training and self._steps_left_to_argmax > 0:
-            return np.random.choice(len(pi), p=pi)
-        return int(pi.argmax())
+            action_index = np.random.choice(len(pi), p=pi)
+        return action_index
+
+    def choose_move(self, board: Board, training: bool = False) -> Move:
+        action_index = self.choose_move_index(board, training=training)
+        return board.get_moves()[action_index]
 
     def run_rollouts(
         self,

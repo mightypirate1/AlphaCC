@@ -50,7 +50,7 @@ class GameManager:
     def request_move(self, game_id: str, n_rollouts: int, rollout_depth: int, temperature: float) -> DBGameState:
         db_state = self._db.get_entry(game_id)
         agent = self._agents[db_state.state.info.size]
-        move_index = agent.choose_move(
+        move_index = agent.choose_move_index(
             db_state.state.board,
             rollout_depth=rollout_depth,
             n_rollouts=n_rollouts,

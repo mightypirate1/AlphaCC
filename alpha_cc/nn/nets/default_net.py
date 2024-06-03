@@ -4,11 +4,10 @@ from lru import LRU
 
 from alpha_cc.engine.engine_utils import action_indexer
 from alpha_cc.nn.blocks import PolicySoftmax, ResBlock
-from alpha_cc.nn.nets.dual_head_net import DualHeadNet
 from alpha_cc.state import GameState, StateHash
 
 
-class DefaultNet(DualHeadNet):
+class DefaultNet(torch.nn.Module):
     def __init__(self, board_size: int, cache_size: int = 10000, dropout: float = 0.3) -> None:
         super().__init__()
         self._cache: LRU[StateHash, tuple[torch.Tensor, torch.Tensor]] = LRU(cache_size)
