@@ -396,4 +396,8 @@ impl Board {
     pub fn __hash__(&self) -> u64 {
         self.compute_hash()
     }
+
+    pub fn __eq__(&self, other: &Board) -> bool {
+        self == other
+    }
 }

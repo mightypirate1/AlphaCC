@@ -42,6 +42,8 @@ class Board:
         """Get the `BoardInfo`"""
 
     def __hash__(self) -> int: ...
+    
+    def __eq__(self, other: Board) -> bool: ...
 
 class BoardInfo:
     current_player: int
