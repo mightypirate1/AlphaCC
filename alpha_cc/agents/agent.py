@@ -1,13 +1,11 @@
 from abc import ABC, abstractmethod
 
-import numpy as np
-
-from alpha_cc.engine import Board
+from alpha_cc.engine import Board, Move
 
 
 class Agent(ABC):
     @abstractmethod
-    def choose_move(self, board: Board, training: bool = False) -> int | np.integer:
+    def choose_move(self, board: Board, training: bool = False) -> Move:
         pass
 
     @abstractmethod

@@ -17,8 +17,7 @@ def test_game() -> None:
     while not board.info.game_over:
         move_count += 1
         assert move_count < 1000, "game seems infinite"
-        action = agent.choose_move(board)
-        move = board.get_moves()[action]
+        move = agent.choose_move(board)
         board = board.apply(move)
     board.render()
     assert move_count == board.info.duration
