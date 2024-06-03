@@ -1,11 +1,11 @@
 from abc import ABC, abstractmethod
 
-from alpha_cc.engine import Board, Move
+from alpha_cc.engine import Board
 
 
 class Agent(ABC):
     @abstractmethod
-    def choose_move(self, board: Board, training: bool = False) -> Move:
+    def choose_move(self, board: Board, training: bool = False) -> int:
         pass
 
     @abstractmethod

@@ -7,7 +7,7 @@ from lru import LRU
 
 from alpha_cc.agents.agent import Agent
 from alpha_cc.agents.mcts.mcts_node_py import MCTSNodePy
-from alpha_cc.engine import Board, Move
+from alpha_cc.engine import Board
 from alpha_cc.nn.nets import DefaultNet
 from alpha_cc.state import GameState, StateHash
 
@@ -60,7 +60,7 @@ class StandaloneMCTSAgent(Agent):
     def on_game_end(self) -> None:
         pass
 
-    def choose_move_index(
+    def choose_move(  # type: ignore
         self,
         board: Board,
         n_rollouts: int | None = None,
@@ -75,10 +75,6 @@ class StandaloneMCTSAgent(Agent):
         if training and self._steps_left_to_argmax > 0:
             action_index = np.random.choice(len(pi), p=pi)
         return action_index
-
-    def choose_move(self, board: Board, training: bool = False) -> Move:
-        action_index = self.choose_move_index(board, training=training)
-        return board.get_moves()[action_index]
 
     def run_rollouts(
         self,

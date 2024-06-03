@@ -37,7 +37,8 @@ class TournamentRuntime:
             with tqdm("tournament-game", total=self._max_game_duration) as pbar:
                 while not board.info.game_over and board.info.duration < self._max_game_duration:
                     agent = agents[current_agent_idx]
-                    move = agent.choose_move(board, training=False)
+                    action_index = agent.choose_move(board, training=False)
+                    move = board.get_moves()[action_index]
                     board = board.apply(move)
                     pbar.update(1)
                     current_agent_idx = 1 - current_agent_idx
