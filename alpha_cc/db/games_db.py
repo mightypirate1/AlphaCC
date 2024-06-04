@@ -20,7 +20,7 @@ class GamesDB:
 
     def list_entries(self) -> list[str]:
         keys = self._db.hkeys(self.games_key)
-        return [str(k) for k in keys]  # type: ignore
+        return [k.decode() for k in keys]  # type: ignore
 
     def set_entry(self, game_id: str, state: DBGameState) -> None:
         encoded = dill.dumps(state)
