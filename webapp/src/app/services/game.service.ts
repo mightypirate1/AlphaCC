@@ -33,12 +33,12 @@ export class GameService implements OnDestroy {
         withLatestFrom(this.getDraggableMoves(), this.game$),
         map<[Move, Move[], Game], [Move[], Game]>(
           ([moveToApply, legalMoves, game]) => [
-            legalMoves.filter((move) => {
+            legalMoves.filter((legalMove) => {
               return (
-                move.fromCoord.x === moveToApply.fromCoord.x &&
-                move.fromCoord.y === moveToApply.fromCoord.y &&
-                move.toCoord.x === moveToApply.toCoord.x &&
-                move.toCoord.y === moveToApply.toCoord.y
+                moveToApply.fromCoord.x === legalMove.fromCoord.x &&
+                moveToApply.fromCoord.y === legalMove.fromCoord.y &&
+                moveToApply.toCoord.x === legalMove.toCoord.x &&
+                moveToApply.toCoord.y === legalMove.toCoord.y
               );
             }),
             game,
@@ -55,10 +55,14 @@ export class GameService implements OnDestroy {
         dataService.applyMove(gameId, moveIndex).subscribe((game) => {
           this.game$.next(game);
           this.currentBoardIndex$.next(this.currentBoardIndex$.getValue() + 1);
-        });
-        dataService.requestMove(gameId, 500, 100, 1).subscribe((game) => {
-          this.game$.next(game);
-          this.currentBoardIndex$.next(this.currentBoardIndex$.getValue() + 1);
+          if (game.boards[game.boards.length - 1].gameOver === false) {
+            dataService.requestMove(gameId, 500, 100, 1).subscribe((game) => {
+              this.game$.next(game);
+              this.currentBoardIndex$.next(
+                this.currentBoardIndex$.getValue() + 1
+              );
+            });
+          }
         });
       });
   }
@@ -69,9 +73,19 @@ export class GameService implements OnDestroy {
 
   newGame(gameId: string | null, gameSize: number) {
     this.dataService
-      .getNewGame(gameId, gameSize)
+      .createNewGame(gameId, gameSize)
       .pipe(takeUntil(this.onDestroy))
       .subscribe((game: Game) => {
+        this.game$.next(game);
+      });
+  }
+
+  setActiveGame(gameId: string) {
+    this.dataService
+      .fetchGame(gameId)
+      .pipe(takeUntil(this.onDestroy))
+      .subscribe((game) => {
+        this.currentBoardIndex$.next(game.boards.length - 1);
         this.game$.next(game);
       });
   }
