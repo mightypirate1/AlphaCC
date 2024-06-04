@@ -5,9 +5,10 @@ import numpy as np
 from tqdm_loggable.auto import tqdm
 
 from alpha_cc.agents.mcts.mcts_agent import MCTSAgent
-from alpha_cc.db.models import TournamentResult
+from alpha_cc.db.models import DBGameState, TournamentResult
 from alpha_cc.db.training_db import TrainingDB
 from alpha_cc.engine import Board
+from alpha_cc.state import GameState
 
 logger = getLogger(__file__)
 
@@ -25,7 +26,7 @@ class TournamentRuntime:
         self._max_game_duration = np.inf if max_game_length is None else max_game_length
         self._allocated_channels: list[int] | None = None  # used to help creator of tournament to clean up
 
-    def play_and_record_game(self, agent_channel_dict: dict[int, MCTSAgent]) -> None:
+    def play_and_record_game(self, agent_channel_dict: dict[int, MCTSAgent]) -> DBGameState:
         try:
             # since trainer will block until tournament is over,
             # we try-catch and post back the result in case of failure.
@@ -34,14 +35,24 @@ class TournamentRuntime:
             board = Board(self._size)
             agents = tuple(agent_channel_dict.values())
             current_agent_idx = 0
+
+            states = []
+            actions = []
             with tqdm("tournament-game", total=self._max_game_duration) as pbar:
                 while not board.info.game_over and board.info.duration < self._max_game_duration:
+                    # get and record action/board
                     agent = agents[current_agent_idx]
-                    move = agent.choose_move(board, training=False)
+                    action_index = agent.choose_move(board, training=False)
+                    states.append(GameState(board))
+                    actions.append(action_index)
+                    # apply action
+                    move = board.get_moves()[action_index]
                     board = board.apply(move)
                     pbar.update(1)
                     current_agent_idx = 1 - current_agent_idx
             player_1, player_2 = agent_channel_dict.keys()
+            states.append(GameState(board))
+
         except Exception as e:
             logger.error("Tournament game FAILED!")
             # post back and hope for the best
@@ -55,6 +66,7 @@ class TournamentRuntime:
         elif board.info.winner == 2:
             self._training_db.tournament_add_result(player_1, player_2, winner=player_2)
         self._training_db.tournament_increment_counter()
+        return DBGameState(states=states, move_idxs=actions, nodes={})
 
     def run_tournament(self, weight_indices: list[int], n_rounds: int = 5) -> TournamentResult:
         expected_games = self._arrange_tournament(weight_indices, n_rounds)

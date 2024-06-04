@@ -1,8 +1,8 @@
 from typing import Self
 
-from alpha_cc.api.game_manager.db import DBGameState
 from alpha_cc.api.io.base_io import BaseIO
 from alpha_cc.api.io.board_io import BoardIO
+from alpha_cc.db.models.db_game_state import DBGameState
 
 
 class GameIO(BaseIO):
