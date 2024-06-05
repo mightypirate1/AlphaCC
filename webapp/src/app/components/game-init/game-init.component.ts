@@ -1,18 +1,15 @@
-import {
-  Component,
-  EventEmitter,
-  OnDestroy,
-  OnInit,
-  Output,
-} from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
 import {
   ReactiveFormsModule,
   FormBuilder,
   Validators,
   FormControl,
 } from '@angular/forms';
-import { Subject, filter, map, takeUntil } from 'rxjs';
-import { NewGameFormData } from '../../types/new-game-form-data';
+import { Subject, catchError, switchMap, takeUntil, throwError } from 'rxjs';
+import { Router } from '@angular/router';
+
+import { DataService } from '../../services/data.service';
+import { NewGameFormData } from '../../types/new-game-form-data.model';
 
 @Component({
   selector: 'app-game-init',
@@ -30,23 +27,32 @@ export class GameInitComponent implements OnInit, OnDestroy {
       nonNullable: true,
     }),
   });
-  private submit$ = new Subject<void>();
-  @Output() private formGroupChange: EventEmitter<NewGameFormData> =
-    new EventEmitter<NewGameFormData>();
+  private submit$ = new Subject<NewGameFormData>();
 
-  constructor(private formBuilder: FormBuilder) {}
+  constructor(
+    private formBuilder: FormBuilder,
+    private dataService: DataService,
+    private router: Router
+  ) {}
 
   ngOnInit(): void {
     this.submit$
       .pipe(
         takeUntil(this.onDestroy),
-        filter(() => this.newGameForm.valid),
-        map(() => this.newGameForm.value)
+        switchMap((formData) => {
+          return this.dataService.createNewGame(formData.gameId, formData.size);
+        }),
+        catchError((err) => {
+          if (err.status === 400) {
+            this.newGameForm.controls['gameId'].setErrors({
+              incorrect: true,
+            });
+          }
+          return throwError(() => err);
+        })
       )
-      .subscribe((formData) => {
-        const gameId = formData.gameId!;
-        const gameSize = formData.gameSize!;
-        this.formGroupChange.emit({ gameId: gameId, gameSize: gameSize });
+      .subscribe((game) => {
+        this.router.navigate([game.gameId]);
       });
   }
 
@@ -58,8 +64,10 @@ export class GameInitComponent implements OnInit, OnDestroy {
     if (this.newGameForm.controls.gameId.value === '') {
       this.newGameForm.controls.gameId.setValue(null);
     }
-    const size = this.newGameForm.controls.gameSize.value;
-    this.newGameForm.controls.gameSize.setValue(+size);
-    this.submit$.next();
+    const gameId = this.newGameForm.controls.gameId.value;
+    const size = +this.newGameForm.controls.gameSize.value;
+    if (this.newGameForm.valid) {
+      this.submit$.next({ gameId: gameId, size: size });
+    }
   }
 }

@@ -6,8 +6,8 @@
     <div
       class="board-hole"
       [ngClass]="{
-        'legal-target': isLegalTarget(row, col),
-        'last-move':
+        'hole-legal-target': isLegalTarget(row, col),
+        'hole-last-move':
           (lastMove.fromCoord.x === row && lastMove.fromCoord.y === col) ||
           (lastMove.toCoord.x === row && lastMove.toCoord.y === col),
       }"

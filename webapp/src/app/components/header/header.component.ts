@@ -6,11 +6,9 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
   standalone: true,
   imports: [RouterLink, RouterLinkActive],
   templateUrl: './header.component.html',
-  styleUrl: './header.component.scss'
+  styleUrl: './header.component.scss',
 })
 export class HeaderComponent {
-
-  newGameRoute = 'new-game';
+  homeRoute = '';
   inspectGameRoute = 'inspect-game';
-  aboutRoute = 'about';
 }

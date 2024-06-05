@@ -18,7 +18,6 @@ import { nullMove, nullPoint } from '../../constants/constants';
 })
 export class GameBoardComponent implements OnDestroy {
   colors = ['', 'orange', 'rebeccapurple'];
-
   lastMove: Move = nullMove;
   selected: Point = nullPoint;
   draggableMoves: Move[] = [];
