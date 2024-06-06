@@ -1,5 +1,5 @@
 <div class="board" cdkDropListGroup>
-  @for (i of (currentBoardMatrix$ | async); track i; let row = $index) {
+  @for (i of board; track i; let row = $index) {
   <div class="board-row">
     <div class="board-row-space" [style.width]="row * 25 + 'px'"></div>
     @for (j of i; track j; let col = $index) {
