@@ -28,6 +28,7 @@ export class GameBoardComponent implements OnDestroy {
   constructor(private gameService: GameService) {
     gameService
       .getCurrentBoardMatrix()
+      .pipe(takeUntil(this.onDestroy))
       .subscribe((board) => (this.board = board));
 
     gameService
