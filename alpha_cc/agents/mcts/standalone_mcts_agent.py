@@ -3,13 +3,13 @@ from typing import Any, Self
 
 import numpy as np
 import torch
-from lru import LRU
 
 from alpha_cc.agents.agent import Agent
 from alpha_cc.agents.mcts.mcts_node_py import MCTSNodePy
+from alpha_cc.agents.mcts.node_store import LocalNodeStore, NodeStore
 from alpha_cc.engine import Board
 from alpha_cc.nn.nets import DefaultNet
-from alpha_cc.state import GameState, StateHash
+from alpha_cc.state import GameState
 
 
 class StandaloneMCTSAgent(Agent):
@@ -23,7 +23,6 @@ class StandaloneMCTSAgent(Agent):
     def __init__(
         self,
         nn: DefaultNet,
-        cache_size: int = 1000000,
         n_rollouts: int = 100,
         rollout_depth: int = 500,
         rollout_gamma: float = 1.0,
@@ -32,6 +31,7 @@ class StandaloneMCTSAgent(Agent):
         argmax_delay: int | None = None,
         c_puct_init: float = 2.5,
         c_puct_base: float = 19652.0,
+        node_store: NodeStore | None = None,
     ) -> None:
         self._nn = nn
         self._n_rollouts = n_rollouts
@@ -43,19 +43,19 @@ class StandaloneMCTSAgent(Agent):
         self._c_puct_init = c_puct_init
         self._c_puct_base = c_puct_base
         self._steps_left_to_argmax = argmax_delay or np.inf
-        self._nodes: LRU[StateHash, MCTSNodePy] = LRU(cache_size)
+        self._node_store = node_store if node_store is not None else LocalNodeStore()
 
     @property
     def nn(self) -> DefaultNet:
         return self._nn
 
     @property
-    def nodes(self) -> LRU:
-        return self._nodes
+    def node_store(self) -> NodeStore:
+        return self._node_store
 
     def on_game_start(self) -> None:
         self._steps_left_to_argmax = (self._argmax_delay or np.inf) + 1
-        self._nodes.clear()
+        self.node_store.clear()
 
     def on_game_end(self) -> None:
         pass
@@ -101,8 +101,11 @@ class StandaloneMCTSAgent(Agent):
         self.nn.clear_cache()
         self.nn.load_state_dict(weights)
 
+    def set_node_store(self, node_store: NodeStore) -> None:
+        self._node_store = node_store
+
     def _rollout_policy(self, state: GameState, temperature: float = 1.0) -> np.ndarray:
-        node = self._nodes[state.hash]
+        node = self.node_store.get(state.hash)
         weighted_counts = node.n
         if temperature != 1.0:  # save some flops
             weighted_counts = node.n ** (1 / temperature)
@@ -121,11 +124,14 @@ class StandaloneMCTSAgent(Agent):
                 dirichlet_noise = np.random.dirichlet(self._dirichlet_alpha * pi)
                 pi_noised = (1 - self._dirichlet_weight) * pi + self._dirichlet_weight * dirichlet_noise
                 pi = pi_noised
-            self._nodes[state.hash] = MCTSNodePy(
-                pi=pi,
-                v_hat=v_hat,
-                n=np.zeros(len(state.children), dtype=np.uint16),
-                q=np.zeros(len(state.children), dtype=np.float32),
+            self.node_store.set(
+                state.hash,
+                MCTSNodePy(
+                    pi=pi,
+                    v_hat=v_hat,
+                    n=np.zeros(len(state.children), dtype=np.uint16),
+                    q=np.zeros(len(state.children), dtype=np.float32),
+                ),
             )
 
         # if game is over, we stop
@@ -135,14 +141,14 @@ class StandaloneMCTSAgent(Agent):
         # if we have reached as far as we have been (or depth is reached):
         # - (if depth not reached) initialize the node with nn estimates and zeros for N(s,a), and Q(s,a)
         # - return value from the perspective of the player on the previous move
-        if state.hash not in self._nodes or remaining_depth == 0:
+        if state.hash not in self.node_store or remaining_depth == 0:
             v_hat = self.nn.value(state)
             pi = self.nn.policy(state)
             if remaining_depth > 0:
                 add_as_new_node(pi, v_hat)
             return -v_hat
 
-        node = self._nodes[state.hash]
+        node = self.node_store.get(state.hash)
         a = self._find_best_action(state)
         s_prime = GameState(state.board.apply(state.board.get_moves()[a]))
         v = self._rollout_gamma * self._rollout(s_prime, remaining_depth=remaining_depth - 1)
@@ -157,7 +163,7 @@ class StandaloneMCTSAgent(Agent):
         def node_c_puct() -> float:  # TODO: look at this again
             return self._c_puct_init + np.log((sum_n + self._c_puct_base + 1) / self._c_puct_base)
 
-        node = self._nodes[state.hash]
+        node = self.node_store.get(state.hash)
         sum_n = sum(node.n)
         c_puct = node_c_puct()
 

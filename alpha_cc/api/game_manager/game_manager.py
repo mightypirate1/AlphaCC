@@ -3,10 +3,10 @@ from uuid import uuid4
 
 from alpha_cc.agents import StandaloneMCTSAgent
 from alpha_cc.agents.mcts.mcts_node_py import MCTSNodePy
+from alpha_cc.agents.mcts.node_store import DBNodeStore
 from alpha_cc.db.games_db import GamesDB
 from alpha_cc.db.models import DBGameState
 from alpha_cc.nn.nets import DefaultNet
-from alpha_cc.state.game_state import StateHash
 
 
 def get_agent(size: int) -> StandaloneMCTSAgent:
@@ -35,17 +35,17 @@ class GameManager:
             raise ValueError(f"game_id={game_id} already exists")
         if game_id is None:
             game_id = str(uuid4())
-        db_state = DBGameState.new(size)
-        self._games_db.set_entry(game_id, db_state)
+        db_state = self._games_db.create_game(game_id, size)
         return game_id, db_state
 
     def fetch_game(self, game_id: str) -> DBGameState:
-        return self._games_db.get_entry(game_id)
+        return self._games_db.get_state(game_id)
 
     def fetch_mcts_node(self, game_id: str, board_index: int) -> MCTSNodePy:
-        db_state = self._games_db.get_entry(game_id)
-        state = db_state.states[board_index]
-        return db_state.nodes[state.hash]
+        node_store = DBNodeStore(game_id, self._games_db.db)
+        db_state = self.fetch_game(game_id)
+        state = db_state.get_state(board_index)
+        return node_store.get(state.hash)
 
     def list_games(self) -> list[str]:
         return self._games_db.list_entries()
@@ -54,27 +54,21 @@ class GameManager:
         return self._games_db.remove_entry(game_id)
 
     def apply_move(self, game_id: str, move_index: int) -> DBGameState:
-        return self._update_db_state(game_id, move_index)
+        self._games_db.add_move(game_id, move_index)
+        return self._games_db.get_state(game_id)
 
     def request_move(self, game_id: str, n_rollouts: int, rollout_depth: int, temperature: float) -> DBGameState:
-        db_state = self._games_db.get_entry(game_id)
-        agent = self._agents[db_state.state.info.size]
+        db_state = self._games_db.get_state(game_id)
+        state = db_state.current_game_state
+        agent = self._agents[state.info.size]
+        node_store = DBNodeStore(game_id, self._games_db.db)
+        agent.node_store.load_from(node_store)
         move_index = agent.choose_move(
-            db_state.state.board,
+            state.board,
             rollout_depth=rollout_depth,
             n_rollouts=n_rollouts,
             temperature=temperature,
         )
-        return self._update_db_state(game_id, move_index, dict(agent.nodes))
-
-    def _update_db_state(
-        self, game_id: str, move_idx: int, nodes: dict[StateHash, MCTSNodePy] | None = None
-    ) -> DBGameState:
-        db_state = self._games_db.get_entry(game_id)
-        s_prime = db_state.state.children[move_idx]
-        db_state.states.append(s_prime)
-        db_state.move_idxs.append(move_idx)
-        if nodes is not None:
-            db_state.nodes = nodes
-        self._games_db.set_entry(game_id, db_state)
+        db_state.add_move(move_index)
+        self._games_db.add_move(game_id, move_index)
         return db_state

@@ -1,4 +1,5 @@
 import time
+from datetime import datetime
 from logging import getLogger
 
 import numpy as np
@@ -27,11 +28,11 @@ class TournamentRuntime:
         self._allocated_channels: list[int] | None = None  # used to help creator of tournament to clean up
 
     def play_and_record_game(self, agent_channel_dict: dict[int, MCTSAgent]) -> DBGameState:
+        # since trainer will block until tournament is over,
+        # we try-catch and post back the result in case of failure.
+        # there is still a rare bug causing a crash
         try:
-            # since trainer will block until tournament is over,
-            # we try-catch and post back the result in case of failure.
-            # there is still a rare bug causing a crash
-
+            game_id = f"tournament-game/{datetime.now().strftime(r'%Y-%m-%d-%H-%M-%S')}"
             board = Board(self._size)
             agents = tuple(agent_channel_dict.values())
             current_agent_idx = 0
@@ -66,7 +67,11 @@ class TournamentRuntime:
         elif board.info.winner == 2:
             self._training_db.tournament_add_result(player_1, player_2, winner=player_2)
         self._training_db.tournament_increment_counter()
-        return DBGameState(states=states, move_idxs=actions, nodes={})
+        return DBGameState(
+            game_id=game_id,
+            size=self._size,
+            move_indices=actions,
+        )
 
     def run_tournament(self, weight_indices: list[int], n_rounds: int = 5) -> TournamentResult:
         expected_games = self._arrange_tournament(weight_indices, n_rounds)
