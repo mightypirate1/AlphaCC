@@ -18,5 +18,5 @@ def test_db_game_state(size: int):
         moves.append(move)
         db_state.add_move(action)
         
-    for board, db_state_board in zip(boards, db_state.boards):
+    for board, db_state_board in zip(boards, db_state.boards, strict=True):
         assert np.array_equal(board.get_matrix(), db_state_board.get_matrix())
