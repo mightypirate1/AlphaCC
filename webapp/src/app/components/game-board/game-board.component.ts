@@ -1,6 +1,6 @@
 import { Component, OnDestroy } from '@angular/core';
 import { AsyncPipe, CommonModule } from '@angular/common';
-import { Observable, Subject, takeUntil } from 'rxjs';
+import { Subject, takeUntil } from 'rxjs';
 import { CdkDragDrop, DragDropModule } from '@angular/cdk/drag-drop';
 
 import { GameService } from '../../services/game.service';
@@ -21,12 +21,14 @@ export class GameBoardComponent implements OnDestroy {
   lastMove: Move = nullMove;
   selected: Point = nullPoint;
   draggableMoves: Move[] = [];
+  board: number[][] = [];
 
   private readonly onDestroy = new Subject<void>();
-  currentBoardMatrix$: Observable<number[][]>;
 
   constructor(private gameService: GameService) {
-    this.currentBoardMatrix$ = gameService.getCurrentBoardMatrix();
+    gameService
+      .getCurrentBoardMatrix()
+      .subscribe((board) => (this.board = board));
 
     gameService
       .getLastMove()
@@ -81,6 +83,11 @@ export class GameBoardComponent implements OnDestroy {
       index: -1,
     };
 
-    this.gameService.applyMove(move);
+    if (this.isLegalSource(fromX, fromY) && this.isLegalTarget(toX, toY)) {
+      const movedValue = this.board[fromX][fromY];
+      this.board[fromX][fromY] = this.board[toX][toY];
+      this.board[toX][toY] = movedValue;
+      this.gameService.applyMove(move);
+    }
   }
 }
