@@ -5,13 +5,19 @@ import { GameInfoComponent } from '../game-info/game-info.component';
 import { GameControlsComponent } from '../game-controls/game-controls.component';
 import { GameService } from '../../services/game.service';
 import { ActivatedRoute, Router } from '@angular/router';
+import { GamePlotsComponent } from '../game-plots/game-plots.component';
 
 @Component({
   selector: 'app-game',
   standalone: true,
   templateUrl: './game.component.html',
   styleUrl: './game.component.scss',
-  imports: [GameBoardComponent, GameInfoComponent, GameControlsComponent],
+  imports: [
+    GameBoardComponent,
+    GameInfoComponent,
+    GameControlsComponent,
+    GamePlotsComponent,
+  ],
 })
 export class GameComponent {
   constructor(

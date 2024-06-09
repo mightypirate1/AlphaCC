@@ -69,6 +69,8 @@ class GameManager:
             n_rollouts=n_rollouts,
             temperature=temperature,
         )
+        agent.node_store.clear()
+        node_store.load_from(agent.node_store)
         db_state.add_move(move_index)
         self._games_db.add_move(game_id, move_index)
         return db_state

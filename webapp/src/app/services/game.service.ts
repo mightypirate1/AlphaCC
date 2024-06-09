@@ -7,7 +7,9 @@ import {
   filter,
   map,
   of,
+  switchMap,
   takeUntil,
+  timer,
   withLatestFrom,
 } from 'rxjs';
 
@@ -15,6 +17,7 @@ import { DataService } from './data.service';
 import { Game } from '../types/game.model';
 import { Move } from '../types/move.model';
 import { nullMove } from '../constants/constants';
+import { MCTSNode } from '../types/mcts-node.model';
 
 @Injectable({
   providedIn: 'root',
@@ -135,6 +138,16 @@ export class GameService implements OnDestroy {
           return [];
         }
       )
+    );
+  }
+
+  getMCTSNode(): Observable<MCTSNode> {
+    return timer(1, 3000).pipe(
+      switchMap(() => this.currentBoardIndex$),
+      withLatestFrom(this.game$),
+      switchMap<[number, Game], Observable<MCTSNode>>(([boardIndex, game]) => {
+        return this.dataService.fetchMCTSNode(game.gameId, boardIndex);
+      })
     );
   }
 }

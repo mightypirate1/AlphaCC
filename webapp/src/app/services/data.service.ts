@@ -5,6 +5,8 @@ import { Observable, map } from 'rxjs';
 import { environment } from '../../environments/environment.development';
 import { GameIO } from '../types/game-io.model';
 import { Game } from '../types/game.model';
+import { MCTSNodeIO } from '../types/mcts-node-io.model';
+import { MCTSNode } from '../types/mcts-node.model';
 
 @Injectable({
   providedIn: 'root',
@@ -14,6 +16,8 @@ export class DataService {
   private fetchGameUrl: string = environment.backendUrl + '/fetch-game';
   private applyMoveUrl: string = environment.backendUrl + '/apply-move';
   private requestMoveUrl: string = environment.backendUrl + '/request-move';
+  private fetchMCTSNodeUrl: string =
+    environment.backendUrl + '/fetch-mcts-node';
 
   constructor(private http: HttpClient) {}
 
@@ -52,5 +56,17 @@ export class DataService {
         temperature: temperature,
       })
       .pipe(map((gameIo) => new Game(gameIo)));
+  }
+
+  fetchMCTSNode(gameId: string, boardIndex: number): Observable<MCTSNode> {
+    return this.http
+      .get<MCTSNodeIO>(
+        this.fetchMCTSNodeUrl +
+          '?game_id=' +
+          gameId +
+          '&board_index=' +
+          boardIndex
+      )
+      .pipe(map((nodeIo) => new MCTSNode(nodeIo)));
   }
 }
