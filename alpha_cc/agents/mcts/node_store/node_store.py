@@ -29,5 +29,9 @@ class NodeStore(ABC):
         pass
 
     @abstractmethod
-    def load_from(self, node_store: NodeStore) -> None:
+    def fetch_updated(self, clear: bool = True) -> dict[Board, MCTSNodePy]:
+        pass
+
+    @abstractmethod
+    def load_from(self, node_store: NodeStore | dict[Board, MCTSNodePy]) -> None:
         pass
