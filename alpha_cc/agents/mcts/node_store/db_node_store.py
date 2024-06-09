@@ -1,4 +1,5 @@
 import dill
+import numpy as np
 from redis import Redis
 
 from alpha_cc.agents.mcts.mcts_node_py import MCTSNodePy
@@ -24,7 +25,12 @@ class DBNodeStore(NodeStore):
     def get(self, state_hash: StateHash) -> MCTSNodePy:
         encoded = self._db.hget(self.nodes_key, state_hash)  # type: ignore  # StateHash is bytes
         if encoded is None:
-            raise ValueError("node not found")
+            return MCTSNodePy(
+                pi=np.zeros(0, dtype=np.float32),
+                n=np.zeros(0, dtype=np.int32),
+                q=np.zeros(0, dtype=np.float32),
+                v_hat=0.0,
+            )
         return dill.loads(encoded)  # noqa: S301
 
     def set(self, state_hash: StateHash, node: MCTSNodePy) -> None:
