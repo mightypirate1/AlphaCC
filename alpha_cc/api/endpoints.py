@@ -10,6 +10,7 @@ from alpha_cc.api.io import ApplyMoveIO, GameIO, NewGameIO, RequestMoveIO
 from alpha_cc.api.io.mcts_node_io import MCTSNodeIO
 from alpha_cc.config import Environment
 from alpha_cc.db.games_db import GamesDB
+from alpha_cc.logs import init_rootlogger
 
 app = FastAPI()
 game_manager = GameManager(GamesDB(Environment.host_redis))
@@ -23,6 +24,7 @@ app.add_middleware(
 )
 
 logger = logging.getLogger(__file__)
+init_rootlogger()
 
 
 @app.post("/new-game")

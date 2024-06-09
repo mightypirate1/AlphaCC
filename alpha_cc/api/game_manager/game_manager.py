@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from uuid import uuid4
 
@@ -7,6 +8,8 @@ from alpha_cc.agents.mcts.node_store import DBNodeStore
 from alpha_cc.db.games_db import GamesDB
 from alpha_cc.db.models import DBGameState
 from alpha_cc.nn.nets import DefaultNet
+
+logger = logging.getLogger(__name__)
 
 
 def get_agent(size: int) -> StandaloneMCTSAgent:
@@ -45,7 +48,7 @@ class GameManager:
         node_store = DBNodeStore(game_id, self._games_db.db)
         db_state = self.fetch_game(game_id)
         state = db_state.get_state(board_index)
-        return node_store.get(state.hash)
+        return node_store.get(state.board)
 
     def list_games(self) -> list[str]:
         return self._games_db.list_entries()
@@ -54,6 +57,7 @@ class GameManager:
         return self._games_db.remove_entry(game_id)
 
     def apply_move(self, game_id: str, move_index: int) -> DBGameState:
+        logger.info(f"applied move: {move_index} for game {game_id}")
         self._games_db.add_move(game_id, move_index)
         return self._games_db.get_state(game_id)
 
@@ -61,16 +65,17 @@ class GameManager:
         db_state = self._games_db.get_state(game_id)
         state = db_state.current_game_state
         agent = self._agents[state.info.size]
-        node_store = DBNodeStore(game_id, self._games_db.db)
-        agent.node_store.load_from(node_store)
+        db_node_store = DBNodeStore(game_id, self._games_db.db)
+        agent.node_store.load_from(db_node_store)
         move_index = agent.choose_move(
             state.board,
             rollout_depth=rollout_depth,
             n_rollouts=n_rollouts,
             temperature=temperature,
         )
-        agent.node_store.clear()
-        node_store.load_from(agent.node_store)
+        db_node_store.load_from(agent.node_store)
         db_state.add_move(move_index)
         self._games_db.add_move(game_id, move_index)
+        agent.node_store.clear()
+        logger.info(f"requested move: {move_index} for game {game_id}")
         return db_state
