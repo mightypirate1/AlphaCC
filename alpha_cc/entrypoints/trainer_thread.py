@@ -11,7 +11,7 @@ from alpha_cc.agents.mcts import MCTSExperience
 from alpha_cc.config import Environment
 from alpha_cc.db import TrainingDB
 from alpha_cc.db.models import TournamentResult
-from alpha_cc.entrypoints.logs import init_rootlogger
+from alpha_cc.logs import init_rootlogger
 from alpha_cc.nn.nets.default_net import DefaultNet
 from alpha_cc.runtimes import TournamentRuntime
 from alpha_cc.training import Trainer, TrainingDataset

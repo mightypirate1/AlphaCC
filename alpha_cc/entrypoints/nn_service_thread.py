@@ -3,7 +3,7 @@ import time
 import click
 
 from alpha_cc.config import Environment
-from alpha_cc.entrypoints.logs import init_rootlogger
+from alpha_cc.logs import init_rootlogger
 from alpha_cc.nn.nets.default_net import DefaultNet
 from alpha_cc.nn.service import NNService
 

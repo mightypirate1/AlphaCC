@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 from typing import NewType
 
 import numpy as np
@@ -8,7 +7,7 @@ import torch
 
 from alpha_cc.engine import Board, BoardInfo, HexCoord, Move, create_move_index_map, create_move_mask
 
-StateHash = NewType("StateHash", bytes)
+StateHash = NewType("StateHash", int)
 
 
 class GameState:
@@ -90,7 +89,7 @@ class GameState:
     @property
     def hash(self) -> StateHash:
         if self._hash is None:
-            hash_bytes = hashlib.sha256(self.matrix.tobytes()).digest()
+            hash_bytes = hash(self.board)
             self._hash = StateHash(hash_bytes)
         return self._hash
 

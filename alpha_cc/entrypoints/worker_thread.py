@@ -11,7 +11,7 @@ from alpha_cc.agents.value_assignment import (
 from alpha_cc.config import Environment
 from alpha_cc.db import TrainingDB
 from alpha_cc.engine import Board
-from alpha_cc.entrypoints.logs import init_rootlogger
+from alpha_cc.logs import init_rootlogger
 from alpha_cc.runtimes import TournamentRuntime, TrainingRunTime
 
 logger = logging.getLogger(__file__)
