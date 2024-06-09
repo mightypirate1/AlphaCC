@@ -1,6 +1,8 @@
+import dill
 from redis import Redis
 
 from alpha_cc.db.models import DBGameState
+from alpha_cc.engine import Board
 
 
 class GamesDB:
@@ -14,6 +16,10 @@ class GamesDB:
     @property
     def games_key(self) -> str:
         return "games-db/games-list"
+
+    @property
+    def show_mode_key(self) -> str:
+        return "games-db/show-mode-board"
 
     def get_game_key(self, game_id: str) -> str:
         return f"games-db/game-moves/{game_id}"
@@ -47,6 +53,22 @@ class GamesDB:
         self._db.unlink(game_key)
         self._db.hdel(self.games_key, game_id)
         return existed
+
+    def get_show_mode_board(self, game_id: str) -> Board | None:
+        encoded_board = self._db.hget(self.show_mode_key, game_id)
+        if encoded_board is None:
+            return None
+        return dill.loads(encoded_board)  # noqa: S301
+
+    def set_show_mode_board(self, game_id: str, board: Board) -> None:
+        encoded_board = dill.dumps(board)
+        self._db.hset(self.show_mode_key, game_id, encoded_board)
+
+    def clear_show_mode_board(self, game_id: str) -> None:
+        self._db.hdel(self.show_mode_key, game_id)
+
+    def clear_show_mode_boards(self) -> None:
+        self._db.delete(self.show_mode_key)
 
     def _get_size(self, game_id: str) -> int | None:
         encoded_game_size = self._db.hget(self.games_key, game_id)
