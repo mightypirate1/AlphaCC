@@ -154,6 +154,7 @@ class StandaloneMCTSAgent(Agent):
         # update node
         node.q[a] = (node.n[a] * node.q[a] + v) / (node.n[a] + 1)
         node.n[a] += 1
+        self.node_store.set(state.board, node)
 
         return -v
 

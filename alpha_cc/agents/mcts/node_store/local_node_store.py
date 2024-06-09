@@ -26,7 +26,7 @@ class LocalNodeStore(NodeStore):
     def clear(self) -> None:
         self._store.clear()
         self._updated.clear()
-        
+
     def fetch_updated(self, clear: bool = True) -> dict[Board, MCTSNodePy]:
         updated = self._updated.copy()
         if clear:
@@ -34,4 +34,4 @@ class LocalNodeStore(NodeStore):
         return updated
 
     def load_from(self, node_store: NodeStore | dict[Board, MCTSNodePy]) -> None:
-        return self._store.update({k: node_store.get(k) for k in node_store.keys()})  # noqa
+        return self._store.update({k: node_store.get(k) for k in node_store.keys()})  # type: ignore  # noqa

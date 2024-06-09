@@ -27,7 +27,7 @@ class NodeStore(ABC):
     @abstractmethod
     def clear(self) -> None:
         pass
-    
+
     @abstractmethod
     def fetch_updated(self, clear: bool = True) -> dict[Board, MCTSNodePy]:
         pass
