@@ -22,6 +22,10 @@ class DBNodeStore(NodeStore):
     @property
     def boards_key(self) -> str:
         return f"games-db/nodestore-boards/{self._game_id}"
+    
+    @property
+    def updated_key(self) -> str:
+        return f"games-db/nodestore-updated/{self._game_id}"
 
     def keys(self) -> list[Board]:
         board_hashes = self._db.hkeys(self.nodes_key)
@@ -43,11 +47,23 @@ class DBNodeStore(NodeStore):
         encoded_node = dill.dumps(node)
         self._db.hset(self.boards_key, hash(board), encoded_board)  # type: ignore
         self._db.hset(self.nodes_key, hash(board), encoded_node)  # type: ignore
+        self._db.lpush(self.updated_key, hash(board))
 
     def clear(self) -> None:
         self._db.delete(self.boards_key)
         self._db.delete(self.nodes_key)
+        self._db.delete(self.updated_key)
+        
+    def fetch_updated(self, clear: bool = True) -> dict[Board, MCTSNodePy]:
+        updated_board_hashes = self._db.lrange(self.updated_key, 0, -1)
+        if updated_board_hashes is None:
+            return {}
+        if clear:
+            self._db.delete(self.updated_key)
+        updated_boards = [dill.loads(self._db.hget(self.boards_key, board_hash)) for board_hash in updated_board_hashes]
+        updated_nodes = [dill.loads(self._db.hget(self.nodes_key, board_hash)) for board_hash in updated_board_hashes]
+        return {board: node for board, node in zip(updated_boards, updated_nodes)}
 
-    def load_from(self, node_store: NodeStore) -> None:
+    def load_from(self, node_store: NodeStore | dict[Board, MCTSNodePy]) -> None:
         for board in node_store.keys():  # noqa
             self.set(board, node_store.get(board))
