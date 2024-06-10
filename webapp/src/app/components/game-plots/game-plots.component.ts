@@ -1,6 +1,8 @@
 import { Component, OnDestroy } from '@angular/core';
 import { AsyncPipe } from '@angular/common';
-import { Subject, takeUntil } from 'rxjs';
+import { Observable, Subject, takeUntil } from 'rxjs';
+
+import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 
 import { GameService } from '../../services/game.service';
 import { BarChartComponent } from '../charts/bar-chart/bar-chart.component';
@@ -8,7 +10,7 @@ import { BarChartComponent } from '../charts/bar-chart/bar-chart.component';
 @Component({
   selector: 'app-game-plots',
   standalone: true,
-  imports: [AsyncPipe, BarChartComponent],
+  imports: [AsyncPipe, BarChartComponent, MatSlideToggleModule],
   templateUrl: './game-plots.component.html',
   styleUrl: './game-plots.component.scss',
 })
@@ -17,10 +19,11 @@ export class GamePlotsComponent implements OnDestroy {
   pi: number[] = [];
   n: number[] = [];
   q: number[] = [];
+  plotsVisible$: Observable<boolean> = this.gameService.showMode();
 
   constructor(private gameService: GameService) {
     gameService
-      .getMCTSNode()
+      .pollMCTSNode()
       .pipe(takeUntil(this.onDestroy))
       .subscribe((node) => {
         this.pi = node.pi;
@@ -30,6 +33,11 @@ export class GamePlotsComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.gameService.setShowModeOff();
     this.onDestroy.next();
+  }
+
+  toggleVisible() {
+    this.gameService.toggleShowMode();
   }
 }

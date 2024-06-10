@@ -18,6 +18,8 @@ export class DataService {
   private requestMoveUrl: string = environment.backendUrl + '/request-move';
   private fetchMCTSNodeUrl: string =
     environment.backendUrl + '/fetch-mcts-node';
+  private showModeOnUrl: string = environment.backendUrl + '/show-mode-on';
+  private showModeOffUrl: string = environment.backendUrl + '/show-mode-off';
 
   constructor(private http: HttpClient) {}
 
@@ -68,5 +70,13 @@ export class DataService {
           boardIndex
       )
       .pipe(map((nodeIo) => new MCTSNode(nodeIo)));
+  }
+
+  showModeOn(gameId: string): Observable<string> {
+    return this.http.get<string>(this.showModeOnUrl + '?game_id=' + gameId);
+  }
+
+  showModeOff(gameId: string): Observable<string> {
+    return this.http.get<string>(this.showModeOffUrl + '?game_id=' + gameId);
   }
 }

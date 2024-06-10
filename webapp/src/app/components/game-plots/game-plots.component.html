@@ -1,6 +1,10 @@
 <div class="plots">
-  <h3>Monte Carlo Tree Search</h3>
+  <mat-slide-toggle labelPosition="before" (change)="toggleVisible()"
+    ><h3>Show MCTS Evaluation</h3></mat-slide-toggle
+  >
+  @if(plotsVisible$ | async) {
   <app-bar-chart [title]="'π (Policy)'" [data]="pi"></app-bar-chart>
   <app-bar-chart [title]="'n (Visit count)'" [data]="n"></app-bar-chart>
   <app-bar-chart [title]="'q (Value)'" [data]="q"></app-bar-chart>
+  }
 </div>
