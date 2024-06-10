@@ -1,6 +1,6 @@
 import { Component } from '@angular/core';
 import { AsyncPipe, CommonModule } from '@angular/common';
-import { BehaviorSubject, Observable, map } from 'rxjs';
+import { Observable, map } from 'rxjs';
 
 import { GameService } from '../../services/game.service';
 
@@ -12,14 +12,14 @@ import { GameService } from '../../services/game.service';
   styleUrl: './game-controls.component.scss',
 })
 export class GameControlsComponent {
-  currentBoardIndex$: BehaviorSubject<number>;
+  currentBoardIndex$: Observable<number>;
   maxBoardIndex$: Observable<number>;
 
   constructor(private gameService: GameService) {
-    this.currentBoardIndex$ = this.gameService.currentBoardIndex$;
-    this.maxBoardIndex$ = this.gameService.game$.pipe(
-      map((game) => game.boards.length - 1)
-    );
+    this.currentBoardIndex$ = this.gameService.currentBoardIndex();
+    this.maxBoardIndex$ = this.gameService
+      .game()
+      .pipe(map((game) => game.boards.length - 1));
   }
 
   changeCurrentMoveIndex(newCurrentBoardIndex: number): void {

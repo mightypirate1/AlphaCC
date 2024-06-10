@@ -5,7 +5,7 @@ import {
   Validators,
   FormControl,
 } from '@angular/forms';
-import { Subject, catchError, switchMap, takeUntil, throwError } from 'rxjs';
+import { Subject, catchError, of, switchMap, takeUntil } from 'rxjs';
 import { Router } from '@angular/router';
 
 import { DataService } from '../../services/data.service';
@@ -40,19 +40,24 @@ export class GameInitComponent implements OnInit, OnDestroy {
       .pipe(
         takeUntil(this.onDestroy),
         switchMap((formData) => {
-          return this.dataService.createNewGame(formData.gameId, formData.size);
-        }),
-        catchError((err) => {
-          if (err.status === 400) {
-            this.newGameForm.controls['gameId'].setErrors({
-              incorrect: true,
-            });
-          }
-          return throwError(() => err);
+          return this.dataService
+            .createNewGame(formData.gameId, formData.size)
+            .pipe(
+              catchError((err) => {
+                if (err.status === 400) {
+                  this.newGameForm.controls['gameId'].setErrors({
+                    incorrect: true,
+                  });
+                }
+                return of(null);
+              })
+            );
         })
       )
       .subscribe((game) => {
-        this.router.navigate([game.gameId]);
+        if (game) {
+          this.router.navigate([game.gameId]);
+        }
       });
   }
 

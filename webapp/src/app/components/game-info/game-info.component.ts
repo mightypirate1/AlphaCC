@@ -18,18 +18,18 @@ export class GameInfoComponent {
   winner$: Observable<number>;
 
   constructor(private gameService: GameService) {
-    this.gameId$ = gameService.game$.pipe(map((game) => game.gameId));
+    this.gameId$ = gameService.game().pipe(map((game) => game.gameId));
     this.currentPlayer$ = combineLatest([
-      gameService.game$,
-      gameService.currentBoardIndex$,
+      gameService.game(),
+      gameService.currentBoardIndex(),
     ]).pipe(map(([game, boardIndex]) => game.boards[boardIndex].currentPlayer));
     this.gameOver$ = combineLatest([
-      gameService.game$,
-      gameService.currentBoardIndex$,
+      gameService.game(),
+      gameService.currentBoardIndex(),
     ]).pipe(map(([game, boardIndex]) => game.boards[boardIndex].gameOver));
     this.winner$ = combineLatest([
-      gameService.game$,
-      gameService.currentBoardIndex$,
+      gameService.game(),
+      gameService.currentBoardIndex(),
     ]).pipe(map(([game, boardIndex]) => game.boards[boardIndex].winner));
   }
 }

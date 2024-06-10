@@ -1,8 +1,10 @@
 import { Injectable, OnDestroy } from '@angular/core';
 import {
   BehaviorSubject,
+  NEVER,
   Observable,
   Subject,
+  catchError,
   combineLatest,
   filter,
   map,
@@ -24,16 +26,20 @@ import { MCTSNode } from '../types/mcts-node.model';
 })
 export class GameService implements OnDestroy {
   private readonly onDestroy = new Subject<void>();
-  game$: Subject<Game> = new Subject<Game>();
-  currentBoardIndex$: BehaviorSubject<number> = new BehaviorSubject<number>(0);
-  moveToApply$: Subject<Move> = new Subject<Move>();
-  player$: Observable<number> = of(1);
+  private game$: Subject<Game> = new Subject<Game>();
+  private currentBoardIndex$: BehaviorSubject<number> =
+    new BehaviorSubject<number>(0);
+  private player$: Observable<number> = of(1);
+  private moveToApply$: Subject<Move> = new Subject<Move>();
+  private showMode$: BehaviorSubject<boolean> = new BehaviorSubject<boolean>(
+    false
+  );
 
   constructor(private dataService: DataService) {
     this.moveToApply$
       .pipe(
         takeUntil(this.onDestroy),
-        withLatestFrom(this.getDraggableMoves(), this.game$),
+        withLatestFrom(this.draggableMoves(), this.game$),
         map<[Move, Move[], Game], [Move[], Game]>(
           ([moveToApply, legalMoves, game]) => [
             legalMoves.filter((legalMove) => {
@@ -68,6 +74,19 @@ export class GameService implements OnDestroy {
           }
         });
       });
+    this.showMode$
+      .pipe(
+        takeUntil(this.onDestroy),
+        withLatestFrom(this.game$),
+        switchMap(([showMode, game]) => {
+          return (
+            showMode
+              ? dataService.showModeOn(game.gameId)
+              : dataService.showModeOff(game.gameId)
+          ).pipe(catchError(() => of({})));
+        })
+      )
+      .subscribe();
   }
 
   ngOnDestroy(): void {
@@ -101,7 +120,7 @@ export class GameService implements OnDestroy {
     this.currentBoardIndex$.next(newCurrentBoardIndex);
   }
 
-  getCurrentBoardMatrix(): Observable<number[][]> {
+  currentBoardMatrix(): Observable<number[][]> {
     return combineLatest([this.game$, this.currentBoardIndex$]).pipe(
       map<[Game, number], number[][]>(([game, boardIndex]): number[][] => {
         return game.boards[boardIndex].matrix;
@@ -109,7 +128,7 @@ export class GameService implements OnDestroy {
     );
   }
 
-  getLastMove(): Observable<Move> {
+  lastMove(): Observable<Move> {
     return combineLatest([this.game$, this.currentBoardIndex$]).pipe(
       map<[Game, number], Move>(([game, currentBoardIndex]) => {
         if (currentBoardIndex <= 0) {
@@ -120,7 +139,7 @@ export class GameService implements OnDestroy {
     );
   }
 
-  getDraggableMoves(): Observable<Move[]> {
+  draggableMoves(): Observable<Move[]> {
     return combineLatest([
       this.game$,
       this.currentBoardIndex$,
@@ -141,13 +160,34 @@ export class GameService implements OnDestroy {
     );
   }
 
-  getMCTSNode(): Observable<MCTSNode> {
-    return timer(1, 3000).pipe(
+  pollMCTSNode(): Observable<MCTSNode> {
+    return this.showMode$.pipe(
+      switchMap((showMode) => (showMode ? timer(1, 3000) : NEVER)),
       switchMap(() => this.currentBoardIndex$),
       withLatestFrom(this.game$),
       switchMap<[number, Game], Observable<MCTSNode>>(([boardIndex, game]) => {
         return this.dataService.fetchMCTSNode(game.gameId, boardIndex);
       })
     );
+  }
+
+  showMode(): Observable<boolean> {
+    return this.showMode$.asObservable();
+  }
+
+  currentBoardIndex(): Observable<number> {
+    return this.currentBoardIndex$.asObservable();
+  }
+
+  game(): Observable<Game> {
+    return this.game$.asObservable();
+  }
+
+  toggleShowMode(): void {
+    this.showMode$.next(!this.showMode$.getValue());
+  }
+
+  setShowModeOff(): void {
+    this.showMode$.next(false);
   }
 }

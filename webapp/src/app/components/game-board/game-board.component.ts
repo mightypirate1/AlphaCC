@@ -27,12 +27,12 @@ export class GameBoardComponent implements OnDestroy {
 
   constructor(private gameService: GameService) {
     gameService
-      .getCurrentBoardMatrix()
+      .currentBoardMatrix()
       .pipe(takeUntil(this.onDestroy))
       .subscribe((board) => (this.board = board));
 
     gameService
-      .getLastMove()
+      .lastMove()
       .pipe(takeUntil(this.onDestroy))
       .subscribe((move) => {
         if (move !== null) {
@@ -40,7 +40,7 @@ export class GameBoardComponent implements OnDestroy {
         }
       });
     gameService
-      .getDraggableMoves()
+      .draggableMoves()
       .pipe(takeUntil(this.onDestroy))
       .subscribe((moves) => {
         this.draggableMoves = moves;

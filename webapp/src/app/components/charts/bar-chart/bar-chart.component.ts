@@ -14,6 +14,7 @@ export class BarChartComponent implements OnInit {
   @Input()
   set data(data: number[]) {
     this.mergeOptions = {
+      xAxis: { type: 'category' },
       series: [{ data: data }],
     };
   }
