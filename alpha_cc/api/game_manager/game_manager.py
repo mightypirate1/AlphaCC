@@ -16,8 +16,14 @@ logger = logging.getLogger(__name__)
 def get_agent(size: int) -> StandaloneMCTSAgent:
     weight_dict = {
         5: Path(__file__).parents[3] / "data/models/test-00-size-5.pth",
+        7: Path(__file__).parents[3] / "data/models/test-00-size-7.pth",
     }
-    model = StandaloneMCTSAgent(DefaultNet(size), n_rollouts=500, rollout_depth=100)
+    model = StandaloneMCTSAgent(
+        DefaultNet(size),
+        n_rollouts=500,
+        rollout_depth=100,
+        rollout_gamma=0.9999,
+    )
     if size in weight_dict:
         return model.with_weights(weight_dict[size])
     return model
