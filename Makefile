@@ -1,6 +1,6 @@
 PYTHON3 = python3.11
 
-clean: clean-build clean-pyc clean-cache clean-venv  ## remove all build, test, coverage and Python artifacts
+clean: clean-build clean-pyc clean-cache clean-venv clean-webapp clean-engine  ## remove all build, test, coverage and Python artifacts
 
 clean-build:
 	@rm -rf build/
@@ -24,6 +24,14 @@ clean-cache:
 clean-venv: ## remove venv
 	@rm -rf .venv
 
+clean-webapp:
+	@rm -rf webapp/node_modules
+
+clean-engine:
+	@bash -c " \
+		cd alpha_cc/engine/backend && \
+		cargo clean \
+	"
 
 develop: clean venv
 	@bash -c "\
@@ -45,7 +53,7 @@ build-engine:
 install-webapp:
 	@bash -c " \
 		cd webapp && \
-		npm install \
+		npm install --include=dev \
 	"
 
 lint:
