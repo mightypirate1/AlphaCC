@@ -321,9 +321,9 @@ impl Board {
 
     pub fn render(&self) {
         let tokens = HashMap::from([
-            (0, "⎔"),
+            (0, "·"),
             (1, "⬣"),
-            (2, "⌬"),
+            (2, "⎔"),
         ]);
         let matrix = self.get_unflipped_matrix();
         println!();
