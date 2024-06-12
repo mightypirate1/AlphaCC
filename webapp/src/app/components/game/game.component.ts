@@ -27,9 +27,14 @@ export class GameComponent {
   ) {
     this.activatedRoute.url
       .subscribe((url) => {
-        this.gameService.setActiveGame(url[0].path);
-        delete url[0].parameters['size'];
-        this.router.navigate([]);
+        const gameId = url[0].path;
+        const player = +url[0].parameters['player'];
+        this.gameService.setActiveGame(gameId);
+        if (player >= 0) {
+          this.gameService.setActivePlayer(gameId, player);
+          delete url[0].parameters['player'];
+          this.router.navigate([]);
+        }
       })
       .unsubscribe();
   }

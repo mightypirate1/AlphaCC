@@ -29,7 +29,7 @@ export class GameService implements OnDestroy {
   private game$: Subject<Game> = new Subject<Game>();
   private currentBoardIndex$: BehaviorSubject<number> =
     new BehaviorSubject<number>(0);
-  private player$: Observable<number> = of(1);
+  private player$: BehaviorSubject<number> = new BehaviorSubject<number>(-1);
   private moveToApply$: Subject<Move> = new Subject<Move>();
   private showMode$: BehaviorSubject<boolean> = new BehaviorSubject<boolean>(
     false
@@ -110,6 +110,22 @@ export class GameService implements OnDestroy {
         this.currentBoardIndex$.next(game.boards.length - 1);
         this.game$.next(game);
       });
+  }
+
+  setActivePlayer(gameId: string, player: number) {
+    if (player == 0) {
+      player = Math.floor(Math.random() * 2 + 1);
+    }
+    this.player$.next(player);
+    if (player == 2) {
+      this.dataService
+        .requestMove(gameId, 500, 100, 1)
+        .pipe(takeUntil(this.onDestroy))
+        .subscribe((game) => {
+          this.game$.next(game);
+          this.currentBoardIndex$.next(this.currentBoardIndex$.getValue() + 1);
+        });
+    }
   }
 
   applyMove(move: Move): void {
