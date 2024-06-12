@@ -12,25 +12,16 @@ services:
       - .env.docker
     command: [
       "alphacc-trainer",
-      "--run-id=dbg-110-size-5-tournament-0",
-      "--size=5",
-      "--n-train-samples=2000",
-      "--replay-buffer-size=5000",
+      "--run-id=dbg-111-size-9",
+      "--size=9",
+      "--tournament-freq=30",
+      "--n-train-samples=5000",
+      "--replay-buffer-size=25000",
       "--epochs-per-update=5",
       "--policy-weight=1.0",
       "--value-weight=1.0",
       "--batch-size=256",
       "--lr=1e-4",
-      # "alphacc-trainer",
-      # "--run-id=dbg-102-size-7",
-      # "--size=7",
-      # "--n-train-samples=5000",
-      # "--replay-buffer-size=25000",
-      # "--epochs-per-update=5",
-      # "--policy-weight=1.0",
-      # "--value-weight=1.0",
-      # "--batch-size=256",
-      # "--lr=1e-4",
     ]
 
   worker:
@@ -39,20 +30,15 @@ services:
       - trainer
     env_file:
       - .env.docker
-    scale: 6
+    scale: 10
     restart: always
     command: [
       "alphacc-worker",
-      "--size=5",
-      "--n-rollouts=100",
-      "--rollout-depth=100",
-      "--max-game-length=200",
+      "--size=9",
+      "--n-rollouts=1000",
+      "--rollout-depth=200",
+      "--max-game-length=300",
       "--dirichlet-noise-weight=0.25",
-      # "--size=7",
-      # "--n-rollouts=300",
-      # "--rollout-depth=100",
-      # "--max-game-length=500",
-      # "--dirichlet-noise-weight=0.25",
     ]
     
   nn-service:
@@ -64,7 +50,7 @@ services:
     restart: always
     command: [
       "alphacc-nn-service",
-      "--size=5",
+      "--size=9",
     ]
 
   tensorboard:
