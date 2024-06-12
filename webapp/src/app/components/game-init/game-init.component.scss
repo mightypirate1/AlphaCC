@@ -1,10 +1,25 @@
-.game-size-selector {
-  display: flex;
+button {
+  margin-right: 8px;
 }
 
-.game-size-button {
-  min-width: 60px;
-  border: 1px solid black;
-  align-items: center;
-  justify-content: center;
+.new-game-card {
+  max-width: 400px;
+  margin-top: 40px;
+  padding: 10px;
+  display: flex;
+  justify-content: space-around;
+}
+
+.game-actions {
+  justify-content: right;
+}
+
+.card-content {
+  margin: 20px 10px 0px 0px;
+  display: flex;
+  flex-direction: column;
+}
+
+.input-size {
+  margin-bottom: 15px;
 }

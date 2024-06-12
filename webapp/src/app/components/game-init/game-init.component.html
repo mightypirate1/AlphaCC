@@ -1,17 +1,53 @@
-<h2>Start new game</h2>
-<form [formGroup]="newGameForm" (ngSubmit)="onSubmit()">
-  <div>
-    <label for="game-id">Game ID: </label>
-    <input id="game-id" type="text" formControlName="gameId" />
-    (<em>Optional</em>)
-  </div>
-  <div>
-    <label for="game-size">Size: </label>
-    <input type="radio" value="5" formControlName="gameSize" />5x5
-    <input type="radio" value="7" formControlName="gameSize" />7x7
-    <input type="radio" value="9" formControlName="gameSize" />9x9
-  </div>
-  <!-- disabled when input is invalid -->
-  <button type="submit" [disabled]="!newGameForm.valid">Start game!</button>
-  <p>Form Status: {{ newGameForm.status }}</p>
-</form>
+<mat-card class="new-game-card">
+  <mat-card-header>
+    <mat-card-subtitle>Create a new game</mat-card-subtitle>
+    <mat-card-title>Game settings</mat-card-title>
+  </mat-card-header>
+  <form [formGroup]="form" (ngSubmit)="onSubmit()">
+    <mat-card-content class="card-content">
+      <div>
+        <mat-form-field color="primary" appearance="outline">
+          <mat-label>Game ID (optional)</mat-label>
+          <input matInput formControlName="gameId" placeholder="Placeholder" />
+          @if(form.controls.gameId.invalid) {
+          <mat-error>Game id already exists</mat-error>
+          }
+        </mat-form-field>
+      </div>
+      <div class="input-size">
+        <div>Size:</div>
+        <mat-radio-group
+          color="primary"
+          formControlName="gameSize"
+          aria-label="Select an option"
+        >
+          <mat-radio-button value="5">5x5</mat-radio-button>
+          <mat-radio-button value="7">7x7</mat-radio-button>
+          <mat-radio-button value="9">9x9</mat-radio-button>
+        </mat-radio-group>
+      </div>
+      <div>
+        <mat-form-field appearance="outline">
+          <mat-label>Play as</mat-label>
+          <mat-select formControlName="player">
+            <mat-option value="1">Player 1</mat-option>
+            <mat-option value="2">Player 2</mat-option>
+            <mat-option value="0">Random</mat-option>
+          </mat-select>
+        </mat-form-field>
+      </div>
+      <mat-divider></mat-divider>
+    </mat-card-content>
+    <mat-card-actions class="game-actions">
+      <button mat-stroked-button type="reset" color="primary">Clear</button>
+      <button
+        mat-flat-button
+        color="primary"
+        type="submit"
+        [disabled]="!form.valid"
+      >
+        Start game
+      </button>
+    </mat-card-actions>
+  </form>
+</mat-card>

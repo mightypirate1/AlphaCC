@@ -1,12 +1,15 @@
 import { Component, OnDestroy, OnInit } from '@angular/core';
-import {
-  ReactiveFormsModule,
-  FormBuilder,
-  Validators,
-  FormControl,
-} from '@angular/forms';
-import { Subject, catchError, of, switchMap, takeUntil } from 'rxjs';
 import { Router } from '@angular/router';
+import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
+import { Subject, catchError, of, switchMap, takeUntil } from 'rxjs';
+
+import { MatButtonModule } from '@angular/material/button';
+import { MatCardModule } from '@angular/material/card';
+import { MatDividerModule } from '@angular/material/divider';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
+import { MatRadioModule } from '@angular/material/radio';
+import { MatSelectModule } from '@angular/material/select';
 
 import { DataService } from '../../services/data.service';
 import { NewGameFormData } from '../../types/new-game-form-data.model';
@@ -14,16 +17,30 @@ import { NewGameFormData } from '../../types/new-game-form-data.model';
 @Component({
   selector: 'app-game-init',
   standalone: true,
-  imports: [ReactiveFormsModule],
+  imports: [
+    MatButtonModule,
+    MatCardModule,
+    MatDividerModule,
+    MatFormFieldModule,
+    MatInputModule,
+    MatRadioModule,
+    MatSelectModule,
+    ReactiveFormsModule,
+  ],
   templateUrl: './game-init.component.html',
   styleUrl: './game-init.component.scss',
 })
 export class GameInitComponent implements OnInit, OnDestroy {
   private readonly onDestroy = new Subject<void>();
-  newGameForm = this.formBuilder.group({
-    gameId: new FormControl<string | null>(null),
-    gameSize: new FormControl<number>(-1, {
+
+  form = this.formBuilder.group({
+    gameId: this.formBuilder.control(''),
+    gameSize: this.formBuilder.control(-1, {
       validators: [Validators.required, Validators.min(0)],
+      nonNullable: true,
+    }),
+    player: this.formBuilder.control(-1, {
+      validators: [Validators.required, Validators.min(0), Validators.max(2)],
       nonNullable: true,
     }),
   });
@@ -45,7 +62,7 @@ export class GameInitComponent implements OnInit, OnDestroy {
             .pipe(
               catchError((err) => {
                 if (err.status === 400) {
-                  this.newGameForm.controls['gameId'].setErrors({
+                  this.form.controls['gameId'].setErrors({
                     incorrect: true,
                   });
                 }
@@ -56,7 +73,10 @@ export class GameInitComponent implements OnInit, OnDestroy {
       )
       .subscribe((game) => {
         if (game) {
-          this.router.navigate([game.gameId]);
+          this.router.navigate([
+            game.gameId,
+            { player: this.form.controls.player.value },
+          ]);
         }
       });
   }
@@ -65,14 +85,19 @@ export class GameInitComponent implements OnInit, OnDestroy {
     this.onDestroy.next();
   }
 
+  onReset() {
+    this.form.reset;
+  }
+
   onSubmit() {
-    if (this.newGameForm.controls.gameId.value === '') {
-      this.newGameForm.controls.gameId.setValue(null);
+    if (this.form.controls.gameId.value === '') {
+      this.form.controls.gameId.setValue(null);
     }
-    const gameId = this.newGameForm.controls.gameId.value;
-    const size = +this.newGameForm.controls.gameSize.value;
-    if (this.newGameForm.valid) {
-      this.submit$.next({ gameId: gameId, size: size });
+    const gameId = this.form.controls.gameId.value;
+    const size = +this.form.controls.gameSize.value;
+    const player = +this.form.controls.player.value;
+    if (this.form.valid) {
+      this.submit$.next({ gameId: gameId, size: size, player: player });
     }
   }
 }
