@@ -49,9 +49,11 @@ git lfs pull
 For now, the webapp is run "manually":
 ```
 # in one terminal
+source .venv/bin/activate
 ./run-app.sh backend
 
 # in another
+source .venv/bin/activate
 ./run-app.sh frontend
 ```
 Go to `http://localhost:4200/` in your browser (tested on chrome and firefox).
