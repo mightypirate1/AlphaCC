@@ -17,6 +17,7 @@ def get_agent(size: int) -> StandaloneMCTSAgent:
     weight_dict = {
         5: Path(__file__).parents[3] / "data/models/test-00-size-5.pth",
         7: Path(__file__).parents[3] / "data/models/test-00-size-7.pth",
+        9: Path(__file__).parents[3] / "data/models/test-00-size-9.pth",
     }
     model = StandaloneMCTSAgent(
         DefaultNet(size),
