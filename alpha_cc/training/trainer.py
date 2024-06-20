@@ -160,19 +160,19 @@ class Trainer:
         total_entropy_loss = 0.0
         with tqdm(desc="nn-update", total=self._epochs_per_update) as pbar:
             for _ in range(self._epochs_per_update):
-                epoch_value_loss, epoch_policy_loss, epoch_entropy_loss = train_epoch()
-                total_value_loss += epoch_value_loss / self._epochs_per_update
-                total_policy_loss += epoch_policy_loss / self._epochs_per_update
-                total_entropy_loss += epoch_entropy_loss / self._epochs_per_update
+                train_epoch()
+                epoch_test_value_loss, epoch_test_policy_loss, epoch_test_entropy_loss = epoch_eval()
+                total_value_loss += epoch_test_value_loss / self._epochs_per_update
+                total_policy_loss += epoch_test_policy_loss / self._epochs_per_update
+                total_entropy_loss += epoch_test_entropy_loss / self._epochs_per_update
+                pbar.update(1)
                 pbar.set_postfix(
                     {
-                        "pi": round(epoch_policy_loss, 5),
-                        "v": round(epoch_value_loss, 5),
-                        "e": round(epoch_value_loss, 5),
+                        "pi": round(epoch_test_value_loss, 5),
+                        "v": round(epoch_test_policy_loss, 5),
+                        "e": round(epoch_test_entropy_loss, 5),
                     }
                 )
-                epoch_test_value_loss, epoch_test_policy_loss, epoch_test_entropy_loss = epoch_eval()
-                pbar.update(1)
         if self._summary_writer is not None:
             self._summary_writer.add_scalar("trainer/policy-loss", total_policy_loss, global_step=self._global_step)
             self._summary_writer.add_scalar("trainer/value-loss", total_value_loss, global_step=self._global_step)
