@@ -10,14 +10,16 @@ from alpha_cc.db.games_db import GamesDB
 from alpha_cc.db.models import DBGameState
 from alpha_cc.nn.nets import DefaultNet
 
+WEIGHT_DIR = Path(__file__).parents[3] / "data/models"
+
 logger = logging.getLogger(__name__)
 
 
 def get_agent(size: int) -> StandaloneMCTSAgent:
     weight_dict = {
-        5: Path(__file__).parents[3] / "data/models/test-00-size-5.pth",
-        7: Path(__file__).parents[3] / "data/models/test-00-size-7.pth",
-        9: Path(__file__).parents[3] / "data/models/test-00-size-9.pth",
+        5: WEIGHT_DIR / "data/models/test-00-size-5.pth",
+        7: WEIGHT_DIR / "data/models/test-00-size-7.pth",
+        9: WEIGHT_DIR / "data/models/test-00-size-9.pth",
     }
     model = StandaloneMCTSAgent(
         DefaultNet(size),
