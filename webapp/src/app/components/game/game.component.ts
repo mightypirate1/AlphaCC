@@ -28,13 +28,13 @@ export class GameComponent {
     this.activatedRoute.url
       .subscribe((url) => {
         const gameId = url[0].path;
-        const player = +url[0].parameters['player'];
+        const playersArray = url[0].parameters['players'].split(',');
         this.gameService.setActiveGame(gameId);
-        if (player >= 0) {
-          this.gameService.setActivePlayer(gameId, player);
-          delete url[0].parameters['player'];
-          this.router.navigate([]);
+        if (playersArray.length >= 2) {
+          this.gameService.setPlayersSettings(playersArray);
+          delete url[0].parameters['players'];
         }
+        this.router.navigate([]);
       })
       .unsubscribe();
   }
