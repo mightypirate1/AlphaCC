@@ -28,6 +28,7 @@ logger = logging.getLogger(__file__)
 @click.option("--policy-weight", type=float, default=1.0)
 @click.option("--value-weight", type=float, default=1.0)
 @click.option("--entropy-weight", type=float, default=0.0)
+@click.option("--l2-reg", type=float, default=1e-4)
 @click.option("--batch-size", type=int, default=64)
 @click.option("--train-size", type=int, default=5000)
 @click.option("--replay-buffer-size", type=int, default=20000)
@@ -42,6 +43,7 @@ def main(
     policy_weight: float,
     value_weight: float,
     entropy_weight: float,
+    l2_reg: float,
     batch_size: int,
     train_size: int,
     replay_buffer_size: int,
@@ -61,6 +63,7 @@ def main(
         entropy_weight=entropy_weight,
         batch_size=batch_size,
         lr=lr,
+        l2_reg=l2_reg,
         summary_writer=summary_writer,
     )
     tournament_runtime = TournamentRuntime(size, db)

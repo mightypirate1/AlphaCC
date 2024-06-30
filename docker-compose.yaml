@@ -20,6 +20,7 @@ services:
       "--epochs-per-update=5",
       "--policy-weight=1.0",
       "--value-weight=1.0",
+      "--l2-reg=1e-4",
       "--batch-size=256",
       "--lr=1e-4",
     ]
