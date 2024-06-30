@@ -18,6 +18,7 @@ class Trainer:
         policy_weight: float = 1.0,
         value_weight: float = 1.0,
         entropy_weight: float = 0.0,
+        l2_reg: float = 1e-4,
         epochs_per_update: int = 3,
         batch_size: int = 64,
         lr: float = 1e-4,
@@ -31,7 +32,7 @@ class Trainer:
         self._batch_size = batch_size
         self._policy_log_softmax = PolicyLogSoftmax(board_size)
         self._policy_softmax = PolicySoftmax(board_size)
-        self._optimizer = torch.optim.AdamW(nn.parameters(), lr=lr, weight_decay=1e-4)
+        self._optimizer = torch.optim.AdamW(nn.parameters(), lr=lr, weight_decay=l2_reg)
         self._global_step = 0
         self._eval_step = 0
         self._summary_writer = summary_writer
