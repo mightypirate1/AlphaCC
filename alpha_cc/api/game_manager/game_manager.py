@@ -17,9 +17,9 @@ logger = logging.getLogger(__name__)
 
 def get_agent(size: int) -> StandaloneMCTSAgent:
     weight_dict = {
-        5: WEIGHT_DIR / "data/models/test-00-size-5.pth",
-        7: WEIGHT_DIR / "data/models/test-00-size-7.pth",
-        9: WEIGHT_DIR / "data/models/test-00-size-9.pth",
+        5: WEIGHT_DIR / "test-00-size-5.pth",
+        7: WEIGHT_DIR / "test-00-size-7.pth",
+        9: WEIGHT_DIR / "test-00-size-9.pth",
     }
     model = StandaloneMCTSAgent(
         DefaultNet(size),
