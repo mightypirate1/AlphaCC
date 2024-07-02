@@ -1,16 +1,22 @@
+# Misc
+.*
+
+# project specific
 tmp
 tests
 Dockerfile
+## python
 .venv
-alpha_cc/engine/backend/target
-
-# Misc
-.*
 *.ipynb
+## js
+webapp/node_modules
+webapp/.nx
+webapp/.angular
+# rust
+**/*.rs.bk files *.db
+engine/target
+engine/Cargo.lock
 
-# Rust
-target Cargo.lock **/*.rs.bk files *.db
-alpha_cc/engine/backend/target
 
 # Python
 **/__pycache__
