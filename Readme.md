@@ -22,10 +22,6 @@ Application/evaluation requirements:
 - npm ([nvm](https://www.linode.com/docs/guides/how-to-install-use-node-version-manager-nvm/#install-nvm) is nice; get node >=22.0.0)
 - git lfs (used to track the trained models)
 
-Training requirements:
-- docker
-- docker compose
-
 ##### Installation:
 "In theory", all you need to do once requirements are in place is 
 ```sh
@@ -48,12 +44,14 @@ git lfs pull
 #### Play or watch the pre-trained bots:
 For now, the webapp is run "manually":
 ```
-# in one terminal
+# in the first terminal
+./run-app.sh redis
+
+# in a second terminal
 source .venv/bin/activate
 ./run-app.sh backend
 
-# in another
-source .venv/bin/activate
+# in a third terminal
 ./run-app.sh frontend
 ```
 Go to `http://localhost:4200/` in your browser (tested on chrome and firefox).
