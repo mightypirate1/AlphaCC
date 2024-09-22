@@ -39,7 +39,8 @@ services:
       "--size=9",
       "--n-rollouts=1000",
       "--rollout-depth=200",
-      "--max-game-length=300",
+      "--max-game-length=500",
+      "--argmax-delay=30",
       "--dirichlet-noise-weight=0.25",
     ]
     
@@ -62,6 +63,9 @@ services:
       - trainer
     volumes:
       - local:/mnt:ro
+    command:
+      - "tensorboard"
+      - "--logdir=/mnt/logdir"
 
   redis:
     image: redislabs/redismod
