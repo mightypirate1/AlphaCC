@@ -104,12 +104,16 @@ class TrainingDB:
     ##
     # weights
     def weights_publish_latest(self, state_dict: dict[str, Any]) -> int:
-        payload = dill.dumps(state_dict)
-        self._db.set(self.latest_weights_key, payload)
         current_index = int(self._db.incr(self.latest_weights_index_key))  # type: ignore
-        self._db.set(self.weight_key(str(current_index)), payload)
-        logger.debug(f"published weights {current_index}")
+        self.weights_publish(state_dict, current_index, set_latest=True)
         return current_index
+
+    def weights_publish(self, state_dict: dict[str, Any], index: int, set_latest: bool = False) -> None:
+        payload = dill.dumps(state_dict)
+        self._db.set(self.weight_key(index), payload)
+        if set_latest:
+            self._db.set(self.latest_weights_key, payload)
+        logger.debug(f"published weights {index}")
 
     def weights_fetch_latest_with_index(self) -> tuple[int, dict[str, Any]]:
         return self.weights_fetch_latest_index(), self.weights_fetch_latest()
