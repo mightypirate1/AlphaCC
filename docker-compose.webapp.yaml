@@ -17,16 +17,20 @@ services:
       dockerfile: Dockerfile.main
       target: runner
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     env_file:
       - .env.docker
     volumes:
-      - local:/mnt:rw
+      - models:/mnt/models:rw
     command:
       - uvicorn
       - alpha_cc.api.endpoints:app
+      - "--proxy-headers"
       - "--host"
       - "0.0.0.0"
+    ports:
+      - '8000:8000'
 
   redis:
     image: redislabs/redismod
@@ -40,9 +44,9 @@ services:
       start_period: 5s
 
 volumes:
-  local:
+  models:
     driver: local
     driver_opts:
       type: none
       o: bind
-      device: "./data"
+      device: "./data/models"

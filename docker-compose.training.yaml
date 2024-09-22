@@ -5,7 +5,8 @@ services:
       dockerfile: Dockerfile.main
       target: runner
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     volumes:
       - local:/mnt:rw
     env_file:
