@@ -29,7 +29,7 @@ clean-webapp:
 
 clean-engine:
 	@bash -c " \
-		cd alpha_cc/engine/backend && \
+		cd engine && \
 		cargo clean \
 	"
 
@@ -46,7 +46,7 @@ install: develop build-engine install-webapp
 build-engine:
 	@bash -c " \
 		source .venv/bin/activate && \
-		cd alpha_cc/engine/backend && \
+		cd engine && \
 		maturin develop --release \
 	"
 
@@ -57,7 +57,7 @@ install-webapp:
 	"
 
 lint:
-	@bash -c "cd alpha_cc/engine/backend && cargo clippy -- -D warnings"
+	@bash -c "cd engine && cargo clippy -- -D warnings"
 	@bash -c "cd webapp && ng lint"
 	@ruff check alpha_cc tests
 	@black --check alpha_cc tests

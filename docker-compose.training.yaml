@@ -1,11 +1,12 @@
 services:
   trainer:
-    image: alphacc/training
+    image: alphacc/main
     build:
-      dockerfile: Dockerfile
-      target: training
+      dockerfile: Dockerfile.main
+      target: runner
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     volumes:
       - local:/mnt:rw
     env_file:
@@ -26,7 +27,7 @@ services:
     ]
 
   worker:
-    image: alphacc/training
+    image: alphacc/main
     depends_on:
       - trainer
     env_file:
@@ -43,7 +44,7 @@ services:
     ]
     
   nn-service:
-    image: alphacc/training
+    image: alphacc/main
     depends_on:
       - trainer
     env_file:

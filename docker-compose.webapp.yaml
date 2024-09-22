@@ -1,0 +1,52 @@
+services:
+  frontend:
+    image: alphacc/webapp
+    build:
+      dockerfile: Dockerfile.webapp
+      target: webapp
+    depends_on:
+      - backend
+    env_file:
+      - .env.docker
+    ports:
+      - '8080:80'
+
+  backend:
+    image: alphacc/main
+    build:
+      dockerfile: Dockerfile.main
+      target: runner
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env.docker
+    volumes:
+      - models:/mnt/models:rw
+    command:
+      - uvicorn
+      - alpha_cc.api.endpoints:app
+      - "--proxy-headers"
+      - "--host"
+      - "0.0.0.0"
+    ports:
+      - '8000:8000'
+
+  redis:
+    image: redislabs/redismod
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: [ "CMD", "redis-cli", "--raw", "incr", "ping" ]
+      interval: 5s
+      timeout: 30s
+      retries: 15
+      start_period: 5s
+
+volumes:
+  models:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: "./data/models"

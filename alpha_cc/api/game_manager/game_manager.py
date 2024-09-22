@@ -6,11 +6,12 @@ from alpha_cc.agents import StandaloneMCTSAgent
 from alpha_cc.agents.mcts.mcts_node_py import MCTSNodePy
 from alpha_cc.agents.mcts.node_store import DBNodeStore
 from alpha_cc.api.game_manager.show_mode_job import ShowModeJob
+from alpha_cc.config import Environment
 from alpha_cc.db.games_db import GamesDB
 from alpha_cc.db.models import DBGameState
 from alpha_cc.nn.nets import DefaultNet
 
-WEIGHT_DIR = Path(__file__).parents[3] / "data/models"
+WEIGHT_DIR = Path(Environment.model_dir)
 
 logger = logging.getLogger(__name__)
 
