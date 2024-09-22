@@ -59,12 +59,9 @@ Go to `http://localhost:4200/` in your browser (tested on chrome and firefox).
 #### Train your own bots:
 You can train your own bots using docker compose
 
-To start training, you can run e.g. `docker compose up --build`. Just build and run:
-```sh
-docker compose up --build
-```
+To start training, you can run e.g. `docker compose -f docker-compose.training up --build`.
 
-Edit the `docker-compose.yaml` to set settings as you like them `:-)`!
+Edit the `docker-compose.training.yaml` to set settings as you like them `:-)`!
 
 > Note: the docker build is not exactly optimized for size. The image is currently `~5GB`.
 
