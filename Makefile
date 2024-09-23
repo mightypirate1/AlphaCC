@@ -75,3 +75,11 @@ test: ## run tests quickly with the default Python
 
 venv:
 	@$(PYTHON3) -m venv .venv --prompt alpha-cc
+
+build-webapp:
+	@docker compose -f docker-compose.webapp.yaml build
+
+run-webapp:
+	@docker compose -f docker-compose.webapp.yaml up
+
+build-and-run-webapp: build-webapp run-webapp
