@@ -73,10 +73,7 @@ class Trainer:
         eval_dataset = TrainingDataset([exp for traj in trajectories for exp in traj])
         pi_logits, pi_logits_tensor, v = self._evaluate(eval_dataset)
         pi_targets = torch.stack([pi_target for _, _, pi_target, _ in eval_dataset])  # type: ignore
-        pi_entropy = entropy(pi_logits_tensor)
         pi_target_entropy = entropy(pi_targets)
-        self._summary_writer.add_scalar("trainer/num-samples", num_samples, global_step=self._global_step)
-        self._summary_writer.add_histogram("trainer/pi-pred-entropy", pi_entropy, global_step=self._global_step)
         self._summary_writer.add_histogram(
             "trainer/pi-target-entropy", pi_target_entropy, global_step=self._global_step
         )
@@ -87,7 +84,6 @@ class Trainer:
         )
         self._summary_writer.add_histogram("trainer/v-target", v_targets, global_step=self._global_step)
         log_aggregates("game-length", game_lengths)
-        log_aggregates("pi-pred-entropy", pi_entropy)
         log_aggregates("pi-target-entropy", pi_target_entropy)
 
     def _update_nn(self, dataset: TrainingDataset) -> None:

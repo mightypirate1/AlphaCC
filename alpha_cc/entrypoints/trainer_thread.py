@@ -75,7 +75,6 @@ def main(
     tournament_runtime = TournamentRuntime(size, db)
 
     db.flush_db()  # redis doesn't currently clear itself on restart.
-    # workers will wait for the first weights getting published so everyone has the same net
 
     if init_run_id is not None:
         # If specified; load weights from a previous run
@@ -83,6 +82,7 @@ def main(
             init_weights = torch.load(save_path(init_run_id, init_weights_index))
         else:
             init_weights = torch.load(save_path_latest(init_run_id))
+        trainer.nn.load_state_dict(init_weights)
 
         if init_champion_weight_index is not None:
             champion_weights = torch.load(save_path(init_run_id, init_champion_weight_index))
@@ -96,6 +96,7 @@ def main(
         curr_index = db.weights_publish_latest(trainer.nn.state_dict())
         champion_index = curr_index
 
+    # workers will wait for the first weights getting published so everyone has the same net
     db.model_set_current(0, curr_index)
     n_iterations = 0
     while True:
