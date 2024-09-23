@@ -65,13 +65,12 @@ class Trainer:
             return
 
         game_lengths = np.array([len(traj) for traj in trajectories])
-        num_samples = game_lengths.sum()
         v_targets = np.array([e.v_target for traj in trajectories for e in traj])
         pi_targets_logits_flat = np.concatenate(
             [np.log(e.pi_target.clip(1e-6).ravel()) for traj in trajectories for e in traj]
         )
         eval_dataset = TrainingDataset([exp for traj in trajectories for exp in traj])
-        pi_logits, pi_logits_tensor, v = self._evaluate(eval_dataset)
+        pi_logits, v = self._evaluate(eval_dataset)
         pi_targets = torch.stack([pi_target for _, _, pi_target, _ in eval_dataset])  # type: ignore
         pi_target_entropy = entropy(pi_targets)
         self._summary_writer.add_histogram(
@@ -191,7 +190,7 @@ class Trainer:
             self._summary_writer.add_scalar("trainer/entropy-loss", total_entropy_loss, global_step=self._global_step)
 
     @torch.no_grad()
-    def _evaluate(self, dataset: TrainingDataset) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def _evaluate(self, dataset: TrainingDataset) -> tuple[torch.Tensor, torch.Tensor]:
         """
         returns:
         - the policy logits (mcts format)
@@ -200,19 +199,14 @@ class Trainer:
         """
         self._nn.eval()
         dataloader = DataLoader(dataset, batch_size=self._batch_size, drop_last=False)
-        pis, pi_tensors, vs = [], [], []
+        pi_logits, vs = [], []
         with tqdm(desc="nn-eval/epoch", total=len(dataset)) as pbar:
             for x, pi_mask_batch, _, _ in dataloader:
                 pi_tensor_batch, value_batch = self._nn(x)
                 for pi_tensor_unsoftmaxed, pi_mask in zip(pi_tensor_batch, pi_mask_batch):
                     pi_vec = pi_tensor_unsoftmaxed[*torch.nonzero(pi_mask.squeeze()).T].ravel()
                     pi_logit = torch.nn.functional.log_softmax(pi_vec, dim=0)
-                    pis.append(pi_logit)
-                pi_tensors.append(self._policy_log_softmax(pi_tensor_batch, pi_mask_batch))
+                    pi_logits.append(pi_logit)
                 vs.extend(value_batch)
                 pbar.update(x.shape[0])
-
-        pi_logits = torch.concat(pis, dim=0)
-        pi_logits_tensor = torch.concat(pi_tensors, dim=0)
-        value = torch.as_tensor(vs)
-        return pi_logits, pi_logits_tensor, value
+        return torch.concat(pi_logits, dim=0), torch.as_tensor(vs)
