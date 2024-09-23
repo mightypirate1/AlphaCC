@@ -20,7 +20,7 @@ Hopefully all is smooth, but some tinkering might be needed to get the deps in o
 To run this in your local environment, you need to make sure you have the following installed first:
 
 Base reqirements:
-- git-lfs (used to track the trained models)
+- git-lfs [link](https://git-lfs.com/) (or `sudo apt install git-lfs`)
 - docker
 - docker compose v2 [link](https://docs.docker.com/compose/install/linux/)
 - make
