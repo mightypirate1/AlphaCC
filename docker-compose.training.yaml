@@ -13,7 +13,7 @@ services:
       - .env.docker
     command: [
       "alphacc-trainer",
-      "--run-id=dbg-111-size-9",
+      "--run-id=alpha-cc-size-9-run-00",
       "--size=9",
       "--tournament-freq=30",
       "--n-train-samples=5000",
@@ -32,7 +32,8 @@ services:
       - trainer
     env_file:
       - .env.docker
-    scale: 10
+    deploy:
+      replicas: 6
     restart: always
     command: [
       "alphacc-worker",
@@ -40,6 +41,7 @@ services:
       "--n-rollouts=1000",
       "--rollout-depth=200",
       "--max-game-length=300",
+      "--argmax-delay=30",
       "--dirichlet-noise-weight=0.25",
     ]
     
@@ -62,6 +64,9 @@ services:
       - trainer
     volumes:
       - local:/mnt:ro
+    command:
+      - "tensorboard"
+      - "--logdir=/mnt/logdir"
 
   redis:
     image: redislabs/redismod

@@ -34,6 +34,9 @@ logger = logging.getLogger(__file__)
 @click.option("--replay-buffer-size", type=int, default=20000)
 @click.option("--lr", type=float, default=1e-4)
 @click.option("--verbose", is_flag=True, default=False)
+@click.option("--init-run-id", type=str, default=None)
+@click.option("--init-weights-index", type=int, default=None)
+@click.option("--init-champion-weight-index", type=int, default=None)
 def main(
     run_id: str,
     size: int,
@@ -49,6 +52,9 @@ def main(
     replay_buffer_size: int,
     lr: float,
     verbose: bool,
+    init_run_id: str | None,
+    init_weights_index: int | None,
+    init_champion_weight_index: int | None,
 ) -> None:
     init_rootlogger(verbose=verbose)
     db = TrainingDB(host=Environment.host_redis)
@@ -68,14 +74,31 @@ def main(
     )
     tournament_runtime = TournamentRuntime(size, db)
 
-    db.flush_db()  # redis doesn't clear itself on restart currently...
+    db.flush_db()  # redis doesn't currently clear itself on restart.
+
+    if init_run_id is not None:
+        # If specified; load weights from a previous run
+        if init_weights_index is not None:
+            init_weights = torch.load(save_path(init_run_id, init_weights_index))
+        else:
+            init_weights = torch.load(save_path_latest(init_run_id))
+        trainer.nn.load_state_dict(init_weights)
+
+        if init_champion_weight_index is not None:
+            champion_weights = torch.load(save_path(init_run_id, init_champion_weight_index))
+        else:
+            champion_weights = init_weights
+        trainer.set_lr(0.0)  # warmup with 0 lr (think of a way of doing this better)
+        champion_index = db.weights_publish_latest(champion_weights)
+        curr_index = db.weights_publish_latest(init_weights)
+    else:
+        # Else, start from scratch
+        curr_index = db.weights_publish_latest(trainer.nn.state_dict())
+        champion_index = curr_index
 
     # workers will wait for the first weights getting published so everyone has the same net
-    curr_index = db.weights_publish_latest(trainer.nn.state_dict())
     db.model_set_current(0, curr_index)
     n_iterations = 0
-    champion_index = curr_index
-
     while True:
         # wait until we have enough new samples
         trajectories = await_samples(db, n_train_samples)
@@ -86,6 +109,7 @@ def main(
         # train on samples
         train_data = replay_buffer.sample(train_size)
         trainer.train(train_data)
+        trainer.set_lr(lr)  # reset lr after warmup
 
         # publish weights
         curr_index = db.weights_publish_latest(trainer.nn.state_dict())
@@ -109,8 +133,8 @@ def await_samples(db: TrainingDB, n_train_samples: int) -> list[list[MCTSExperie
             trajectory = db.trajectory_fetch(blocking=True)
             trajectories.append(trajectory)
             n_remaining -= len(trajectory)
-            pbar.update(len(trajectory))
             pbar.set_postfix({"n": len(trajectory)})
+            pbar.update(len(trajectory))
     # if the trainer doesnt keep up with the workers, there will be samples
     # remaining on the queue. thus, we clear the queue so we can train on
     # the latest data. as as bonus, we also get to notice this  happening in
@@ -150,11 +174,23 @@ def log_winrate(
 
 
 def save_weights(run_id: str, curr_index: int, weights: dict[str, Any]) -> None:
-    path = f"{Environment.model_dir}/{run_id}/{str(curr_index).zfill(4)}.pth"
-    latest_path = f"{Environment.model_dir}/{run_id}/latest.pth"
+    path = save_path(run_id, curr_index)
+    latest_path = save_path_latest(run_id)
     Path(path).parent.mkdir(exist_ok=True, parents=True)
     torch.save(weights, latest_path)
     torch.save(weights, path)
+
+
+def save_path_latest(run_id: str) -> str:
+    return f"{save_root(run_id)}/latest.pth"
+
+
+def save_path(run_id: str, index: int) -> str:
+    return f"{save_root(run_id)}/{str(index).zfill(4)}.pth"
+
+
+def save_root(run_id: str) -> str:
+    return f"{Environment.model_dir}/{run_id}"
 
 
 def create_summary_writer(run_id: str) -> SummaryWriter:
