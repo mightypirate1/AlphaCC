@@ -4,6 +4,14 @@ Ever got beaten in Chinese Checkers, and really feel you need to cheat to get ba
 
 Fear not - AlphaCC is here!
 
+### What is it?
+
+AlphaCC is a 2-player version of the game [Chinese Checkers](https://en.wikipedia.org/wiki/Chinese_checkers)*, together with:
+- an [Alpha-Zero](https://arxiv.org/abs/1712.01815) style RL algorithm for training AI agents to play the game.
+- a webapp to play against the bots!
+
+(*) For simplicity, laziness, and memory-optimizations sake, the starting areas for the non-existing players are removed from the board.
+
 ## How do I run it?
 
 Hopefully all is smooth, but some tinkering might be needed to get the deps in order. Please let us know about any issues, or if something should be added to the docs or to the `Makefile`!
@@ -12,16 +20,68 @@ Hopefully all is smooth, but some tinkering might be needed to get the deps in o
 To run this in your local environment, you need to make sure you have the following installed first:
 
 Base reqirements:
+- git-lfs (used to track the trained models)
+- docker (with docker compose)
+- make
+
+Dev requirements:
 - linux
 - bash
 - rustup (with build-essential or equivalent for your system)
 - python3.11 (with venv and pip)
-- docker (with docker compose)
-
-Application/evaluation requirements:
 - npm ([nvm](https://www.linode.com/docs/guides/how-to-install-use-node-version-manager-nvm/#install-nvm) is nice; get node >=22.0.0)
-- git lfs (used to track the trained models)
 
+## Now what can I do with it?
+
+#### Play against pre-trained bots:
+
+To get the weights to be able to use a trained agent, you need git lfs!
+```sh
+git lfs install
+git lfs pull
+```
+
+Launch the webapp with
+```sh
+make build-and-run-webapp
+```
+Go to `http://localhost:8080/` in your browser (tested on chrome and firefox) to play!
+
+#### Train your own bots:
+
+You can train your own bots using docker compose.
+
+The defaults provided are the ones used to train the default size-9 bots included. It takes a long time to train, so if you want something faster, you will have to change the parameters in `docker-compose.training.yaml` (see below).
+
+To start training, you can run
+```sh
+docker compose -f docker-compose.training.yaml up --build
+```
+
+You can track the progress via the terminal, and the tensorboard at `http://localhost:6006/`.
+
+##### Change training parameters
+
+Edit the `docker-compose.training.yaml` to set settings as you like them `:-)`!
+
+Typically, you might want to change size of the board for faster training (supported sizes are 5, 7, 9).
+
+When reducing size, you might want to change
+
+`worker`:
+- `size`
+- lower `--n-rollouts`
+- lower `--max-game-length`
+
+`trainer`:
+- `size`
+- lower `--n-train-samples`
+- lower `--replay-buffer-size`
+
+`nn-service`:
+- `size`
+
+## Development
 ##### Installation:
 "In theory", all you need to do once requirements are in place is 
 ```sh
@@ -33,17 +93,8 @@ which should:
 - build the game engine
 - build the webapp
 
-To get the weights to be able to use a trained agent, you need git lfs!
+For development, you probably want to run things in the terminal:
 ```sh
-git lfs install
-git lfs pull
-```
-
-## Now what can I do with it?
-
-#### Play or watch the pre-trained bots:
-For now, the webapp is run "manually":
-```
 # in the first terminal
 ./run-app.sh redis
 
@@ -54,23 +105,7 @@ source .venv/bin/activate
 # in a third terminal
 ./run-app.sh frontend
 ```
-Go to `http://localhost:4200/` in your browser (tested on chrome and firefox).
-
-#### Train your own bots:
-You can train your own bots using docker compose
-
-To start training, you can run e.g. `docker compose -f docker-compose.training up --build`.
-
-Edit the `docker-compose.training.yaml` to set settings as you like them `:-)`!
-
-> Note: the docker build is not exactly optimized for size. The image is currently `~5GB`.
-
-
-## What is AlphaCC
-
-For now, this implements a 2-player version of the game [Chinese Checkers](https://en.wikipedia.org/wiki/Chinese_checkers)*.
-
-(*) For simplicity, laziness, and memory-optimizations sake, the starting areas for the non-existing players are removed from the board.
+> the frontend is then at `http://localhost:4200`
 
 ---
 
