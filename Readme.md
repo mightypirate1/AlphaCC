@@ -20,9 +20,9 @@ Hopefully all is smooth, but some tinkering might be needed to get the deps in o
 To run this in your local environment, you need to make sure you have the following installed first:
 
 Base reqirements:
-- git-lfs [link](https://git-lfs.com/) (or `sudo apt install git-lfs`)
-- docker
-- docker compose v2 [link](https://docs.docker.com/compose/install/linux/)
+- [git-lfs](https://git-lfs.com/) (or `sudo apt install git-lfs`)
+- [docker](https://docs.docker.com/engine/install/)
+- [docker compose v2](https://docs.docker.com/compose/install/linux/)
 - make
 
 Dev requirements:
@@ -38,14 +38,16 @@ Dev requirements:
 
 To get the weights to be able to use a trained agent, you need git lfs!
 ```sh
-git lfs install
-git lfs pull
+git lfs install  # if you didn't already do this on your computer
+git lfs pull     # fetches pre-trained models
 ```
 
 Launch the webapp with
 ```sh
 make build-and-run-webapp
 ```
+> if your user is not a member of the `docker` group, you should consider [adding it](https://docs.docker.com/engine/install/linux-postinstall/), or alternatively running the previous command with `sudo`.
+
 Go to `http://localhost:8080/` in your browser (tested on chrome and firefox) to play!
 
 #### Train your own bots:
