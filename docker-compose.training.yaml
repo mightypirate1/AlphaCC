@@ -41,7 +41,6 @@ services:
       "--n-rollouts=1000",
       "--rollout-depth=200",
       "--max-game-length=300",
-      "--argmax-delay=30",
       "--dirichlet-noise-weight=0.25",
     ]
     
