@@ -21,7 +21,8 @@ To run this in your local environment, you need to make sure you have the follow
 
 Base reqirements:
 - git-lfs (used to track the trained models)
-- docker (with docker compose)
+- docker
+- docker compose v2 [link](https://docs.docker.com/compose/install/linux/)
 - make
 
 Dev requirements:
