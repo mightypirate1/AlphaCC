@@ -8,7 +8,7 @@ Fear not - AlphaCC is here!
 
 AlphaCC is a 2-player version of the game [Chinese Checkers](https://en.wikipedia.org/wiki/Chinese_checkers)*, together with:
 - an [Alpha-Zero](https://arxiv.org/abs/1712.01815) style RL algorithm for training AI agents to play the game.
-- a webapp to play against the bots!
+- a webapp to play against the bots! (big shout-out  to [Lucas Kylberg](https://github.com/lukac-k) for making the app happen!)
 
 (*) For simplicity, laziness, and memory-optimizations sake, the starting areas for the non-existing players are removed from the board.
 
