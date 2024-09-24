@@ -131,7 +131,6 @@ class Trainer:
             self._nn.eval()
             epoch_value_loss = 0.0
             epoch_policy_loss = 0.0
-            epoch_abs_policy_loss = 0.0
             epoch_entropy_loss = 0.0
             for x, pi_mask, target_pi, target_value in test_dataloader:
                 current_pi_unsoftmaxed, current_value = self._nn(x)
@@ -140,15 +139,11 @@ class Trainer:
                 entropy_loss = compute_entropy_loss(current_pi_unsoftmaxed, pi_mask)
                 epoch_value_loss += value_loss.mean().item() / len(test_dataloader)
                 epoch_policy_loss += policy_loss.mean().item() / len(test_dataloader)
-                epoch_abs_policy_loss += policy_loss.abs().mean().item() / len(test_dataloader)
                 epoch_entropy_loss += entropy_loss.mean().item() / len(test_dataloader)
             if self._summary_writer is not None:
                 self._summary_writer.add_scalar("eval/policy-loss", epoch_policy_loss, global_step=self._eval_step)
                 self._summary_writer.add_scalar("eval/value-loss", epoch_value_loss, global_step=self._eval_step)
                 self._summary_writer.add_scalar("eval/entropy-loss", epoch_entropy_loss, global_step=self._eval_step)
-                self._summary_writer.add_scalar(
-                    "eval/abs-policy-loss", epoch_abs_policy_loss, global_step=self._eval_step
-                )
                 self._eval_step += 1
             return epoch_value_loss, epoch_policy_loss, epoch_entropy_loss
 
