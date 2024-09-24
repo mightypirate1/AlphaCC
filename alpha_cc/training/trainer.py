@@ -147,7 +147,7 @@ class Trainer:
                 self._summary_writer.add_scalar("eval/value-loss", epoch_value_loss, global_step=self._eval_step)
                 self._summary_writer.add_scalar("eval/entropy-loss", epoch_entropy_loss, global_step=self._eval_step)
                 self._summary_writer.add_scalar(
-                    "eval/abs-entropy-loss", epoch_abs_policy_loss, global_step=self._eval_step
+                    "eval/abs-policy-loss", epoch_abs_policy_loss, global_step=self._eval_step
                 )
                 self._eval_step += 1
             return epoch_value_loss, epoch_policy_loss, epoch_entropy_loss
