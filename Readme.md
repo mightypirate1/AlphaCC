@@ -4,7 +4,7 @@ Ever got beaten in Chinese Checkers, and really feel you need to cheat to get ba
 
 Fear not - AlphaCC is here!
 
-### What is it?
+## What is it?
 
 AlphaCC is a 2-player version of the game [Chinese Checkers](https://en.wikipedia.org/wiki/Chinese_checkers)*, together with:
 - an [Alpha-Zero](https://arxiv.org/abs/1712.01815) style RL algorithm for training AI agents to play the game.
@@ -16,7 +16,7 @@ AlphaCC is a 2-player version of the game [Chinese Checkers](https://en.wikipedi
 
 Hopefully all is smooth, but some tinkering might be needed to get the deps in order. Please let us know about any issues, or if something should be added to the docs or to the `Makefile`!
 
-##### Requirements:
+### Requirements:
 To run this in your local environment, you need to make sure you have the following installed first:
 
 Base reqirements:
@@ -34,7 +34,7 @@ Dev requirements:
 
 ## Now what can I do with it?
 
-#### Play against pre-trained bots:
+### Play against pre-trained bots:
 
 To get the weights to be able to use a trained agent, you need git lfs!
 ```sh
@@ -50,7 +50,7 @@ make build-and-run-webapp
 
 Go to `http://localhost:8080/` in your browser (tested on chrome and firefox) to play!
 
-#### Train your own bots:
+### Train your own bots:
 
 You can train your own bots using docker compose.
 
@@ -63,29 +63,38 @@ docker compose -f docker-compose.training.yaml up --build
 
 You can track the progress via the terminal, and the tensorboard at `http://localhost:6006/`.
 
-##### Change training parameters
-
+#### Change training parameters
 Edit the `docker-compose.training.yaml` to set settings as you like them `:-)`!
 
-Typically, you might want to change size of the board for faster training (supported sizes are 5, 7, 9).
+> If you are just trying this out and want to see some results in a reasonable amount of time, see `Reducing size` below.
 
-When reducing size, you might want to change
+To do more advanced settings, you will need to understand RL and to some extent MCTS. You will also have to read some code. For settings related to rollouts and training respectively, look in
+- `alpha_cc/entrypoints/worker_thread.py`
+- `alpha_cc/entrypoints/trainer_thread.py`
+
+respectively.
+
+##### Reducing size
+
+Typically, you might want to change size of the board for faster training (supported sizes are `5`, `7`, `9`).
+
+When reducing size, you might want to change (values in parentheses are the ones I've used for the different sizes):
 
 `worker`:
-- `size`
-- lower `--n-rollouts`
-- lower `--max-game-length`
+- `size` `(5, 7, 9)`
+- lower `--n-rollouts` `(200, 500, 1000)`
+- lower `--max-game-length` `(200, 200, 300)`
 
 `trainer`:
-- `size`
-- lower `--n-train-samples`
-- lower `--replay-buffer-size`
+- `size` `(5, 7, 9)`
+- lower `--n-train-samples` `(2000, 3000, 5000)`
+- lower `--replay-buffer-size` `(5000, 15000, 25000)`
 
 `nn-service`:
-- `size`
+- `size` `(5, 7, 9)`
 
 ## Development
-##### Installation:
+### Installation:
 "In theory", all you need to do once requirements are in place is 
 ```sh
 make install
