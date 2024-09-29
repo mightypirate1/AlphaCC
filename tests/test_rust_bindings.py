@@ -9,7 +9,7 @@ def board() -> Board:
     return Board(9)
 
 
-def test_create(board: Board) -> None:  # noqa
+def test_create(board: Board) -> None:
     pass
 
 
