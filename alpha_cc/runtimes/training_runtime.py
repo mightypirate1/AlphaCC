@@ -1,7 +1,7 @@
 import numpy as np
 from tqdm_loggable.auto import tqdm
 
-from alpha_cc.agents import MCTSAgent
+from alpha_cc.agents import MCTSAgent, StandaloneMCTSAgent
 from alpha_cc.agents.mcts import MCTSExperience
 from alpha_cc.agents.value_assignment import ValueAssignmentStrategy
 from alpha_cc.engine import Board
@@ -12,7 +12,7 @@ class TrainingRunTime:
     def __init__(
         self,
         board: Board,
-        agent: MCTSAgent,
+        agent: MCTSAgent | StandaloneMCTSAgent,
         value_assignment_strategy: ValueAssignmentStrategy,
     ) -> None:
         self._board = board
