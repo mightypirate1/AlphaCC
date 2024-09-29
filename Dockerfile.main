@@ -23,18 +23,37 @@ RUN bash -c ' \
     cd $WORKDIR/engine &&         \
     maturin develop --release     \
 '
+
+FROM builder as builder-backend
 RUN uv pip install ".[api]"
 
 
-FROM python:3.11-slim as runner
+FROM builder as builder-main
+RUN uv pip install "."
+
+
+FROM python:3.11-slim as backend
 ENV PYTHONUNBUFFERED=1               \
     PYTHONDONTWRITEBYTECODE=1        \
-    PIP_NO_CACHE_DIR=off             \
-    PIP_DISABLE_PIP_VERSION_CHECK=on \
-    PIP_DEFAULT_TIMEOUT=100          \
     WORKDIR=/code
 ENV PATH="$WORKDIR/.venv/bin:$PATH"
 RUN mkdir -p ${WORKDIR}/.venv
 WORKDIR ${WORKDIR}
-COPY --from=builder /code/.venv /code/.venv
+COPY --from=builder-backend /code/.venv /code/.venv
+CMD [                                 \
+        "uvicorn",                    \
+        "alpha_cc.api.endpoints:app", \
+        "--proxy-headers",            \
+        "--host",                     \
+        "0.0.0.0",                    \
+]
+
+FROM python:3.11-slim as main
+ENV PYTHONUNBUFFERED=1               \
+    PYTHONDONTWRITEBYTECODE=1        \
+    WORKDIR=/code
+ENV PATH="$WORKDIR/.venv/bin:$PATH"
+RUN mkdir -p ${WORKDIR}/.venv
+WORKDIR ${WORKDIR}
+COPY --from=builder-main /code/.venv /code/.venv
 CMD ["bash"]

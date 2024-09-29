@@ -12,10 +12,10 @@ services:
       - '8080:80'
 
   backend:
-    image: alphacc/main
+    image: alphacc/backend
     build:
       dockerfile: Dockerfile.main
-      target: runner
+      target: backend
     depends_on:
       redis:
         condition: service_healthy
@@ -23,12 +23,6 @@ services:
       - .env.docker
     volumes:
       - models:/mnt/models:rw
-    command:
-      - uvicorn
-      - alpha_cc.api.endpoints:app
-      - "--proxy-headers"
-      - "--host"
-      - "0.0.0.0"
     ports:
       - '8000:8000'
 

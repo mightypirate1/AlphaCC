@@ -3,7 +3,7 @@ services:
     image: alphacc/main
     build:
       dockerfile: Dockerfile.main
-      target: runner
+      target: main
     depends_on:
       redis:
         condition: service_healthy
