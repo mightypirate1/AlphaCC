@@ -46,13 +46,14 @@ class TrainingDataset(Dataset):
     def samples(self) -> list[MCTSExperience]:
         return self._new_experiences + list(self._experiences)
 
-    def sample(self, batch_size: int) -> TrainingDataset:
+    def sample(self, batch_size: int, replace: bool = True) -> TrainingDataset:
         dataset_sample = TrainingDataset(experiences=self._new_experiences, max_size=self._max_size)
         remaining = batch_size - len(dataset_sample)
         if remaining > 0:
             sampled_experiences = np.random.choice(
                 self._experiences,  # type: ignore
                 min(remaining, len(self._experiences)),
+                replace=replace,
             ).tolist()
             dataset_sample.add_trajectory(sampled_experiences)
         self._move_new_experiences_to_main_buffer()
