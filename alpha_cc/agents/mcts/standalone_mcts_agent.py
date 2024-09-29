@@ -86,7 +86,7 @@ class StandaloneMCTSAgent(Agent):
         n_rollouts = n_rollouts if n_rollouts is not None else self._n_rollouts
         rollout_depth = rollout_depth if rollout_depth is not None else self._rollout_depth
         state = GameState(board)
-        value = -np.array([self._rollout(state, remaining_depth=rollout_depth) for _ in range(n_rollouts)]).mean()
+        value = -np.array([self._rollout(state, remaining_depth=rollout_depth, is_root=True) for _ in range(n_rollouts)]).mean()
         pi = self._rollout_policy(state, temperature)
         return pi, value
 
@@ -110,17 +110,13 @@ class StandaloneMCTSAgent(Agent):
         return pi
 
     @torch.no_grad()
-    def _rollout(self, state: GameState, remaining_depth: int = 999) -> float | np.floating:
+    def _rollout(self, state: GameState, remaining_depth: int = 999, is_root: bool = False) -> float | np.floating:
         """
         recursive rollout that traverses the game-tree and updates nodes along the way.
         the return value is the value as seen by the parent node, hence all the minuses.
         """
 
         def add_as_new_node(pi: np.ndarray, v_hat: float | np.floating) -> None:
-            if self._dirichlet_weight > 0.0:
-                dirichlet_noise = np.random.dirichlet(self._dirichlet_alpha * pi)
-                pi_noised = (1 - self._dirichlet_weight) * pi + self._dirichlet_weight * dirichlet_noise
-                pi = pi_noised
             self.node_store.set(
                 state.board,
                 MCTSNodePy(
@@ -145,7 +141,7 @@ class StandaloneMCTSAgent(Agent):
             return -v_hat
 
         node = self.node_store.get(state.board)
-        a = self._find_best_action(state)
+        a = self._find_best_action(state, is_root=is_root)
         s_prime = GameState(state.board.apply(state.board.get_moves()[a]))
         v = self._rollout_gamma * self._rollout(s_prime, remaining_depth=remaining_depth - 1)
 
@@ -156,16 +152,21 @@ class StandaloneMCTSAgent(Agent):
 
         return -v
 
-    def _find_best_action(self, state: GameState) -> int:
+    def _find_best_action(self, state: GameState, is_root: bool = False) -> int:
+        def add_dirichlet_noise(pi: np.ndarray) -> np.ndarray:
+            noise = np.random.dirichlet([self._dirichlet_alpha] * len(pi))
+            return (1 - self._dirichlet_weight) * pi + self._dirichlet_weight * noise
+
         def node_c_puct() -> float:  # TODO: look at this again
             return self._c_puct_init + np.log((sum_n + self._c_puct_base + 1) / self._c_puct_base)
 
         node = self.node_store.get(state.board)
         sum_n = sum(node.n)
         c_puct = node_c_puct()
+        pi = add_dirichlet_noise(node.pi) if is_root and self._dirichlet_weight > 0 else node.pi
 
         prior_weight = c_puct * np.sqrt(sum_n) / (1 + node.n)
-        u = node.q + prior_weight * node.pi
+        u = node.q + prior_weight * pi
         best_action = np.argmax(u).astype(int)
 
         return best_action
