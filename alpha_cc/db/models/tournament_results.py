@@ -4,7 +4,15 @@ from redis import Redis
 
 
 class TournamentResult:
-    """ """
+    """
+    Used by TrainingDB to report tournament results.
+
+    Usage:
+    >>> results = db.tournament_get_results()
+    >>> results[1, 2]  # win rate of channel 1 (as white) against channel 2 (as black)
+    >>> results[2, 1]  # win rate of channel 1 (as black) against channel 2 (as white)
+
+    """
 
     def __init__(self, wins: dict[int, dict[int, int]], counts: dict[int, dict[int, int]]) -> None:
         self._wins = wins
