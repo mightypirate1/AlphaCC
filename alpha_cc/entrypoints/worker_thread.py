@@ -7,6 +7,7 @@ from alpha_cc.agents import MCTSAgent
 from alpha_cc.agents.value_assignment import (
     DefaultAssignmentStrategy,
     HeuristicAssignmentStrategy,
+    ValueAssignmentStrategy,
 )
 from alpha_cc.config import Environment
 from alpha_cc.db import TrainingDB
@@ -52,11 +53,10 @@ def main(
         )
 
     init_rootlogger(verbose=verbose)
-    value_assignment_strategy = (
-        HeuristicAssignmentStrategy(size, gamma) if heuristic else DefaultAssignmentStrategy(gamma)
-    )
     db = TrainingDB(host=Environment.host_redis)
     agent = create_model(0)
+
+    value_assignment_strategy = create_value_assignment_strategy(size, gamma, heuristic)
     training_runtime = TrainingRunTime(
         Board(size),
         agent,
@@ -76,5 +76,11 @@ def main(
                     player_2: create_model(player_2),
                 }
             )
-        traj = training_runtime.play_game(max_game_length=max_game_length)
+        traj = training_runtime.play_game(max_game_length=max_game_length, argmax_delay=argmax_delay)
         db.trajectory_post(traj)
+
+
+def create_value_assignment_strategy(size: int, gamma: float, heuristic: bool) -> ValueAssignmentStrategy:
+    if heuristic:
+        return HeuristicAssignmentStrategy(size, gamma)
+    return DefaultAssignmentStrategy(gamma)

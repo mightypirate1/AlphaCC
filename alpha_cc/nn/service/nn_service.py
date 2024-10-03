@@ -60,8 +60,8 @@ class ServedNN:
 
     def activate(self, nn: torch.nn.Module) -> None:
         self._nn = nn
-        self._jobs = self._initialize_scheduler()
         self._pred_db_channel.flush_preds()
+        self._jobs = self._initialize_scheduler()
 
     def _prepare_input(self, states: list[GameState]) -> torch.Tensor:
         return torch.stack([state.tensor for state in states], dim=0)

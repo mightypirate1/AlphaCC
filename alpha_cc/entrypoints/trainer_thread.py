@@ -57,9 +57,10 @@ def main(
     init_champion_weight_index: int | None,
 ) -> None:
     init_rootlogger(verbose=verbose)
-    db = TrainingDB(host=Environment.host_redis)
-    replay_buffer = TrainingDataset(max_size=replay_buffer_size)
     summary_writer = create_summary_writer(run_id)
+    db = TrainingDB(host=Environment.host_redis)
+    tournament_runtime = TournamentRuntime(size, db)
+    replay_buffer = TrainingDataset(max_size=replay_buffer_size)
     trainer = Trainer(
         size,
         DefaultNet(size),
@@ -72,29 +73,12 @@ def main(
         l2_reg=l2_reg,
         summary_writer=summary_writer,
     )
-    tournament_runtime = TournamentRuntime(size, db)
 
     db.flush_db()  # redis doesn't currently clear itself on restart.
 
-    if init_run_id is not None:
-        # If specified; load weights from a previous run
-        if init_weights_index is not None:
-            init_weights = torch.load(save_path(init_run_id, init_weights_index))
-        else:
-            init_weights = torch.load(save_path_latest(init_run_id))
-        trainer.nn.load_state_dict(init_weights)
-
-        if init_champion_weight_index is not None:
-            champion_weights = torch.load(save_path(init_run_id, init_champion_weight_index))
-        else:
-            champion_weights = init_weights
-        trainer.set_lr(0.0)  # warmup with 0 lr (think of a way of doing this better)
-        champion_index = db.weights_publish_latest(champion_weights)
-        curr_index = db.weights_publish_latest(init_weights)
-    else:
-        # Else, start from scratch
-        curr_index = db.weights_publish_latest(trainer.nn.state_dict())
-        champion_index = curr_index
+    curr_index, champion_index = initialize_weights(
+        db, trainer, init_run_id, init_weights_index, init_champion_weight_index
+    )
 
     # workers will wait for the first weights getting published so everyone has the same net
     db.model_set_current(0, curr_index)
@@ -116,16 +100,17 @@ def main(
         db.model_set_current(0, curr_index)
         save_weights(run_id, curr_index, trainer.nn.state_dict())
 
+        # periodically run tournament
         if (n_iterations := n_iterations + 1) % tournament_freq == 0:
-            tournament_results = tournament_runtime.run_tournament([curr_index, champion_index], n_rounds=5)
-            win_rate, win_rate_as_white, win_rate_as_black = extract_winrate(tournament_results)
-            if win_rate > 0.55:
-                champion_index = curr_index
-                logger.info(f"new champion: {champion_index}! (winrate={win_rate})")
-            log_winrate(win_rate, win_rate_as_white, win_rate_as_black, champion_index, n_iterations, summary_writer)
+            champion_index = run_tournament(
+                tournament_runtime, curr_index, champion_index, n_iterations, summary_writer
+            )
 
 
 def await_samples(db: TrainingDB, n_train_samples: int) -> list[list[MCTSExperience]]:
+    """
+    Awaiting samples from the workers, and returns the list of trajectories.
+    """
     trajectories = []
     n_remaining = n_train_samples
     with tqdm(desc="awaiting samples", total=n_train_samples) as pbar:
@@ -143,6 +128,25 @@ def await_samples(db: TrainingDB, n_train_samples: int) -> list[list[MCTSExperie
         logger.warning(f"trainer is behind by {len(remaining_trajectories)} samples")
         trajectories.extend(remaining_trajectories)
     return trajectories
+
+
+def run_tournament(
+    tournament_runtime: TournamentRuntime,
+    curr_index: int,
+    champion_index: int,
+    n_iterations: int,
+    summary_writer: SummaryWriter,
+) -> int:
+    """
+    Arranges tournament, waits for the workers to play it out, and returns the index of the winning weights.
+    """
+    tournament_results = tournament_runtime.run_tournament([curr_index, champion_index], n_rounds=5)
+    win_rate, win_rate_as_white, win_rate_as_black = extract_winrate(tournament_results)
+    if win_rate > 0.55:
+        champion_index = curr_index
+        logger.info(f"new champion: {champion_index}! (winrate={win_rate})")
+    log_winrate(win_rate, win_rate_as_white, win_rate_as_black, champion_index, n_iterations, summary_writer)
+    return champion_index
 
 
 def extract_winrate(
@@ -171,6 +175,48 @@ def log_winrate(
     summary_writer.add_scalar("tournament/win-rate-as-black", win_rate_as_black, step)
     summary_writer.add_scalar("tournament/champion-index", champion_index, step)
     return win_rate
+
+
+def initialize_weights(
+    db: TrainingDB,
+    trainer: Trainer,
+    init_run_id: str | None,
+    init_weights_index: int | None,
+    init_champion_weight_index: int | None,
+) -> tuple[int, int]:
+    """
+    Either:
+    - Load weights from a previous run and start training from there
+    - Start from new weights
+    Depending on the arguments passed.
+
+    Puts the weights in the db and returns the index of the weights.
+
+    """
+    if init_run_id is not None:
+        # If specified; load weights from a previous run
+        if init_weights_index is not None:
+            init_weights_path = save_path(init_run_id, init_weights_index)
+        else:
+            init_weights_path = save_path_latest(init_run_id)
+        logger.info(f"loading main weights from {init_weights_path}")
+        init_weights = torch.load(init_weights_path)
+        trainer.nn.load_state_dict(init_weights)
+
+        if init_champion_weight_index is not None:
+            champion_weight_path = save_path(init_run_id, init_champion_weight_index)
+            logger.info(f"loading champion weights from {champion_weight_path}")
+            champion_weights = torch.load(champion_weight_path)
+        else:
+            champion_weights = init_weights
+        trainer.set_lr(0.0)  # warmup with 0 lr (think of a way of doing this better)
+        champion_index = db.weights_publish_latest(champion_weights)
+        curr_index = db.weights_publish_latest(init_weights)
+    else:
+        # Else, start from scratch
+        curr_index = db.weights_publish_latest(trainer.nn.state_dict())
+        champion_index = curr_index
+    return curr_index, champion_index
 
 
 def save_weights(run_id: str, curr_index: int, weights: dict[str, Any]) -> None:

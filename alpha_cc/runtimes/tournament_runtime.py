@@ -74,6 +74,9 @@ class TournamentRuntime:
         )
 
     def run_tournament(self, weight_indices: list[int], n_rounds: int = 5) -> TournamentResult:
+        """
+        Arranges tournament by setting up the db accordingly and waiting for the results.
+        """
         expected_games = self._arrange_tournament(weight_indices, n_rounds)
         return self._await_tournament_results(expected_games)
 

@@ -56,12 +56,18 @@ install-webapp:
 		npm install --include=dev \
 	"
 
-lint:
-	@bash -c "cd engine && cargo clippy -- -D warnings"
-	@bash -c "cd webapp && ng lint"
+lint: lint-py lint-rs lint-webapp
+
+lint-py:
 	@ruff check alpha_cc tests
 	@black --check alpha_cc tests
 	@mypy alpha_cc tests
+
+lint-rs:
+	@bash -c "cd engine && cargo clippy -- -D warnings"
+
+lint-webapp:
+	@bash -c "cd webapp && ng lint"
 
 lint-fix:
 	@ruff check --fix-only alpha_cc tests
