@@ -72,7 +72,7 @@ class DefaultNet(torch.nn.Module):
 
     def value(self, state: GameState) -> np.floating:
         _, x_value = self._create_or_get_cached_output(state)
-        return x_value.squeeze().numpy()
+        return x_value.squeeze().numpy()  # type: ignore
 
     def clear_cache(self) -> None:
         self._cache.clear()
