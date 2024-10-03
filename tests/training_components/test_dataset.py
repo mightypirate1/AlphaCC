@@ -12,14 +12,13 @@ def test_correct_sampling() -> None:
     dataset = TrainingDataset(max_size=10)
     state = GameState(Board(5))
     n = len(state.children)
-    batch_a_weight = 1.0
-    batch_b_weight = 2.0
+    batch_a_value = 1.0
+    batch_b_value = -1.0
     experience_batch_a = [
         MCTSExperience(
             state,
             pi_target=np.full(n, 1.0 / n),
-            v_target=0.0,
-            weight=batch_a_weight,
+            v_target=batch_a_value,
         )
         for _ in range(5)
     ]
@@ -27,8 +26,7 @@ def test_correct_sampling() -> None:
         MCTSExperience(
             state,
             pi_target=np.full(n, 1.0 / n),
-            v_target=0.0,
-            weight=batch_b_weight,
+            v_target=batch_b_value,
         )
         for _ in range(5)
     ]
@@ -43,11 +41,11 @@ def test_correct_sampling() -> None:
     sample_b = dataset.sample(5)
     assert len(dataset) == 10
     assert len(sample_b) == 5
-    assert all(exp.weight == batch_b_weight for exp in sample_b.samples)
+    assert all(exp.v_target == batch_b_value for exp in sample_b.samples)
 
     # make sure we didn't lose any samples
     sample_c = dataset.sample(10, replace=False)
     assert len(sample_c) == 10
-    counter = Counter(exp.weight for exp in sample_c.samples)
-    assert counter[batch_a_weight] == 5
-    assert counter[batch_b_weight] == 5
+    counter = Counter(exp.v_target for exp in sample_c.samples)
+    assert counter[batch_a_value] == 5
+    assert counter[batch_b_value] == 5
