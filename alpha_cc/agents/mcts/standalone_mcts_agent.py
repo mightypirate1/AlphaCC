@@ -86,7 +86,7 @@ class StandaloneMCTSAgent(Agent):
         n_rollouts = n_rollouts if n_rollouts is not None else self._n_rollouts
         rollout_depth = rollout_depth if rollout_depth is not None else self._rollout_depth
         state = GameState(board)
-        value = np.array([-self._rollout(state, remaining_depth=rollout_depth) for _ in range(n_rollouts)]).mean()
+        value = -np.array([self._rollout(state, remaining_depth=rollout_depth) for _ in range(n_rollouts)]).mean()
         pi = self._rollout_policy(state, temperature)
         return pi, value
 
@@ -96,7 +96,6 @@ class StandaloneMCTSAgent(Agent):
         return self
 
     def load_weights(self, weights: dict[str, Any]) -> None:
-        self.nn.clear_cache()
         self.nn.load_state_dict(weights)
 
     def set_node_store(self, node_store: NodeStore) -> None:
@@ -140,8 +139,7 @@ class StandaloneMCTSAgent(Agent):
         # - (if depth not reached) initialize the node with nn estimates and zeros for N(s,a), and Q(s,a)
         # - return value from the perspective of the player on the previous move
         if state.board not in self.node_store or remaining_depth == 0:
-            v_hat = self.nn.value(state)
-            pi = self.nn.policy(state)
+            pi, v_hat = self.nn.evaluate_state(state)
             if remaining_depth > 0:
                 add_as_new_node(pi, v_hat)
             return -v_hat
