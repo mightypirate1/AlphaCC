@@ -71,7 +71,7 @@ class Trainer:
         )
         eval_dataset = TrainingDataset([exp for traj in trajectories for exp in traj])
         pi_logits, v = self._evaluate(eval_dataset)
-        pi_targets = torch.stack([pi_target for _, _, pi_target, _ in eval_dataset])  # type: ignore
+        pi_targets = torch.stack([pi_target for _, _, pi_target, _, _ in eval_dataset])  # type: ignore
         pi_target_entropy = entropy(pi_targets)
         self._summary_writer.add_histogram(
             "trainer/pi-target-entropy", pi_target_entropy, global_step=self._global_step
@@ -91,12 +91,12 @@ class Trainer:
             epoch_value_loss = 0.0
             epoch_policy_loss = 0.0
             epoch_entropy_loss = 0.0
-            for x, pi_mask, target_pi, target_value in train_dataloader:
+            for x, pi_mask, target_pi, target_value, weight in train_dataloader:
                 self._optimizer.zero_grad()
                 current_pi_unsoftmaxed, current_value = self._nn(x)
-                value_loss = compute_value_loss(current_value, target_value).mean()
-                policy_loss = compute_policy_loss(current_pi_unsoftmaxed, pi_mask, target_pi).mean()
-                entropy_loss = compute_entropy_loss(current_pi_unsoftmaxed, pi_mask).mean()
+                value_loss = compute_value_loss(current_value, target_value, weight)
+                policy_loss = compute_policy_loss(current_pi_unsoftmaxed, pi_mask, target_pi, weight)
+                entropy_loss = compute_entropy_loss(current_pi_unsoftmaxed, pi_mask, weight)
                 loss = (
                     self._policy_weight * policy_loss
                     + self._value_weight * value_loss
@@ -109,22 +109,30 @@ class Trainer:
                 epoch_entropy_loss += entropy_loss.item() / len(train_dataloader)
             return epoch_value_loss, epoch_policy_loss, epoch_entropy_loss
 
-        def compute_value_loss(current_value: torch.Tensor, target_value: torch.Tensor) -> torch.Tensor:
-            return torch.nn.functional.mse_loss(current_value, target_value)
+        def compute_value_loss(
+            current_value: torch.Tensor, target_value: torch.Tensor, weight: torch.Tensor
+        ) -> torch.Tensor:
+            unweighted_loss = torch.nn.functional.mse_loss(current_value, target_value, reduction="none")
+            return (unweighted_loss * weight).sum() / weight.sum()
 
         def compute_policy_loss(
-            pi_tensor_unsoftmaxed: torch.Tensor, pi_mask: torch.Tensor, target_pi: torch.Tensor
+            pi_tensor_unsoftmaxed: torch.Tensor, pi_mask: torch.Tensor, target_pi: torch.Tensor, weight: torch.Tensor
         ) -> torch.Tensor:
             policy_loss_unmasked = -target_pi * self._policy_log_softmax(pi_tensor_unsoftmaxed, pi_mask)
-            policy_loss_unweighted = torch.where(pi_mask, policy_loss_unmasked, 0).reshape((pi_mask.shape[0], -1))
+            policy_loss_unnormalized = torch.where(pi_mask, policy_loss_unmasked, 0).reshape((pi_mask.shape[0], -1))
             n_actions = pi_mask.reshape((pi_mask.shape[0], -1)).sum(dim=1, keepdim=True)
-            return policy_loss_unweighted / n_actions
+            policy_loss_unweighted = (policy_loss_unnormalized / n_actions).sum(dim=1)
+            return (weight * policy_loss_unweighted).sum() / weight.sum()
 
-        def compute_entropy_loss(pi_tensor_unsoftmaxed: torch.Tensor, pi_mask: torch.Tensor) -> torch.Tensor:
+        def compute_entropy_loss(
+            pi_tensor_unsoftmaxed: torch.Tensor, pi_mask: torch.Tensor, weight: torch.Tensor
+        ) -> torch.Tensor:
             pi = self._policy_softmax(pi_tensor_unsoftmaxed, pi_mask)
             pi_masked = torch.where(pi_mask, pi, 0)
-            sample_entropy = (pi_masked * torch.log(pi_masked.clip(1e-6))).reshape((pi_mask.shape[0], -1)).sum(dim=1)
-            return sample_entropy
+            sample_entropy_unweighted = (
+                (pi_masked * torch.log(pi_masked.clip(1e-6))).reshape((pi_mask.shape[0], -1)).sum(dim=1)
+            )
+            return (weight * sample_entropy_unweighted).sum() / weight.sum()
 
         @torch.no_grad()
         def epoch_eval() -> tuple[float, float, float]:
@@ -132,11 +140,11 @@ class Trainer:
             epoch_value_loss = 0.0
             epoch_policy_loss = 0.0
             epoch_entropy_loss = 0.0
-            for x, pi_mask, target_pi, target_value in test_dataloader:
+            for x, pi_mask, target_pi, target_value, weight in test_dataloader:
                 current_pi_unsoftmaxed, current_value = self._nn(x)
-                value_loss = compute_value_loss(current_value, target_value)
-                policy_loss = compute_policy_loss(current_pi_unsoftmaxed, pi_mask, target_pi)
-                entropy_loss = compute_entropy_loss(current_pi_unsoftmaxed, pi_mask)
+                value_loss = compute_value_loss(current_value, target_value, weight)
+                policy_loss = compute_policy_loss(current_pi_unsoftmaxed, pi_mask, target_pi, weight)
+                entropy_loss = compute_entropy_loss(current_pi_unsoftmaxed, pi_mask, weight)
                 epoch_value_loss += value_loss.mean().item() / len(test_dataloader)
                 epoch_policy_loss += policy_loss.mean().item() / len(test_dataloader)
                 epoch_entropy_loss += entropy_loss.mean().item() / len(test_dataloader)
@@ -196,7 +204,7 @@ class Trainer:
         dataloader = DataLoader(dataset, batch_size=self._batch_size, drop_last=False)
         pi_logits, vs = [], []
         with tqdm(desc="nn-eval/epoch", total=len(dataset)) as pbar:
-            for x, pi_mask_batch, _, _ in dataloader:
+            for x, pi_mask_batch, _, _, _ in dataloader:
                 pi_tensor_batch, value_batch = self._nn(x)
                 for pi_tensor_unsoftmaxed, pi_mask in zip(pi_tensor_batch, pi_mask_batch):
                     pi_vec = pi_tensor_unsoftmaxed[*torch.nonzero(pi_mask.squeeze()).T].ravel()

@@ -28,6 +28,7 @@ logger = logging.getLogger(__file__)
 @click.option("--argmax-delay", type=int, default=None)
 @click.option("--heuristic", is_flag=True, default=False)
 @click.option("--gamma", type=float, default=1.0)
+@click.option("--non-terminal-value-weight", type=float, default=1.0)
 @click.option("--verbose", is_flag=True, default=False)
 def main(
     size: int,
@@ -39,6 +40,7 @@ def main(
     argmax_delay: int | None,
     heuristic: bool,
     gamma: float,
+    non_terminal_value_weight: float,
     verbose: bool,
 ) -> None:
     def create_model(channel: int) -> MCTSAgent:
@@ -56,7 +58,7 @@ def main(
     db = TrainingDB(host=Environment.host_redis)
     agent = create_model(0)
 
-    value_assignment_strategy = create_value_assignment_strategy(size, gamma, heuristic)
+    value_assignment_strategy = create_value_assignment_strategy(size, gamma, heuristic, non_terminal_value_weight)
     training_runtime = TrainingRunTime(
         Board(size),
         agent,
@@ -80,7 +82,9 @@ def main(
         db.trajectory_post(traj)
 
 
-def create_value_assignment_strategy(size: int, gamma: float, heuristic: bool) -> ValueAssignmentStrategy:
+def create_value_assignment_strategy(
+    size: int, gamma: float, heuristic: bool, non_terminal_weight: float
+) -> ValueAssignmentStrategy:
     if heuristic:
         return HeuristicAssignmentStrategy(size, gamma)
-    return DefaultAssignmentStrategy(gamma)
+    return DefaultAssignmentStrategy(gamma, non_terminal_weight=non_terminal_weight)
