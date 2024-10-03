@@ -38,7 +38,6 @@ setup(
         "click",
         "dill",
         "einops",
-        "lru-dict",
         "maturin",
         "numpy<2.0.0",
         "python-dotenv",

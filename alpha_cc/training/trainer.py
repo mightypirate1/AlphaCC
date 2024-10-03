@@ -155,7 +155,6 @@ class Trainer:
                 self._eval_step += 1
             return epoch_value_loss, epoch_policy_loss, epoch_entropy_loss
 
-        self._nn.clear_cache()
         train_data, test_data = dataset.split(0.9)
         train_dataloader = DataLoader(
             train_data,
