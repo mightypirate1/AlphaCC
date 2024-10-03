@@ -4,14 +4,12 @@ extern crate lru;
 
 use std::num::NonZeroUsize;
 use pyo3::prelude::*;
-use rand::prelude::*;
-use rand_distr::Dirichlet;
 use lru::LruCache;
 
 use crate::cc::board::Board;
 use crate::cc::moves::find_all_moves;
 use crate::cc::rollouts::nn_remote::NNRemote;
-use crate::cc::rollouts::mcts_node::MCTSNode;
+use crate::cc::rollouts::{MCTSNode, MCTSParams};
 use crate::cc::pred_db::{NNPred, PredDBChannel};
 
 
@@ -20,16 +18,6 @@ pub struct MCTS {
     nn_remote: NNRemote,
     nodes: LruCache<Board, MCTSNode>,
     mcts_params: MCTSParams,
-}
-
-
-#[derive(Clone)]
-pub struct MCTSParams {
-    pub gamma: f32,
-    pub dirichlet_weight: f32,
-    pub dirichlet_alpha: f32,
-    pub c_puct_init: f32,
-    pub c_puct_base: f32,
 }
 
 
@@ -51,7 +39,8 @@ impl MCTS {
         nn_remote: &mut NNRemote,
         nodes: &mut LruCache<Board, MCTSNode>,
         remaining_depth: usize,
-        mcts_params: MCTSParams,
+        mcts_params: &MCTSParams,
+        is_root: bool,
     ) -> f32 {
         let info = board.get_info();
         if info.game_over {
@@ -63,13 +52,19 @@ impl MCTS {
             if remaining_depth == 0 {
                 return -node.v;
             }
-    
+            
             // prepare continued rollout
-            let a = MCTS::find_best_action_for_node(
+            let mut a = MCTS::find_best_action_for_node(
                 node,
-                mcts_params.c_puct_init,
-                mcts_params.c_puct_base,
+                mcts_params,
             );
+            if is_root {
+                a = MCTS::find_best_action_for_node(
+                    &node.with_noised_pi(mcts_params),
+                    mcts_params,
+                );
+            }
+            
             let moves = find_all_moves(&board);
             let s_prime = board.apply(&moves[a]);
             
@@ -80,6 +75,7 @@ impl MCTS {
                 nodes,
                 remaining_depth - 1,
                 mcts_params,
+                false,
             );
             
             // backprop rollout update
@@ -92,13 +88,14 @@ impl MCTS {
             nodes,
             board,
             &nn_pred,
-            mcts_params.dirichlet_weight,
-            mcts_params.dirichlet_alpha,
         );
         -nn_pred.value
     }
 
-    fn find_best_action_for_node(node: &MCTSNode, c_puct_init: f32, c_puct_base: f32) -> usize {
+    fn find_best_action_for_node(node: &MCTSNode, mcts_params: &MCTSParams) -> usize {
+        let c_puct_init = mcts_params.c_puct_init;
+        let c_puct_base = mcts_params.c_puct_base;
+
         let sum_n = node.n.iter().sum::<u32>() as f32;
         let c_puct = c_puct_init + ((sum_n + c_puct_base + 1.0) / c_puct_base).ln();
 
@@ -115,26 +112,9 @@ impl MCTS {
         best_action
     }
 
-    fn add_as_new_node(nodes: &mut LruCache<Board, MCTSNode>, board: Board, nn_pred: &NNPred, dirichlet_weight: f32, dirichlet_alpha: f32) {
-        let mut pi = nn_pred.pi.clone();
+    fn add_as_new_node(nodes: &mut LruCache<Board, MCTSNode>, board: Board, nn_pred: &NNPred) {
+        let pi = nn_pred.pi.clone();
         let v = nn_pred.value;
-
-        if dirichlet_weight > 0.0 && nn_pred.pi.len() > 1 {
-            let alpha = nn_pred.pi.iter().map(|x| x * dirichlet_alpha).collect::<Vec<f32>>();
-            match Dirichlet::new(&alpha) {
-                Ok(dirichlet) => {
-                    let noise = dirichlet.sample(&mut rand::thread_rng());
-                    pi = pi.iter()
-                        .zip(noise.iter())
-                        .map(|(p, n)| p * (1.0 - dirichlet_weight) + n * dirichlet_weight)
-                        .collect();
-                },
-                Err(e) => {
-                    println!("Failed to create Dirichlet distribution: {}", e);
-                }
-            }
-        }
-
         nodes.put(
             board,
             MCTSNode {
@@ -181,7 +161,8 @@ impl MCTS {
             &mut self.nn_remote,
             &mut self.nodes,
             rollout_depth,
-            self.mcts_params.clone(),
+            &self.mcts_params,
+            true,
         )
     }
 
