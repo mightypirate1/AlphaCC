@@ -196,13 +196,17 @@ def initialize_weights(
     if init_run_id is not None:
         # If specified; load weights from a previous run
         if init_weights_index is not None:
-            init_weights = torch.load(save_path(init_run_id, init_weights_index))
+            init_weights_path = save_path(init_run_id, init_weights_index)
         else:
-            init_weights = torch.load(save_path_latest(init_run_id))
+            init_weights_path = save_path_latest(init_run_id)
+        logger.info(f"loading main weights from {init_weights_path}")
+        init_weights = torch.load(init_weights_path)
         trainer.nn.load_state_dict(init_weights)
 
         if init_champion_weight_index is not None:
-            champion_weights = torch.load(save_path(init_run_id, init_champion_weight_index))
+            champion_weight_path = save_path(init_run_id, init_champion_weight_index)
+            logger.info(f"loading champion weights from {champion_weight_path}")
+            champion_weights = torch.load(champion_weight_path)
         else:
             champion_weights = init_weights
         trainer.set_lr(0.0)  # warmup with 0 lr (think of a way of doing this better)
