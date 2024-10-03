@@ -10,3 +10,4 @@ class MCTSExperience:
     state: GameState
     pi_target: np.ndarray
     v_target: float  # may be (re-)assigned after end of game
+    weight: float = 1.0

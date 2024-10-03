@@ -31,7 +31,7 @@ class TrainingDataset(Dataset):
     def __len__(self) -> int:
         return len(self._new_experiences) + len(self._experiences)
 
-    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         n_new = len(self._new_experiences)
         # faster than concatenating
         exp = self._new_experiences[index] if index < n_new else self._experiences[index - n_new]
@@ -40,7 +40,8 @@ class TrainingDataset(Dataset):
         pi_mask = torch.as_tensor(exp.state.action_mask)
         pi_target = self._create_pi_target_tensor(exp)
         value_target = torch.as_tensor(exp.v_target)
-        return x.float(), pi_mask.bool(), pi_target.float(), value_target.float()
+        weight = torch.as_tensor(exp.weight)
+        return x.float(), pi_mask.bool(), pi_target.float(), value_target.float(), weight.float()
 
     @property
     def samples(self) -> list[MCTSExperience]:
