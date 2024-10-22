@@ -128,7 +128,14 @@ export class GameService implements OnDestroy {
   }
 
   setPlayersSettings(players: string[]) {
-    this.playerSettings$.next(players);
+    if (
+      players.every((val) => val === 'HUMAN' || val === 'AI') &&
+      players.length >= 2
+    ) {
+      this.playerSettings$.next(players);
+    } else {
+      this.playerSettings$.next(['HUMAN', 'HUMAN']);
+    }
   }
 
   applyMove(move: Move): void {
