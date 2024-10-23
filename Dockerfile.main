@@ -40,13 +40,7 @@ ENV PATH="$WORKDIR/.venv/bin:$PATH"
 RUN mkdir -p ${WORKDIR}/.venv
 WORKDIR ${WORKDIR}
 COPY --from=builder-backend /code/.venv /code/.venv
-CMD [                                 \
-        "uvicorn",                    \
-        "alpha_cc.api.endpoints:app", \
-        "--proxy-headers",            \
-        "--host",                     \
-        "0.0.0.0",                    \
-]
+CMD ["uvicorn", "alpha_cc.api.endpoints:app", "--proxy-headers", "--host", "0.0.0.0"]
 
 FROM python:3.11-slim as main
 ENV PYTHONUNBUFFERED=1               \
