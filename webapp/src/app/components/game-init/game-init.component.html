@@ -14,11 +14,11 @@
           }
         </mat-form-field>
       </div>
-      <div class="input-size">
-        <div>Size:</div>
+      <div class="input">
+        <div class="input-title">Board size:</div>
         <mat-radio-group
           color="primary"
-          formControlName="gameSize"
+          formControlName="boardSize"
           aria-label="Select an option"
         >
           <mat-radio-button value="5">5x5</mat-radio-button>
@@ -27,17 +27,25 @@
         </mat-radio-group>
       </div>
       <div>
-        <mat-form-field appearance="outline">
-          <mat-label>Play as</mat-label>
-          <mat-select formControlName="player">
-            <mat-option value="1">Player 1</mat-option>
-            <mat-option value="2">Player 2</mat-option>
-            <mat-option value="0">Random</mat-option>
+        <div class="input-title">Players:</div>
+        <mat-form-field class="players-form" appearance="outline">
+          <mat-label>First</mat-label>
+          <mat-select formControlName="firstPlayer">
+            <mat-option value="HUMAN">Human</mat-option>
+            <mat-option value="AI">AI</mat-option>
+          </mat-select>
+        </mat-form-field>
+        <span> vs. </span>
+        <mat-form-field class="players-form" appearance="outline">
+          <mat-label>Second</mat-label>
+          <mat-select formControlName="secondPlayer">
+            <mat-option value="HUMAN">Human</mat-option>
+            <mat-option value="AI">AI</mat-option>
           </mat-select>
         </mat-form-field>
       </div>
-      <mat-divider></mat-divider>
     </mat-card-content>
+    <mat-divider></mat-divider>
     <mat-card-actions class="game-actions">
       <button mat-stroked-button type="reset" color="primary">Clear</button>
       <button

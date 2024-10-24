@@ -1,4 +1,5 @@
 import { Component, OnDestroy, OnInit } from '@angular/core';
+import { JsonPipe } from '@angular/common';
 import { Router } from '@angular/router';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { Subject, catchError, of, switchMap, takeUntil } from 'rxjs';
@@ -12,12 +13,12 @@ import { MatRadioModule } from '@angular/material/radio';
 import { MatSelectModule } from '@angular/material/select';
 
 import { DataService } from '../../services/data.service';
-import { NewGameFormData } from '../../types/new-game-form-data.model';
 
 @Component({
   selector: 'app-game-init',
   standalone: true,
   imports: [
+    JsonPipe,
     MatButtonModule,
     MatCardModule,
     MatDividerModule,
@@ -35,16 +36,20 @@ export class GameInitComponent implements OnInit, OnDestroy {
 
   form = this.formBuilder.group({
     gameId: this.formBuilder.control(''),
-    gameSize: this.formBuilder.control(-1, {
+    boardSize: this.formBuilder.control(-1, {
       validators: [Validators.required, Validators.min(0)],
       nonNullable: true,
     }),
-    player: this.formBuilder.control(-1, {
-      validators: [Validators.required, Validators.min(0), Validators.max(2)],
+    firstPlayer: this.formBuilder.control('HUMAN', {
+      validators: [Validators.required],
+      nonNullable: true,
+    }),
+    secondPlayer: this.formBuilder.control('AI', {
+      validators: [Validators.required],
       nonNullable: true,
     }),
   });
-  private submit$ = new Subject<NewGameFormData>();
+  private submit$ = new Subject<void>();
 
   constructor(
     private formBuilder: FormBuilder,
@@ -56,26 +61,30 @@ export class GameInitComponent implements OnInit, OnDestroy {
     this.submit$
       .pipe(
         takeUntil(this.onDestroy),
-        switchMap((formData) => {
-          return this.dataService
-            .createNewGame(formData.gameId, formData.size)
-            .pipe(
-              catchError((err) => {
-                if (err.status === 400) {
-                  this.form.controls['gameId'].setErrors({
-                    incorrect: true,
-                  });
-                }
-                return of(null);
-              })
-            );
+        switchMap(() => {
+          const gameId = this.form.controls.gameId.value;
+          const size = +this.form.controls.boardSize.value;
+          return this.dataService.createNewGame(gameId, size).pipe(
+            catchError((err) => {
+              if (err.status === 400) {
+                this.form.controls['gameId'].setErrors({
+                  incorrect: true,
+                });
+              }
+              return of(null);
+            })
+          );
         })
       )
       .subscribe((game) => {
         if (game) {
+          const firstPlayer = this.form.controls.firstPlayer.value;
+          const secondPlayer = this.form.controls.secondPlayer.value;
           this.router.navigate([
             game.gameId,
-            { player: this.form.controls.player.value },
+            {
+              players: [firstPlayer, secondPlayer],
+            },
           ]);
         }
       });
@@ -93,11 +102,8 @@ export class GameInitComponent implements OnInit, OnDestroy {
     if (this.form.controls.gameId.value === '') {
       this.form.controls.gameId.setValue(null);
     }
-    const gameId = this.form.controls.gameId.value;
-    const size = +this.form.controls.gameSize.value;
-    const player = +this.form.controls.player.value;
     if (this.form.valid) {
-      this.submit$.next({ gameId: gameId, size: size, player: player });
+      this.submit$.next();
     }
   }
 }
