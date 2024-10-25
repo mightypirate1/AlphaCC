@@ -60,11 +60,16 @@ class GameManager:
     def fetch_game(self, game_id: str) -> DBGameState:
         return self._games_db.get_state(game_id)
 
-    def fetch_mcts_node(self, game_id: str, board_index: int) -> MCTSNodePy:
+    def fetch_mcts_node(self, game_id: str, board_index: int, as_sorted: bool) -> MCTSNodePy:
         node_store = DBNodeStore(game_id, self._games_db.db)
         db_state = self.fetch_game(game_id)
         state = db_state.get_state(board_index)
-        return node_store.get(state.board)
+        node = node_store.get(state.board)
+        if state.info.current_player == 2:
+            node = node.with_flipped_value()
+        if as_sorted:
+            node = node.as_sorted()
+        return node
 
     def list_games(self) -> list[str]:
         return self._games_db.list_entries()
