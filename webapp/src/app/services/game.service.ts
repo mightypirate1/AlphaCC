@@ -21,15 +21,16 @@ import { Move } from '../types/move.model';
 import { nullMove } from '../constants/constants';
 import { MCTSNode } from '../types/mcts-node.model';
 
-@Injectable({
-  providedIn: 'root',
-})
+@Injectable({ providedIn: 'root' })
 export class GameService implements OnDestroy {
   private readonly onDestroy = new Subject<void>();
+
   private game$: Subject<Game> = new Subject<Game>();
+  private playerSettings$: BehaviorSubject<string[]> = new BehaviorSubject<
+    string[]
+  >([]);
   private currentBoardIndex$: BehaviorSubject<number> =
     new BehaviorSubject<number>(0);
-  private player$: BehaviorSubject<number> = new BehaviorSubject<number>(-1);
   private moveToApply$: Subject<Move> = new Subject<Move>();
   private showMode$: BehaviorSubject<boolean> = new BehaviorSubject<boolean>(
     false
@@ -64,14 +65,6 @@ export class GameService implements OnDestroy {
         dataService.applyMove(gameId, moveIndex).subscribe((game) => {
           this.game$.next(game);
           this.currentBoardIndex$.next(this.currentBoardIndex$.getValue() + 1);
-          if (game.boards[game.boards.length - 1].gameOver === false) {
-            dataService.requestMove(gameId, 500, 100, 1).subscribe((game) => {
-              this.game$.next(game);
-              this.currentBoardIndex$.next(
-                this.currentBoardIndex$.getValue() + 1
-              );
-            });
-          }
         });
       });
     this.showMode$
@@ -87,9 +80,31 @@ export class GameService implements OnDestroy {
         })
       )
       .subscribe();
+
+    this.game$
+      .pipe(
+        takeUntil(this.onDestroy),
+        withLatestFrom(this.playerSettings$),
+        switchMap(([game, settings]) => {
+          const player = game.boards[game.boards.length - 1].currentPlayer;
+          if (
+            settings[player - 1] === 'AI' &&
+            game.boards[game.boards.length - 1].gameOver === false
+          ) {
+            return dataService.requestMove(game.gameId, 500, 100, 1);
+          } else return of(null);
+        })
+      )
+      .subscribe((game) => {
+        if (game !== null) {
+          this.game$.next(game);
+          this.currentBoardIndex$.next(this.currentBoardIndex$.getValue() + 1);
+        }
+      });
   }
 
   ngOnDestroy(): void {
+    console.log('GameService destroyed');
     this.onDestroy.next();
   }
 
@@ -112,19 +127,14 @@ export class GameService implements OnDestroy {
       });
   }
 
-  setActivePlayer(gameId: string, player: number) {
-    if (player == 0) {
-      player = Math.floor(Math.random() * 2 + 1);
-    }
-    this.player$.next(player);
-    if (player == 2) {
-      this.dataService
-        .requestMove(gameId, 500, 100, 1)
-        .pipe(takeUntil(this.onDestroy))
-        .subscribe((game) => {
-          this.game$.next(game);
-          this.currentBoardIndex$.next(this.currentBoardIndex$.getValue() + 1);
-        });
+  setPlayersSettings(players: string[]) {
+    if (
+      players.every((val) => val === 'HUMAN' || val === 'AI') &&
+      players.length >= 2
+    ) {
+      this.playerSettings$.next(players);
+    } else {
+      this.playerSettings$.next(['HUMAN', 'HUMAN']);
     }
   }
 
@@ -159,13 +169,14 @@ export class GameService implements OnDestroy {
     return combineLatest([
       this.game$,
       this.currentBoardIndex$,
-      this.player$,
+      this.playerSettings$,
     ]).pipe(
-      map<[Game, number, number], Move[]>(
-        ([game, currentBoardIndex, player]) => {
+      map<[Game, number, string[]], Move[]>(
+        ([game, currentBoardIndex, playerSettings]) => {
           if (
             game.boards.length - 1 <= currentBoardIndex &&
-            game.boards[currentBoardIndex].currentPlayer === player &&
+            playerSettings[game.boards[currentBoardIndex].currentPlayer - 1] ===
+              'HUMAN' &&
             game.boards[currentBoardIndex].gameOver === false
           ) {
             return game.boards[game.boards.length - 1].legalMoves;

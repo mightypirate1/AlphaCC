@@ -1,10 +1,10 @@
 import { Component } from '@angular/core';
+import { ActivatedRoute, Router } from '@angular/router';
 
 import { GameBoardComponent } from '../game-board/game-board.component';
 import { GameInfoComponent } from '../game-info/game-info.component';
 import { GameControlsComponent } from '../game-controls/game-controls.component';
 import { GameService } from '../../services/game.service';
-import { ActivatedRoute, Router } from '@angular/router';
 import { GamePlotsComponent } from '../game-plots/game-plots.component';
 
 @Component({
@@ -28,13 +28,15 @@ export class GameComponent {
     this.activatedRoute.url
       .subscribe((url) => {
         const gameId = url[0].path;
-        const player = +url[0].parameters['player'];
         this.gameService.setActiveGame(gameId);
-        if (player >= 0) {
-          this.gameService.setActivePlayer(gameId, player);
-          delete url[0].parameters['player'];
-          this.router.navigate([]);
+        try {
+          const playersArray = url[0].parameters['players'].split(',');
+          this.gameService.setPlayersSettings(playersArray);
+          delete url[0].parameters['players'];
+        } catch (TypeError) {
+          this.gameService.setPlayersSettings(['HUMAN', 'HUMAN']);
         }
+        this.router.navigate([]);
       })
       .unsubscribe();
   }
