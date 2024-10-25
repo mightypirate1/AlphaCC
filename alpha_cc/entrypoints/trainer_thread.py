@@ -80,8 +80,6 @@ def main(
         db, trainer, init_run_id, init_weights_index, init_champion_weight_index
     )
 
-    # workers will wait for the first weights getting published so everyone has the same net
-    db.model_set_current(0, curr_index)
     n_iterations = 0
     while True:
         # wait until we have enough new samples
@@ -157,7 +155,7 @@ def extract_winrate(
     #  2. champion weights
     win_rate_as_white = tournament_results[1, 2]
     win_rate_as_black = 1 - tournament_results[2, 1]
-    win_rate = (win_rate_as_white + win_rate_as_black) / 2
+    win_rate = 0.5 * (win_rate_as_white + win_rate_as_black)
     return win_rate, win_rate_as_white, win_rate_as_black
 
 
@@ -195,47 +193,50 @@ def initialize_weights(
     """
     if init_run_id is not None:
         # If specified; load weights from a previous run
+        init_weights_path = weights_path_latest(init_run_id)
         if init_weights_index is not None:
-            init_weights_path = save_path(init_run_id, init_weights_index)
-        else:
-            init_weights_path = save_path_latest(init_run_id)
+            init_weights_path = weights_path(init_run_id, init_weights_index)
         logger.info(f"loading main weights from {init_weights_path}")
         init_weights = torch.load(init_weights_path)
+        print("loading path", init_weights_path)
         trainer.nn.load_state_dict(init_weights)
 
+        # Load champion weights if specified, else use the main weights
+        champion_weights = init_weights
         if init_champion_weight_index is not None:
-            champion_weight_path = save_path(init_run_id, init_champion_weight_index)
+            champion_weight_path = weights_path(init_run_id, init_champion_weight_index)
             logger.info(f"loading champion weights from {champion_weight_path}")
             champion_weights = torch.load(champion_weight_path)
-        else:
-            champion_weights = init_weights
+
         trainer.set_lr(0.0)  # warmup with 0 lr (think of a way of doing this better)
-        champion_index = db.weights_publish_latest(champion_weights)
         curr_index = db.weights_publish_latest(init_weights)
+        champion_index = db.weights_publish_latest(champion_weights)
     else:
         # Else, start from scratch
         curr_index = db.weights_publish_latest(trainer.nn.state_dict())
         champion_index = curr_index
+
+    db.model_set_current(0, curr_index)
     return curr_index, champion_index
 
 
 def save_weights(run_id: str, curr_index: int, weights: dict[str, Any]) -> None:
-    path = save_path(run_id, curr_index)
-    latest_path = save_path_latest(run_id)
+    path = weights_path(run_id, curr_index)
+    latest_path = weights_path_latest(run_id)
     Path(path).parent.mkdir(exist_ok=True, parents=True)
     torch.save(weights, latest_path)
     torch.save(weights, path)
 
 
-def save_path_latest(run_id: str) -> str:
-    return f"{save_root(run_id)}/latest.pth"
+def weights_path_latest(run_id: str) -> str:
+    return f"{weights_root(run_id)}/latest.pth"
 
 
-def save_path(run_id: str, index: int) -> str:
-    return f"{save_root(run_id)}/{str(index).zfill(4)}.pth"
+def weights_path(run_id: str, index: int) -> str:
+    return f"{weights_root(run_id)}/{str(index).zfill(4)}.pth"
 
 
-def save_root(run_id: str) -> str:
+def weights_root(run_id: str) -> str:
     return f"{Environment.model_dir}/{run_id}"
 
 
