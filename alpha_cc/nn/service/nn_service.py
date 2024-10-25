@@ -88,11 +88,11 @@ class ServedNN:
 
     def _update_weights(self) -> None:
         if self._nn is None:
-            logger.warn(f"[Channel-{self._pred_db_channel.channel}]: attempted reload but is deactivated")
+            logger.warning(f"[Channel-{self._pred_db_channel.channel}]: attempted reload but is deactivated")
             return
         target_weight_index = self._training_db.model_get_current().get(self.channel)
         if target_weight_index is None:
-            logger.warn(f"[Channel-{self._pred_db_channel.channel}]: attempted reload but has no target weights")
+            logger.warning(f"[Channel-{self._pred_db_channel.channel}]: attempted reload but has no target weights")
             return
 
         if target_weight_index == self._current_weights_index:
@@ -111,14 +111,16 @@ class NNService:
         self,
         nn_creator: Callable[[], torch.nn.Module],
         host: str,
+        port: int = 6380,
         log_frequency: int = 60,
         reload_frequency: int = 1,
     ) -> None:
         self._nn_creator = nn_creator
         self._host = host
+        self._port = port
         self._log_frequency = log_frequency
         self._reload_frequency = reload_frequency
-        self._training_db = TrainingDB(host=host)
+        self._training_db = TrainingDB(host=host, port=port)
         self._n_preds = 0
         self._n_batches = 0
         self._served_nns: list[ServedNN] = []
@@ -133,7 +135,7 @@ class NNService:
     def add_channel(self, channel: int) -> None:
         for served_nn in self._served_nns:
             if served_nn.channel == channel:
-                logger.warn(f"[Channel-{channel}]: already exists")
+                logger.warning(f"[Channel-{channel}]: already exists")
                 return
         self._served_nns.append(self._create_served_nn(channel))
 
@@ -149,7 +151,7 @@ class NNService:
         return any(snn.channel == channel for snn in self._served_nns)
 
     def _create_served_nn(self, channel: int) -> ServedNN:
-        pred_db_channel = PredDBChannel(self._host, channel)
+        pred_db_channel = PredDBChannel(f"{self._host}:{self._port}", channel)
         nn = self._nn_creator()
         return ServedNN(
             pred_db_channel,

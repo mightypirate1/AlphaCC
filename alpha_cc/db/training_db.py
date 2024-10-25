@@ -21,8 +21,8 @@ class TrainingDB:
     - tournament
     """
 
-    def __init__(self, host: str = "localhost") -> None:
-        self._db = redis.Redis(host=host, db=0)
+    def __init__(self, host: str = "localhost", port: int = 6379) -> None:
+        self._db = redis.Redis(host=host, port=port, db=0)
 
     @property
     def queue_key(self) -> str:
