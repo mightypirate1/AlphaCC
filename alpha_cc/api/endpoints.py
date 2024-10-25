@@ -57,9 +57,9 @@ async def fetch_game(game_id: str) -> GameIO:
 
 
 @app.get("/fetch-mcts-node")
-async def fetch_mcts_node(game_id: str, board_index: int) -> MCTSNodeIO:
+async def fetch_mcts_node(game_id: str, board_index: int, as_sorted: bool = False) -> MCTSNodeIO:
     try:
-        node = game_manager.fetch_mcts_node(game_id, board_index)
+        node = game_manager.fetch_mcts_node(game_id, board_index, as_sorted)
         return MCTSNodeIO.from_mcts_node(node)
     except Exception as e:
         raise ServiceExceptionError(e) from e
