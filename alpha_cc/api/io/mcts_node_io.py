@@ -9,6 +9,7 @@ class MCTSNodeIO(BaseIO):
     v_hat: float
     n: list[int]
     q: list[float]
+    v: float
 
     @classmethod
     def from_mcts_node(cls: type[Self], node: MCTSNodePy) -> Self:
@@ -17,4 +18,5 @@ class MCTSNodeIO(BaseIO):
             v_hat=float(node.v_hat),
             n=node.n.tolist(),
             q=node.q.tolist(),
+            v=node.v,
         )
