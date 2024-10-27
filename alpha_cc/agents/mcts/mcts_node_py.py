@@ -14,6 +14,8 @@ class MCTSNodePy:
 
     @property
     def v(self) -> float:
+        if len(self.q) == 0:
+            return 0.0
         return float(self.q.max())
 
     def with_flipped_value(self) -> MCTSNodePy:
