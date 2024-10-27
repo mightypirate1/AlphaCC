@@ -12,6 +12,10 @@ class MCTSNodePy:
     n: np.ndarray
     q: np.ndarray
 
+    @property
+    def v(self) -> float:
+        return float(self.q.max())
+
     def with_flipped_value(self) -> MCTSNodePy:
         return MCTSNodePy(
             pi=self.pi,
@@ -21,9 +25,10 @@ class MCTSNodePy:
         )
 
     def as_sorted(self) -> MCTSNodePy:
+        order = np.argsort(self.n)[::-1]
         return MCTSNodePy(
-            pi=self.pi,
+            pi=self.pi[order],
             v_hat=self.v_hat,
-            n=self.n,
-            q=np.sort(self.q)[::-1],
+            n=self.n[order],
+            q=self.q[order],
         )
