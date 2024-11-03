@@ -1,5 +1,7 @@
 import { Component } from '@angular/core';
 import { AsyncPipe, CommonModule } from '@angular/common';
+import { MatIconModule } from '@angular/material/icon';
+import { MatButtonModule } from '@angular/material/button';
 import { Observable, map } from 'rxjs';
 
 import { GameService } from '../../services/game.service';
@@ -7,7 +9,7 @@ import { GameService } from '../../services/game.service';
 @Component({
   selector: 'app-game-controls',
   standalone: true,
-  imports: [AsyncPipe, CommonModule],
+  imports: [AsyncPipe, CommonModule, MatIconModule, MatButtonModule],
   templateUrl: './game-controls.component.html',
   styleUrl: './game-controls.component.scss',
 })

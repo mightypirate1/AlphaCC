@@ -5,19 +5,43 @@
   } as index"
 >
   @if (index.current !== null && index.max !== null) {
-  <button (click)="changeCurrentMoveIndex(0)">|<</button>
-  <button
-    (click)="changeCurrentMoveIndex(index.current - 1)"
-    [disabled]="index.current - 1 < 0"
-  >
-    <
-  </button>
-  <button
-    (click)="changeCurrentMoveIndex(index.current + 1)"
-    [disabled]="index.current + 1 > index.max"
-  >
-    >
-  </button>
-  <button (click)="changeCurrentMoveIndex(index.max)">>|</button>
-  } Move {{ currentBoardIndex$ | async }} of {{ maxBoardIndex$ | async }}.
+  <div class="game-controls">
+    <button mat-icon-button><mat-icon>info</mat-icon></button>
+    <div class="game-controls-navigation">
+      <button
+        mat-icon-button
+        (click)="changeCurrentMoveIndex(0)"
+        [disabled]="index.current - 1 < 0"
+      >
+        <mat-icon>first_page</mat-icon>
+      </button>
+      <button
+        mat-icon-button
+        (click)="changeCurrentMoveIndex(index.current - 1)"
+        [disabled]="index.current - 1 < 0"
+      >
+        <mat-icon>chevron_left</mat-icon>
+      </button>
+      <span>
+        {{ currentBoardIndex$ | async }} of {{ maxBoardIndex$ | async }}
+      </span>
+      <button
+        mat-icon-button
+        (click)="changeCurrentMoveIndex(index.current + 1)"
+        [disabled]="index.current + 1 > index.max"
+      >
+        <mat-icon>chevron_right</mat-icon>
+      </button>
+      <button
+        mat-icon-button
+        (click)="changeCurrentMoveIndex(index.max)"
+        [disabled]="index.current + 1 > index.max"
+      >
+        <mat-icon>last_page</mat-icon>
+      </button>
+    </div>
+
+    <button mat-icon-button><mat-icon>menu</mat-icon></button>
+  </div>
+  }
 </div>
