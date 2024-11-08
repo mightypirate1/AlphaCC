@@ -25,7 +25,8 @@ import { MCTSNode } from '../types/mcts-node.model';
 export class GameService implements OnDestroy {
   private readonly onDestroy = new Subject<void>();
 
-  private game$: Subject<Game> = new Subject<Game>();
+  private game$: BehaviorSubject<Game | null> =
+    new BehaviorSubject<Game | null>(null);
   private playerSettings$: BehaviorSubject<string[]> = new BehaviorSubject<
     string[]
   >([]);
@@ -40,7 +41,10 @@ export class GameService implements OnDestroy {
     this.moveToApply$
       .pipe(
         takeUntil(this.onDestroy),
-        withLatestFrom(this.draggableMoves(), this.game$),
+        withLatestFrom(
+          this.draggableMoves(),
+          this.game$.pipe(filter((game): game is Game => game !== null))
+        ),
         map<[Move, Move[], Game], [Move[], Game]>(
           ([moveToApply, legalMoves, game]) => [
             legalMoves.filter((legalMove) => {
@@ -64,13 +68,17 @@ export class GameService implements OnDestroy {
       .subscribe(([moveIndex, gameId]) => {
         dataService.applyMove(gameId, moveIndex).subscribe((game) => {
           this.game$.next(game);
-          this.currentBoardIndex$.next(this.currentBoardIndex$.getValue() + 1);
+          if (this.currentBoardIndex$.getValue() === game.boards.length - 2) {
+            this.currentBoardIndex$.next(game!.boards.length - 1);
+          }
         });
       });
     this.showMode$
       .pipe(
         takeUntil(this.onDestroy),
-        withLatestFrom(this.game$),
+        withLatestFrom(
+          this.game$.pipe(filter((game): game is Game => game !== null))
+        ),
         switchMap(([showMode, game]) => {
           return (
             showMode
@@ -83,6 +91,7 @@ export class GameService implements OnDestroy {
 
     this.game$
       .pipe(
+        filter((game): game is Game => game !== null),
         takeUntil(this.onDestroy),
         withLatestFrom(this.playerSettings$),
         switchMap(([game, settings]) => {
@@ -96,15 +105,16 @@ export class GameService implements OnDestroy {
         })
       )
       .subscribe((game) => {
-        if (game !== null) {
+        if (game) {
           this.game$.next(game);
-          this.currentBoardIndex$.next(this.currentBoardIndex$.getValue() + 1);
+          if (this.currentBoardIndex$.getValue() === game.boards.length - 2) {
+            this.currentBoardIndex$.next(game!.boards.length - 1);
+          }
         }
       });
   }
 
   ngOnDestroy(): void {
-    console.log('GameService destroyed');
     this.onDestroy.next();
   }
 
@@ -147,7 +157,10 @@ export class GameService implements OnDestroy {
   }
 
   currentBoardMatrix(): Observable<number[][]> {
-    return combineLatest([this.game$, this.currentBoardIndex$]).pipe(
+    return combineLatest([
+      this.game$.pipe(filter((game): game is Game => game !== null)),
+      this.currentBoardIndex$,
+    ]).pipe(
       map<[Game, number], number[][]>(([game, boardIndex]): number[][] => {
         return game.boards[boardIndex].matrix;
       })
@@ -155,7 +168,10 @@ export class GameService implements OnDestroy {
   }
 
   lastMove(): Observable<Move> {
-    return combineLatest([this.game$, this.currentBoardIndex$]).pipe(
+    return combineLatest([
+      this.game$.pipe(filter((game): game is Game => game !== null)),
+      this.currentBoardIndex$,
+    ]).pipe(
       map<[Game, number], Move>(([game, currentBoardIndex]) => {
         if (currentBoardIndex <= 0) {
           return nullMove;
@@ -167,7 +183,7 @@ export class GameService implements OnDestroy {
 
   draggableMoves(): Observable<Move[]> {
     return combineLatest([
-      this.game$,
+      this.game$.pipe(filter((game): game is Game => game !== null)),
       this.currentBoardIndex$,
       this.playerSettings$,
     ]).pipe(
@@ -191,7 +207,9 @@ export class GameService implements OnDestroy {
     return this.showMode$.pipe(
       switchMap((showMode) => (showMode ? timer(1, 3000) : NEVER)),
       switchMap(() => this.currentBoardIndex$),
-      withLatestFrom(this.game$),
+      withLatestFrom(
+        this.game$.pipe(filter((game): game is Game => game !== null))
+      ),
       switchMap<[number, Game], Observable<MCTSNode>>(([boardIndex, game]) => {
         return this.dataService.fetchMCTSNode(game.gameId, boardIndex);
       })
@@ -206,7 +224,7 @@ export class GameService implements OnDestroy {
     return this.currentBoardIndex$.asObservable();
   }
 
-  game(): Observable<Game> {
+  game(): Observable<Game | null> {
     return this.game$.asObservable();
   }
 
