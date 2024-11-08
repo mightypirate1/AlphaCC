@@ -1,5 +1,5 @@
 import { Component, OnDestroy } from '@angular/core';
-import { AsyncPipe, CommonModule } from '@angular/common';
+import { CommonModule } from '@angular/common';
 import { Subject, takeUntil } from 'rxjs';
 import { CdkDragDrop, DragDropModule } from '@angular/cdk/drag-drop';
 
@@ -14,7 +14,7 @@ import { nullMove, nullPoint } from '../../constants/constants';
   standalone: true,
   templateUrl: './game-board.component.html',
   styleUrl: './game-board.component.scss',
-  imports: [AsyncPipe, CommonModule, DragDropModule, BoardPegComponent],
+  imports: [CommonModule, DragDropModule, BoardPegComponent],
 })
 export class GameBoardComponent implements OnDestroy {
   colors = ['', 'orange', 'rebeccapurple'];

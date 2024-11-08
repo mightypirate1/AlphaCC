@@ -1,13 +1,16 @@
 import { Component } from '@angular/core';
 import { AsyncPipe } from '@angular/common';
-import { Observable, combineLatest, map } from 'rxjs';
+import { MatButtonModule } from '@angular/material/button';
+import { MatDialogModule } from '@angular/material/dialog';
+import { Observable, combineLatest, filter, map } from 'rxjs';
 
 import { GameService } from '../../services/game.service';
+import { Game } from '../../types/game.model';
 
 @Component({
   selector: 'app-game-info',
   standalone: true,
-  imports: [AsyncPipe],
+  imports: [AsyncPipe, MatButtonModule, MatDialogModule],
   templateUrl: './game-info.component.html',
   styleUrl: './game-info.component.scss',
 })
@@ -18,17 +21,20 @@ export class GameInfoComponent {
   winner$: Observable<number>;
 
   constructor(private gameService: GameService) {
-    this.gameId$ = gameService.game().pipe(map((game) => game.gameId));
+    this.gameId$ = gameService.game().pipe(
+      filter((game): game is Game => game !== null),
+      map((game) => game.gameId)
+    );
     this.currentPlayer$ = combineLatest([
-      gameService.game(),
+      gameService.game().pipe(filter((game): game is Game => game !== null)),
       gameService.currentBoardIndex(),
     ]).pipe(map(([game, boardIndex]) => game.boards[boardIndex].currentPlayer));
     this.gameOver$ = combineLatest([
-      gameService.game(),
+      gameService.game().pipe(filter((game): game is Game => game !== null)),
       gameService.currentBoardIndex(),
     ]).pipe(map(([game, boardIndex]) => game.boards[boardIndex].gameOver));
     this.winner$ = combineLatest([
-      gameService.game(),
+      gameService.game().pipe(filter((game): game is Game => game !== null)),
       gameService.currentBoardIndex(),
     ]).pipe(map(([game, boardIndex]) => game.boards[boardIndex].winner));
   }

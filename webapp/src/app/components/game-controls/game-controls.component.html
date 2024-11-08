@@ -6,7 +6,9 @@
 >
   @if (index.current !== null && index.max !== null) {
   <div class="game-controls">
-    <button mat-icon-button><mat-icon>info</mat-icon></button>
+    <button mat-icon-button (click)="openDialog()">
+      <mat-icon>info</mat-icon>
+    </button>
     <div class="game-controls-navigation">
       <button
         mat-icon-button
