@@ -26,7 +26,7 @@ def get_agent(size: int) -> StandaloneMCTSAgent:
         DefaultNet(size),
         n_rollouts=500,
         rollout_depth=100,
-        rollout_gamma=0.9999,
+        rollout_gamma=0.99,
     )
     if size in weight_dict:
         return model.with_weights(weight_dict[size])

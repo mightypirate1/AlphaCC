@@ -82,7 +82,6 @@ def main(
 
     # workers will wait for the first weights getting published so everyone has the same net
     db.model_set_current(0, curr_index)
-    n_iterations = 0
     while True:
         # wait until we have enough new samples
         trajectories = await_samples(db, n_train_samples)
@@ -91,9 +90,9 @@ def main(
         trainer.report_rollout_stats(trajectories)
 
         # train on samples
-        train_data = replay_buffer.sample(train_size)
-        trainer.train(train_data)
+        trainer.train(replay_buffer, train_size)
         trainer.set_lr(lr)  # reset lr after warmup
+        replay_buffer.move_new_to_main_buffer()
 
         # publish weights
         curr_index = db.weights_publish_latest(trainer.nn.state_dict())
@@ -101,9 +100,9 @@ def main(
         save_weights(run_id, curr_index, trainer.nn.state_dict())
 
         # periodically run tournament
-        if (n_iterations := n_iterations + 1) % tournament_freq == 0:
+        if curr_index % tournament_freq == 0:
             champion_index = run_tournament(
-                tournament_runtime, curr_index, champion_index, n_iterations, summary_writer
+                tournament_runtime, curr_index, champion_index, summary_writer
             )
 
 
@@ -134,7 +133,6 @@ def run_tournament(
     tournament_runtime: TournamentRuntime,
     curr_index: int,
     champion_index: int,
-    n_iterations: int,
     summary_writer: SummaryWriter,
 ) -> int:
     """
@@ -145,7 +143,7 @@ def run_tournament(
     if win_rate > 0.55:
         champion_index = curr_index
         logger.info(f"new champion: {champion_index}! (winrate={win_rate})")
-    log_winrate(win_rate, win_rate_as_white, win_rate_as_black, champion_index, n_iterations, summary_writer)
+    log_winrate(win_rate, win_rate_as_white, win_rate_as_black, champion_index, curr_index, summary_writer)
     return champion_index
 
 
@@ -200,13 +198,13 @@ def initialize_weights(
         else:
             init_weights_path = save_path_latest(init_run_id)
         logger.info(f"loading main weights from {init_weights_path}")
-        init_weights = torch.load(init_weights_path)
+        init_weights = torch.load(init_weights_path, weights_only=True)
         trainer.nn.load_state_dict(init_weights)
 
         if init_champion_weight_index is not None:
             champion_weight_path = save_path(init_run_id, init_champion_weight_index)
             logger.info(f"loading champion weights from {champion_weight_path}")
-            champion_weights = torch.load(champion_weight_path)
+            champion_weights = torch.load(champion_weight_path, weights_only=True)
         else:
             champion_weights = init_weights
         trainer.set_lr(0.0)  # warmup with 0 lr (think of a way of doing this better)

@@ -91,7 +91,7 @@ class StandaloneMCTSAgent(Agent):
         return pi, value
 
     def with_weights(self, path: str | Path) -> Self:
-        weights = torch.load(path)
+        weights = torch.load(path, weights_only=True)
         self.load_weights(weights)
         return self
 

@@ -41,8 +41,8 @@ class Trainer:
     def nn(self) -> DefaultNet:
         return self._nn
 
-    def train(self, dataset: TrainingDataset) -> None:
-        self._update_nn(dataset)
+    def train(self, dataset: TrainingDataset, train_size: int) -> None:
+        self._update_nn(dataset, train_size)
         self._global_step += 1
 
     def set_lr(self, lr: float) -> None:
@@ -85,13 +85,13 @@ class Trainer:
         log_aggregates("game-length", game_lengths)
         log_aggregates("pi-target-entropy", pi_target_entropy)
 
-    def _update_nn(self, dataset: TrainingDataset) -> None:
-        def train_epoch() -> tuple[float, float, float]:
+    def _update_nn(self, dataset: TrainingDataset, train_size: int) -> None:
+        def train_epoch(dataloader: DataLoader) -> tuple[float, float, float]:
             self._nn.train()
             epoch_value_loss = 0.0
             epoch_policy_loss = 0.0
             epoch_entropy_loss = 0.0
-            for x, pi_mask, target_pi, target_value, weight in train_dataloader:
+            for x, pi_mask, target_pi, target_value, weight in dataloader:
                 self._optimizer.zero_grad()
                 current_pi_unsoftmaxed, current_value = self._nn(x)
                 value_loss = compute_value_loss(current_value, target_value, weight)
@@ -104,9 +104,9 @@ class Trainer:
                 )
                 loss.backward()
                 self._optimizer.step()
-                epoch_value_loss += value_loss.item() / len(train_dataloader)
-                epoch_policy_loss += policy_loss.item() / len(train_dataloader)
-                epoch_entropy_loss += entropy_loss.item() / len(train_dataloader)
+                epoch_value_loss += value_loss.item() / len(dataloader)
+                epoch_policy_loss += policy_loss.item() / len(dataloader)
+                epoch_entropy_loss += entropy_loss.item() / len(dataloader)
             return epoch_value_loss, epoch_policy_loss, epoch_entropy_loss
 
         def compute_value_loss(
@@ -155,13 +155,7 @@ class Trainer:
                 self._eval_step += 1
             return epoch_value_loss, epoch_policy_loss, epoch_entropy_loss
 
-        train_data, test_data = dataset.split(0.9)
-        train_dataloader = DataLoader(
-            train_data,
-            batch_size=self._batch_size,
-            shuffle=True,
-            drop_last=True,
-        )
+        _, test_data = dataset.split(0.9)
         test_dataloader = DataLoader(
             test_data,
             batch_size=self._batch_size,
@@ -173,7 +167,13 @@ class Trainer:
         total_entropy_loss = 0.0
         with tqdm(desc="nn-update", total=self._epochs_per_update) as pbar:
             for _ in range(self._epochs_per_update):
-                train_epoch()
+                train_dataloader = DataLoader(
+                    dataset.sample(train_size),
+                    batch_size=self._batch_size,
+                    shuffle=True,
+                    drop_last=True,
+                )
+                train_epoch(train_dataloader)
                 epoch_test_value_loss, epoch_test_policy_loss, epoch_test_entropy_loss = epoch_eval()
                 total_value_loss += epoch_test_value_loss / self._epochs_per_update
                 total_policy_loss += epoch_test_policy_loss / self._epochs_per_update

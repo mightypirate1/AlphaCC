@@ -57,7 +57,6 @@ class TrainingDataset(Dataset):
                 replace=replace,
             ).tolist()
             dataset_sample.add_trajectory(sampled_experiences)
-        self._move_new_experiences_to_main_buffer()
         return dataset_sample
 
     def split(self, frac: float) -> tuple[TrainingDataset, TrainingDataset]:
@@ -72,7 +71,7 @@ class TrainingDataset(Dataset):
     def add_trajectory(self, trajectory: list[MCTSExperience]) -> None:
         self._new_experiences.extend(trajectory)
 
-    def _move_new_experiences_to_main_buffer(self) -> None:
+    def move_new_to_main_buffer(self) -> None:
         self._experiences.extendleft(self._new_experiences)
         self._new_experiences.clear()
 
