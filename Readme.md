@@ -29,7 +29,7 @@ Dev requirements:
 - linux
 - bash
 - rustup (with build-essential or equivalent for your system)
-- python3.11 (with venv and pip)
+- python3.12 (with venv and pip)
 - npm ([nvm](https://www.linode.com/docs/guides/how-to-install-use-node-version-manager-nvm/#install-nvm) is nice; get node >=22.0.0)
 
 ## Now what can I do with it?
