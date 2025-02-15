@@ -26,10 +26,20 @@ services:
     ports:
       - '8000:8000'
 
-  redis:
-    image: redislabs/redismod
+  keydb:
+    image: eqalpha/keydb
     ports:
       - '6379:6379'
+    command: [
+      "keydb-server",
+      "--appendonly", "no",
+      "--save", "",
+      "--server-threads", "4",
+      "--tcp-backlog", "511",
+      "--tcp-keepalive", "60",
+      "--client-output-buffer-limit", "normal", "0", "0", "0",
+      "--client-output-buffer-limit", "pubsub", "32mb", "8mb", "60"
+    ]
     healthcheck:
       test: [ "CMD", "redis-cli", "--raw", "incr", "ping" ]
       interval: 5s
