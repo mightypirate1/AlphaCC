@@ -101,9 +101,7 @@ def main(
 
         # periodically run tournament
         if curr_index % tournament_freq == 0:
-            champion_index = run_tournament(
-                tournament_runtime, curr_index, champion_index, summary_writer
-            )
+            champion_index = run_tournament(tournament_runtime, curr_index, champion_index, summary_writer)
 
 
 def await_samples(db: TrainingDB, n_train_samples: int) -> list[list[MCTSExperience]]:

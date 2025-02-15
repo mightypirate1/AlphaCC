@@ -51,7 +51,6 @@ lint.select = [
     "W",    # newline at end of file, disallow bad excape sequences
 ]
 lint.ignore = [
-    "ANN101",  # MissingTypeSelf
     "ANN401",  # Dynamically typed expressions in args/kwargs
     "B905",    # Allow zip without strict kwarg
     "C90",     # McCabe complexity
