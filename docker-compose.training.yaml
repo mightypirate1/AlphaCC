@@ -28,12 +28,12 @@ services:
 
   worker:
     image: alphacc/main
+    deploy:
+      replicas: 6
     depends_on:
       - trainer
     env_file:
       - .env.docker
-    deploy:
-      replicas: 6
     restart: always
     command: [
       "alphacc-worker",
@@ -42,10 +42,13 @@ services:
       "--rollout-depth=200",
       "--max-game-length=300",
       "--dirichlet-noise-weight=0.25",
+      "--rollout-gamma=0.99",
     ]
     
   nn-service:
     image: alphacc/main
+    deploy:
+      replicas: 1
     depends_on:
       - trainer
     env_file:
