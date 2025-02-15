@@ -1,3 +1,4 @@
+# noqa: A005
 from alpha_cc.api.io.apply_move_io import ApplyMoveIO
 from alpha_cc.api.io.board_io import BoardIO
 from alpha_cc.api.io.coord_io import CoordIO

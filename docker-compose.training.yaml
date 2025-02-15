@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile.main
       target: main
     depends_on:
-      redis:
+      keydb:
         condition: service_healthy
     volumes:
       - local:/mnt:rw
@@ -21,19 +21,19 @@ services:
       "--epochs-per-update=5",
       "--policy-weight=1.0",
       "--value-weight=1.0",
-      "--l2-reg=1e-4",
+      "--l2-reg=1e-5",
       "--batch-size=256",
       "--lr=1e-4",
     ]
 
   worker:
     image: alphacc/main
+    deploy:
+      replicas: 6
     depends_on:
       - trainer
     env_file:
       - .env.docker
-    deploy:
-      replicas: 6
     restart: always
     command: [
       "alphacc-worker",
@@ -42,10 +42,13 @@ services:
       "--rollout-depth=200",
       "--max-game-length=300",
       "--dirichlet-noise-weight=0.25",
+      "--rollout-gamma=0.99",
     ]
     
   nn-service:
     image: alphacc/main
+    deploy:
+      replicas: 1
     depends_on:
       - trainer
     env_file:
@@ -67,10 +70,20 @@ services:
       - "tensorboard"
       - "--logdir=/mnt/logdir"
 
-  redis:
-    image: redislabs/redismod
+  keydb:
+    image: eqalpha/keydb
     ports:
       - '6379:6379'
+    command: [
+      "keydb-server",
+      "--appendonly", "no",
+      "--save", "",
+      "--server-threads", "4",
+      "--tcp-backlog", "511",
+      "--tcp-keepalive", "60",
+      "--client-output-buffer-limit", "normal", "0", "0", "0",
+      "--client-output-buffer-limit", "pubsub", "32mb", "8mb", "60"
+    ]
     healthcheck:
       test: [ "CMD", "redis-cli", "--raw", "incr", "ping" ]
       interval: 5s

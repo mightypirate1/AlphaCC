@@ -13,4 +13,4 @@ load_dotenv(DOTENV_FILE)
 class Environment:
     host_redis: ClassVar[str] = os.environ.get("HOST_REDIS", "localhost")
     tb_logdir: ClassVar[str] = os.environ.get("TB_LOGDIR", "data/logdir")
-    model_dir: ClassVar[str] = os.environ.get("MODELDIR", "data/models")
+    model_dir: ClassVar[str] = os.environ.get("MODELDIR", "data/models/api")

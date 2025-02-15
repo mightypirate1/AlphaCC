@@ -7,5 +7,8 @@ def test_training(
     trainer: Trainer,
     trajectory: list[MCTSExperience],
 ) -> None:
-    trainer.train(training_dataset_with_content)
+    trainer.train(
+        training_dataset_with_content,
+        len(training_dataset_with_content),
+    )
     trainer.report_rollout_stats([trajectory])
