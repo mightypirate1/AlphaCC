@@ -37,6 +37,7 @@ def test_correct_sampling() -> None:
     assert len(sample_a) == 5
 
     # add second batch and make sure we get it when we sample again
+    dataset.move_new_to_main_buffer()
     dataset.add_trajectory(experience_batch_b)
     sample_b = dataset.sample(5)
     assert len(dataset) == 10

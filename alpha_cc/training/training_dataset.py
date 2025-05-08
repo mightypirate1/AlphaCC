@@ -48,6 +48,20 @@ class TrainingDataset(Dataset):
         return self._new_experiences + list(self._experiences)
 
     def sample(self, batch_size: int, replace: bool = True) -> TrainingDataset:
+        """
+        Two cases:
+        1. we request less samples than what is in the new buffer -> we sample from the new buffer
+        2. we request more/all samples than what is in the new buffer -> we sample all from the new buffer,
+              and then sample the rest from the old buffer
+        """
+        if batch_size < len(self._new_experiences):
+            sampled_experiences = np.random.choice(
+                self._new_experiences,  # type: ignore
+                batch_size,
+                replace=replace,
+            ).tolist()
+            return TrainingDataset(experiences=sampled_experiences, max_size=self._max_size)
+
         dataset_sample = TrainingDataset(experiences=self._new_experiences, max_size=self._max_size)
         remaining = batch_size - len(dataset_sample)
         if remaining > 0:
