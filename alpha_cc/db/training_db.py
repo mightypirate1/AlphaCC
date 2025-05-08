@@ -76,7 +76,7 @@ class TrainingDB:
 
     def trajectory_fetch(self, blocking: bool = False) -> list[MCTSExperience]:
         if blocking:
-            _, encoded_experiences = self._db.brpop(self.queue_key, timeout=0)  # type: ignore
+            _, encoded_experiences = self._db.brpop(self.queue_key, timeout=0)
         else:
             encoded_experiences = self._db.rpop(self.queue_key)
             if encoded_experiences is None:
@@ -97,14 +97,12 @@ class TrainingDB:
         channels = self._db.hkeys(self.current_models_key)
         if channels is None:
             return {}
-        return {
-            int(channel): int(self._db.hget(self.current_models_key, channel)) for channel in channels  # type: ignore
-        }
+        return {int(channel): int(self._db.hget(self.current_models_key, channel)) for channel in channels}
 
     ##
     # weights
     def weights_publish_latest(self, state_dict: dict[str, Any]) -> int:
-        current_index = int(self._db.incr(self.latest_weights_index_key))  # type: ignore
+        current_index = int(self._db.incr(self.latest_weights_index_key))
         self.weights_publish(state_dict, current_index, set_latest=True)
         return current_index
 
@@ -130,7 +128,7 @@ class TrainingDB:
 
     def weights_fetch_latest_index(self) -> int:
         response = self._db.get(self.latest_weights_index_key)
-        index = 0 if response is None else int(response)  # type: ignore
+        index = 0 if response is None else int(response)
         logger.debug(f"latest index: {index}")
         return index
 
@@ -155,7 +153,7 @@ class TrainingDB:
         return dill.loads(encoded_paring)  # noqa
 
     def tournament_get_n_completed_games(self) -> int:
-        return int(self._db.get(self.tournament_counter_key))  # type: ignore
+        return int(self._db.get(self.tournament_counter_key))
 
     def tournament_add_result(self, channel_1: int, channel_2: int, winner: int) -> None:
         pairing_key = self.tournament_result_key(channel_1, channel_2, winner)
