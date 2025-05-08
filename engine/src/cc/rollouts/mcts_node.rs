@@ -1,4 +1,5 @@
 extern crate pyo3;
+
 use pyo3::prelude::*;
 
 
@@ -17,6 +18,14 @@ pub struct MCTSNode {
 
 
 impl MCTSNode {
+    pub fn new_leaf(pi: Vec<f32>, v: f32) -> Self {
+        let num_actions = pi.len();
+        let n = vec![0; num_actions];
+        let q = vec![0.0; num_actions];
+        let pi = vec![0.0; num_actions];
+        MCTSNode { n, q, pi, v }
+    }
+
     pub fn update_on_visit(&mut self, action: usize, value: f32) {
         let n_a = self.n[action] as f32;
         self.n[action] += 1;

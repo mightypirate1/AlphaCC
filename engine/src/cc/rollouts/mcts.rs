@@ -115,12 +115,20 @@ impl MCTS {
         best_action
     }
 
-    fn add_as_new_node(nodes: &mut LruCache<Board, MCTSNode>, board: Board, nn_pred: &NNPred, dirichlet_weight: f32, dirichlet_alpha: f32) {
+    fn add_as_new_node(
+        nodes: &mut LruCache<Board, MCTSNode>,
+        board: Board,
+        nn_pred: &NNPred,
+        dirichlet_weight: f32,
+        dirichlet_alpha: f32,
+) {
         let mut pi = nn_pred.pi.clone();
         let v = nn_pred.value;
 
         if dirichlet_weight > 0.0 && nn_pred.pi.len() > 1 {
-            let alpha = nn_pred.pi.iter().map(|x| x * dirichlet_alpha).collect::<Vec<f32>>();
+            let alpha = nn_pred.pi.iter()
+                .map(|x| x * dirichlet_alpha)
+                .collect::<Vec<f32>>();
             match Dirichlet::new(&alpha) {
                 Ok(dirichlet) => {
                     let noise = dirichlet.sample(&mut rand::thread_rng());
@@ -135,15 +143,8 @@ impl MCTS {
             }
         }
 
-        nodes.put(
-            board,
-            MCTSNode {
-                n: vec![0; pi.len()],
-                q: vec![0.0; pi.len()],
-                pi,
-                v,
-            }
-        );
+        let node= MCTSNode::new_leaf(pi, v);
+        nodes.put(board,node);
     }
 }
 

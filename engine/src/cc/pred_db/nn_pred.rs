@@ -1,4 +1,4 @@
-use bincode;
+use bincode::{self, config::standard};
 extern crate pyo3;
 use pyo3::prelude::*;
 
@@ -13,7 +13,7 @@ pub struct NNPred {
 impl NNPred {
     pub fn serialize(&self) -> Vec<u8> {
         let data = (self.pi.clone(), self.value);
-        match bincode::serialize(&data) {
+        match bincode::encode_to_vec(&data, standard()) {
             Ok(encoded) => encoded,
             Err(e) => {
                 println!("error: {:?}", e);
@@ -22,8 +22,14 @@ impl NNPred {
         }
     }
 
-    pub fn deserialize(data: Vec<u8>) -> NNPred {
-        let decoded: (Vec<f32>, f32) = bincode::deserialize(&data).unwrap();
+    pub fn deserialize(data: &[u8]) -> NNPred {
+        let decoded: (Vec<f32>, f32) = match bincode::decode_from_slice(data, standard()) {
+            Ok((decoded, _)) => decoded,
+            Err(e) => {
+                eprintln!("Deserialization error: {:?}", e);
+                panic!("Failed to deserialize");
+            }
+        };
         NNPred::new(decoded.0, decoded.1)
     }
 }

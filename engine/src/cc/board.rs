@@ -14,8 +14,6 @@ extern crate pyo3;
 use pyo3::prelude::*;
 use pyo3::types::{PyTuple, PyBytes};
 
-use bincode::{deserialize, serialize};
-
 use crate::cc::{BoardInfo, HexCoord, Move};
 use crate::cc::moves::find_all_moves;
 
@@ -341,24 +339,20 @@ impl Board {
     }
 
     pub fn __setstate__(&mut self, py: Python, state: PyObject) -> PyResult<()> {
-        match state.extract::<&PyBytes>(py) {
-            Ok(s) => {
-                (
-                    self.size,
-                    self.duration,
-                    self.home_size,
-                    self.home_capacity,
-                    self.matrix,
-                    self.current_player,
-                ) = deserialize(s.as_bytes()).unwrap();
-                Ok(())
-            }
-            Err(e) => Err(e),
-        }
+        let py_bytes = state.extract::<Bound<'_, PyBytes>>(py)?;
+        let bytes = py_bytes.as_bytes();
+        let board = Board::deserialize_rs(bytes);
+        self.size = board.size;
+        self.duration = board.duration;
+        self.home_size = board.home_size;
+        self.home_capacity = board.home_capacity;
+        self.matrix = board.matrix;
+        self.current_player = board.current_player;
+        Ok(())
     }
 
     pub fn __getstate__(&self, py: Python) -> PyResult<PyObject> {
-        Ok(PyBytes::new_bound(py, &self.serialize_rs()).to_object(py))
+        Ok(PyBytes::new(py, &self.serialize_rs()).into())
     }
 
     pub fn serialize_rs(&self) -> Vec<u8> {
@@ -370,11 +364,16 @@ impl Board {
             self.matrix,
             self.current_player,
         );
-        serialize(&data).unwrap()
+        bincode::encode_to_vec(&data, bincode::config::standard())
+            .map_err(|e| {
+                pyo3::exceptions::PyValueError::new_err(
+                    format!("Failed to serialize board state: {}", e)
+                )
+            }).unwrap()
     }
     
     #[staticmethod]
-    pub fn deserialize_rs(data: Vec<u8>) -> Board {
+    pub fn deserialize_rs(data: &[u8]) -> Board {
         let (
             size,
             duration,
@@ -382,7 +381,11 @@ impl Board {
             home_capacity,
             matrix,
             current_player,
-        ) = deserialize(&data).unwrap();
+        ): (usize, u16, usize, usize, BoardMatrix, i8) = 
+            bincode::decode_from_slice(&data, bincode::config::standard())
+                .unwrap_or_else(|e| {
+                    panic!("Failed to deserialize board state: {}", e)
+                }).0;
         Board {
             size,
             duration,

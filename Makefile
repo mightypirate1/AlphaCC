@@ -1,4 +1,4 @@
-PYTHON3 = python3.12
+PYTHON3 = python3.13
 
 clean: clean-build clean-pyc clean-cache clean-venv clean-webapp clean-engine  ## remove all build, test, coverage and Python artifacts
 

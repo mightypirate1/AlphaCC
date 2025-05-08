@@ -59,9 +59,9 @@ impl PredDBChannel {
 
     pub fn get_pred(&mut self, board: &Board) -> Option<NNPred> {
         let field = board.compute_hash();
-        match self.pred_conn.hget(&self.pred_bucket, field) {
+        match self.pred_conn.hget::<_, _, Vec<u8>>(&self.pred_bucket, field) {
             Ok(encoded) => {
-                Some(NNPred::deserialize(encoded))
+                Some(NNPred::deserialize(&encoded))
             },
             Err(e) => {
                 println!("get error: {:?}", e);
@@ -112,7 +112,7 @@ impl PredDBChannel {
 
     fn decode_bytes_as_board(encoded_board: Vec<u8>) -> Option<Board> {
         if !encoded_board.is_empty() {
-            return Some(Board::deserialize_rs(encoded_board))
+            return Some(Board::deserialize_rs(&encoded_board))
         }
         None
     }
@@ -178,6 +178,6 @@ impl PredDBChannel {
     }
 
     pub fn flush_preds(&mut self) {
-        redis::cmd("FLUSHDB").execute(&mut self.pred_conn);
+        redis::cmd("FLUSHDB").exec(&mut self.pred_conn).unwrap();
     }
 }
