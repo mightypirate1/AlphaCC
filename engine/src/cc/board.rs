@@ -246,6 +246,46 @@ impl Board {
         let hs = Board::home_size(size);
         (hs * (hs + 1)) / 2
     }
+
+    pub fn serialize_rs(&self) -> Vec<u8> {
+        let data = (
+            self.size,
+            self.duration,
+            self.home_size,
+            self.home_capacity,
+            self.matrix,
+            self.current_player,
+        );
+        bincode::encode_to_vec(data, bincode::config::standard())
+            .map_err(|e| {
+                pyo3::exceptions::PyValueError::new_err(
+                    format!("Failed to serialize board state: {}", e)
+                )
+            }).unwrap()
+    }
+    
+    pub fn deserialize_rs(data: &[u8]) -> Board {
+        let (
+            size,
+            duration,
+            home_size,
+            home_capacity,
+            matrix,
+            current_player,
+        ): (usize, u16, usize, usize, BoardMatrix, i8) = 
+            bincode::decode_from_slice(data, bincode::config::standard())
+                .unwrap_or_else(|e| {
+                    panic!("Failed to deserialize board state: {}", e)
+                }).0;
+        Board {
+            size,
+            duration,
+            home_size,
+            home_capacity,
+            matrix,
+            current_player,
+        }
+    }
 }
 
 
@@ -353,47 +393,6 @@ impl Board {
 
     pub fn __getstate__(&self, py: Python) -> PyResult<PyObject> {
         Ok(PyBytes::new(py, &self.serialize_rs()).into())
-    }
-
-    pub fn serialize_rs(&self) -> Vec<u8> {
-        let data = (
-            self.size,
-            self.duration,
-            self.home_size,
-            self.home_capacity,
-            self.matrix,
-            self.current_player,
-        );
-        bincode::encode_to_vec(&data, bincode::config::standard())
-            .map_err(|e| {
-                pyo3::exceptions::PyValueError::new_err(
-                    format!("Failed to serialize board state: {}", e)
-                )
-            }).unwrap()
-    }
-    
-    #[staticmethod]
-    pub fn deserialize_rs(data: &[u8]) -> Board {
-        let (
-            size,
-            duration,
-            home_size,
-            home_capacity,
-            matrix,
-            current_player,
-        ): (usize, u16, usize, usize, BoardMatrix, i8) = 
-            bincode::decode_from_slice(&data, bincode::config::standard())
-                .unwrap_or_else(|e| {
-                    panic!("Failed to deserialize board state: {}", e)
-                }).0;
-        Board {
-            size,
-            duration,
-            home_size,
-            home_capacity,
-            matrix,
-            current_player,
-        }
     }
 
     pub fn __hash__(&self) -> u64 {
