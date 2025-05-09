@@ -1,8 +1,10 @@
 # data
 /data/logdir/
 !/data/logdir/.gitkeep
-/data/models
-!/data/models/api/*
+/data/models/*
+!/data/models/.gitkeep
+!/data/models/api/
+!/data/models/api/*.pth
 
 # temp files
 /tmp
