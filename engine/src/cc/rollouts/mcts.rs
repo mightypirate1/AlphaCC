@@ -51,7 +51,7 @@ impl MCTS {
         nn_remote: &mut NNRemote,
         nodes: &mut LruCache<Board, MCTSNode>,
         remaining_depth: usize,
-        mcts_params: MCTSParams,
+        mcts_params: &MCTSParams,
     ) -> f32 {
         let info = board.get_info();
         if info.game_over {
@@ -67,25 +67,27 @@ impl MCTS {
             // prepare continued rollout
             let a = MCTS::find_best_action_for_node(
                 node,
-                mcts_params.c_puct_init,
-                mcts_params.c_puct_base,
+                &mcts_params.c_puct_init,
+                &mcts_params.c_puct_base,
             );
             let moves = find_all_moves(&board);
             let s_prime = board.apply(&moves[a]);
             
             // continue rollout
-            let v = mcts_params.gamma * MCTS::rollout(
+            let v = MCTS::rollout(
                 s_prime,
                 nn_remote,
                 nodes,
                 remaining_depth - 1,
                 mcts_params,
             );
+            let gamma_v = mcts_params.gamma * v;
             
             // backprop rollout update
-            nodes.get_mut(&board).unwrap().update_on_visit(a, v);
-            return -v;
+            nodes.get_mut(&board).unwrap().update_on_visit(a, gamma_v);
+            return -gamma_v;
         }
+
 
         let nn_pred = nn_remote.fetch_pred(&board);
         MCTS::add_as_new_node(
@@ -98,7 +100,7 @@ impl MCTS {
         -nn_pred.value
     }
 
-    fn find_best_action_for_node(node: &MCTSNode, c_puct_init: f32, c_puct_base: f32) -> usize {
+    fn find_best_action_for_node(node: &MCTSNode, c_puct_init: &f32, c_puct_base: &f32) -> usize {
         let sum_n = node.n.iter().sum::<u32>() as f32;
         let c_puct = c_puct_init + ((sum_n + c_puct_base + 1.0) / c_puct_base).ln();
 
@@ -182,7 +184,7 @@ impl MCTS {
             &mut self.nn_remote,
             &mut self.nodes,
             rollout_depth,
-            self.mcts_params.clone(),
+            &self.mcts_params,
         )
     }
 

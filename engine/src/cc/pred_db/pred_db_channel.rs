@@ -191,6 +191,10 @@ impl PredDBChannel {
         boards
     }
 
+    pub fn request_pred(&mut self, board: &Board) -> Option<NNPred> {
+        self.get_pred(board)
+    }
+
     pub fn post_pred(&mut self, board: &Board, nn_pred: &NNPred) {
         self.set_pred(board, nn_pred);
     }

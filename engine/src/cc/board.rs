@@ -22,7 +22,7 @@ type BoardMatrix = [[i8; MAX_SIZE]; MAX_SIZE];
 
 
 #[pyclass(module="alpha_cc_engine")]
-#[derive(Clone)]
+#[derive(Clone, bincode::Encode, bincode::Decode)]
 pub struct Board {
     size: usize,
     duration: u16,
@@ -248,15 +248,7 @@ impl Board {
     }
 
     pub fn serialize_rs(&self) -> Vec<u8> {
-        let data = (
-            self.size,
-            self.duration,
-            self.home_size,
-            self.home_capacity,
-            self.matrix,
-            self.current_player,
-        );
-        bincode::encode_to_vec(data, bincode::config::standard())
+        bincode::encode_to_vec(self, bincode::config::standard())
             .map_err(|e| {
                 pyo3::exceptions::PyValueError::new_err(
                     format!("Failed to serialize board state: {}", e)
@@ -265,26 +257,10 @@ impl Board {
     }
     
     pub fn deserialize_rs(data: &[u8]) -> Board {
-        let (
-            size,
-            duration,
-            home_size,
-            home_capacity,
-            matrix,
-            current_player,
-        ): (usize, u16, usize, usize, BoardMatrix, i8) = 
-            bincode::decode_from_slice(data, bincode::config::standard())
-                .unwrap_or_else(|e| {
-                    panic!("Failed to deserialize board state: {}", e)
-                }).0;
-        Board {
-            size,
-            duration,
-            home_size,
-            home_capacity,
-            matrix,
-            current_player,
-        }
+        bincode::decode_from_slice(data, bincode::config::standard())
+            .unwrap_or_else(|e| {
+                panic!("Failed to deserialize board state: {}", e)
+            }).0
     }
 }
 

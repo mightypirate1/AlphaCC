@@ -22,7 +22,6 @@ impl MCTSNode {
         let num_actions = pi.len();
         let n = vec![0; num_actions];
         let q = vec![0.0; num_actions];
-        let pi = vec![0.0; num_actions];
         MCTSNode { n, q, pi, v }
     }
 

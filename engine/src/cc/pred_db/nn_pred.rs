@@ -4,7 +4,7 @@ use pyo3::prelude::*;
 
 
 #[pyclass(module="alpha_cc_engine")]
-#[derive(Clone)]
+#[derive(Clone, bincode::Encode, bincode::Decode)]
 pub struct NNPred {
     pub pi: Vec<f32>,
     pub value: f32,
@@ -12,25 +12,18 @@ pub struct NNPred {
 
 impl NNPred {
     pub fn serialize(&self) -> Vec<u8> {
-        let data = (self.pi.clone(), self.value);
-        match bincode::encode_to_vec(&data, standard()) {
-            Ok(encoded) => encoded,
-            Err(e) => {
-                println!("error: {:?}", e);
-                panic!("failed to serialize")
-            }
-        }
+        bincode::encode_to_vec(self, standard())
+            .unwrap_or_else(|e| {
+                panic!("Failed to serialize: {:?}", e);
+            })
     }
 
     pub fn deserialize(data: &[u8]) -> NNPred {
-        let decoded: (Vec<f32>, f32) = match bincode::decode_from_slice(data, standard()) {
-            Ok((decoded, _)) => decoded,
-            Err(e) => {
-                eprintln!("Deserialization error: {:?}", e);
-                panic!("Failed to deserialize");
-            }
-        };
-        NNPred::new(decoded.0, decoded.1)
+        bincode::decode_from_slice(data, standard())
+            .unwrap_or_else(|e| {
+                panic!("Failed to deserialize: {:?}", e);
+            })
+            .0
     }
 }
 
@@ -39,5 +32,15 @@ impl NNPred {
     #[new]
     fn new(pi: Vec<f32>, value: f32) -> Self {
         NNPred { pi, value }
+    }
+
+    #[getter]
+    fn get_pi(&self) -> Vec<f32> {
+        self.pi.clone()
+    }
+
+    #[getter]
+    fn get_value(&self) -> f32 {
+        self.value
     }
 }
