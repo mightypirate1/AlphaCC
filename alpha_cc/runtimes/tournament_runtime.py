@@ -19,6 +19,9 @@ class TournamentRuntime:
     Class for arranging and runnining tournaments.
     - expects to be run across multiple services
     - currently supports only 2-player tournaments
+
+    TODO: this class should be refactored/rewritten from scratch,
+    and be merged with TournamentManager in the trainer theread endpoint.
     """
 
     def __init__(self, size: int, training_db: TrainingDB, max_game_length: int | None = None) -> None:
