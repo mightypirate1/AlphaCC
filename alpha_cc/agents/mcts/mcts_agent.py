@@ -14,9 +14,9 @@ class MCTSAgent(Agent):
         rollout_depth: int = 500,
         rollout_gamma: float = 1.0,
         dirichlet_weight: float = 0.0,
-        dirichlet_alpha: float = 0.03,
-        c_puct_init: float = 2.5,
-        c_puct_base: float = 19652.0,
+        dirichlet_alpha: float = 0.15,
+        c_puct_init: float = 2.0,
+        c_puct_base: float = 10000.0,
         argmax_delay: int | None = None,
     ) -> None:
         self._redis_host = redis_host

@@ -28,7 +28,7 @@ logger = logging.getLogger(__file__)
 @click.option("--argmax-delay", type=int, default=None)
 @click.option("--heuristic", is_flag=True, default=False)
 @click.option("--gamma", type=float, default=1.0)
-@click.option("--non-terminal-value-weight", type=float, default=1.0)
+@click.option("--non-terminal-value-weight", type=float, default=0.2)
 @click.option("--verbose", is_flag=True, default=False)
 def main(
     size: int,
