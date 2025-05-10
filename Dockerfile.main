@@ -1,53 +1,56 @@
-FROM python:3.13-slim AS builder
+FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04 AS base-cuda
+# I fount no cuda image with python 3.13,
+# so I use the base image and install python 3.13 manually
 ENV PYTHONUNBUFFERED=1               \
     PYTHONDONTWRITEBYTECODE=1        \
     PIP_NO_CACHE_DIR=off             \
     PIP_DISABLE_PIP_VERSION_CHECK=on \
     PIP_DEFAULT_TIMEOUT=100          \
     WORKDIR=/code
-RUN mkdir -p ${WORKDIR}/engine
+RUN apt-get update && apt-get install -y                       \
+        software-properties-common                             \
+        curl                                                   \
+    && add-apt-repository ppa:deadsnakes/ppa                   \
+    && apt-get update                                          \
+    && apt-get install -y                                      \
+        python3.13                                             \
+        python3.13-venv                                        \
+        python3.13-dev                                         \
+    && apt remove -y python3.12                                \
+    && apt-get autoremove -y                                   \
+    && apt-get clean                                           \
+    && rm -rf /var/lib/apt/lists/*                             \
+    && ln -s /usr/bin/python3.13 /usr/bin/python3              \
+    && curl -sS https://bootstrap.pypa.io/get-pip.py | python3 \
+    && mkdir -p ${WORKDIR}
 WORKDIR ${WORKDIR}
+
+
+FROM base-cuda AS builder-rs
+RUN mkdir -p ${WORKDIR}/engine
 # Install build deps
-RUN apt-get update &&                                                           \
-    apt-get install -y curl clang libssl-dev make pkg-config gcc python3-dev && \
-    apt-get clean &&                                                            \
-    rm -rf /var/lib/apt/lists/*
+RUN apt-get update                                \
+    && apt-get install -y --no-install-recommends \
+        clang libssl-dev make pkg-config gcc      \
+    && apt-get clean                              \
+    && rm -rf /var/lib/apt/lists/*
 RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
 # Build package
-RUN pip install uv && \
-    uv venv .venv --prompt alpha-cc
+RUN python3 -m venv .venv --prompt alpha-cc
 ENV PATH="$WORKDIR/.venv/bin:/root/.cargo/bin:$PATH"
 COPY . $WORKDIR
-RUN bash -c ' \
-    uv pip install pip maturin && \
+RUN bash -c '                     \
+    python3 -m pip install maturin && \
     cd $WORKDIR/engine &&         \
     maturin develop --release     \
 '
 
-FROM builder AS builder-backend
-RUN uv pip install ".[api]"
+FROM builder-rs AS builder
+RUN pip install . --index-url https://pypi.org/simple --extra-index-url https://download.pytorch.org/whl/cu128
 
 
-FROM builder AS builder-main
-RUN uv pip install "."
-
-
-FROM python:3.12-slim AS backend
-ENV PYTHONUNBUFFERED=1               \
-    PYTHONDONTWRITEBYTECODE=1        \
-    WORKDIR=/code
+FROM base-cuda AS main
 ENV PATH="$WORKDIR/.venv/bin:$PATH"
-RUN mkdir -p ${WORKDIR}/.venv
 WORKDIR ${WORKDIR}
-COPY --from=builder-backend /code/.venv /code/.venv
-CMD ["uvicorn", "alpha_cc.api.endpoints:app", "--proxy-headers", "--host", "0.0.0.0"]
-
-FROM python:3.12-slim AS main
-ENV PYTHONUNBUFFERED=1               \
-    PYTHONDONTWRITEBYTECODE=1        \
-    WORKDIR=/code
-ENV PATH="$WORKDIR/.venv/bin:$PATH"
-RUN mkdir -p ${WORKDIR}/.venv
-WORKDIR ${WORKDIR}
-COPY --from=builder-main /code/.venv /code/.venv
+COPY --from=builder /code/.venv /code/.venv
 CMD ["bash"]

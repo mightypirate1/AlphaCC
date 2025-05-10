@@ -21,15 +21,19 @@ class Trainer:
         l2_reg: float = 1e-4,
         epochs_per_update: int = 3,
         batch_size: int = 64,
+        num_dataloader_workers: int = 2,
         lr: float = 1e-4,
+        device: str = "cpu",
         summary_writer: SummaryWriter | None = None,
     ) -> None:
-        self._nn = nn
+        self._nn = nn.to(device)
         self._policy_weight = policy_weight
         self._value_weight = value_weight
         self._entropy_weight = entropy_weight
         self._epochs_per_update = epochs_per_update
         self._batch_size = batch_size
+        self._num_dataloader_workers = num_dataloader_workers
+        self._device = torch.device(device)
         self._policy_log_softmax = PolicyLogSoftmax(board_size)
         self._policy_softmax = PolicySoftmax(board_size)
         self._optimizer = torch.optim.AdamW(nn.parameters(), lr=lr, weight_decay=l2_reg)
@@ -88,11 +92,12 @@ class Trainer:
     def _update_nn(self, dataset: TrainingDataset, train_size: int) -> None:
         def train_epoch(dataloader: DataLoader) -> tuple[float, float, float]:
             self._nn.train()
-            epoch_value_loss = 0.0
-            epoch_policy_loss = 0.0
-            epoch_entropy_loss = 0.0
-            for x, pi_mask, target_pi, target_value, weight in dataloader:
-                self._optimizer.zero_grad()
+            # accumulator of: value_loss, policy_loss, entropy_loss
+            loss_accumulator = torch.zeros(3, dtype=torch.float64, device="cpu")  # Higher precision for accumulation
+            samples_seen = 0
+            for data_tuple in dataloader:
+                x, pi_mask, target_pi, target_value, weight = (data.to(self._device) for data in data_tuple)
+                self._optimizer.zero_grad(set_to_none=True)
                 current_pi_unsoftmaxed, current_value = self._nn(x)
                 value_loss = compute_value_loss(current_value, target_value, weight)
                 policy_loss = compute_policy_loss(current_pi_unsoftmaxed, pi_mask, target_pi, weight)
@@ -104,9 +109,18 @@ class Trainer:
                 )
                 loss.backward()
                 self._optimizer.step()
-                epoch_value_loss += value_loss.item() / len(dataloader)
-                epoch_policy_loss += policy_loss.item() / len(dataloader)
-                epoch_entropy_loss += entropy_loss.item() / len(dataloader)
+                batch_size = x.shape[0]
+                samples_seen += batch_size
+                batch_losses = torch.tensor(
+                    [
+                        value_loss.detach().cpu().item(),
+                        policy_loss.detach().cpu().item(),
+                        entropy_loss.detach().cpu().item(),
+                    ],
+                    dtype=torch.float64,
+                )
+                loss_accumulator += batch_losses * batch_size
+            epoch_value_loss, epoch_policy_loss, epoch_entropy_loss = tuple((loss_accumulator / samples_seen).tolist())
             return epoch_value_loss, epoch_policy_loss, epoch_entropy_loss
 
         def compute_value_loss(
@@ -118,9 +132,10 @@ class Trainer:
         def compute_policy_loss(
             pi_tensor_unsoftmaxed: torch.Tensor, pi_mask: torch.Tensor, target_pi: torch.Tensor, weight: torch.Tensor
         ) -> torch.Tensor:
+            pi_mask_flat = pi_mask.reshape((pi_mask.shape[0], -1))
             policy_loss_unmasked = -target_pi * self._policy_log_softmax(pi_tensor_unsoftmaxed, pi_mask)
             policy_loss_unnormalized = torch.where(pi_mask, policy_loss_unmasked, 0).reshape((pi_mask.shape[0], -1))
-            n_actions = pi_mask.reshape((pi_mask.shape[0], -1)).sum(dim=1, keepdim=True)
+            n_actions = pi_mask_flat.sum(dim=1, keepdim=True)
             policy_loss_unweighted = (policy_loss_unnormalized / n_actions).sum(dim=1)
             return (weight * policy_loss_unweighted).sum() / weight.sum()
 
@@ -140,14 +155,15 @@ class Trainer:
             epoch_value_loss = 0.0
             epoch_policy_loss = 0.0
             epoch_entropy_loss = 0.0
-            for x, pi_mask, target_pi, target_value, weight in test_dataloader:
+            for data_tuple in test_dataloader:
+                x, pi_mask, target_pi, target_value, weight = (data.to(self._device) for data in data_tuple)
                 current_pi_unsoftmaxed, current_value = self._nn(x)
                 value_loss = compute_value_loss(current_value, target_value, weight)
                 policy_loss = compute_policy_loss(current_pi_unsoftmaxed, pi_mask, target_pi, weight)
                 entropy_loss = compute_entropy_loss(current_pi_unsoftmaxed, pi_mask, weight)
-                epoch_value_loss += value_loss.mean().item() / len(test_dataloader)
-                epoch_policy_loss += policy_loss.mean().item() / len(test_dataloader)
-                epoch_entropy_loss += entropy_loss.mean().item() / len(test_dataloader)
+                epoch_value_loss += value_loss.mean().cpu().item() / len(test_dataloader)
+                epoch_policy_loss += policy_loss.mean().cpu().item() / len(test_dataloader)
+                epoch_entropy_loss += entropy_loss.mean().cpu().item() / len(test_dataloader)
             if self._summary_writer is not None:
                 self._summary_writer.add_scalar("eval/policy-loss", epoch_policy_loss, global_step=self._eval_step)
                 self._summary_writer.add_scalar("eval/value-loss", epoch_value_loss, global_step=self._eval_step)
@@ -160,6 +176,7 @@ class Trainer:
             test_data,
             batch_size=self._batch_size,
             drop_last=False,
+            pin_memory=True,
         )
 
         total_value_loss = 0.0
@@ -172,6 +189,9 @@ class Trainer:
                     batch_size=self._batch_size,
                     shuffle=True,
                     drop_last=True,
+                    pin_memory=True,
+                    num_workers=self._num_dataloader_workers,
+                    prefetch_factor=3,
                 )
                 train_epoch(train_dataloader)
                 epoch_test_value_loss, epoch_test_policy_loss, epoch_test_entropy_loss = epoch_eval()
@@ -200,15 +220,19 @@ class Trainer:
         - the values
         """
         self._nn.eval()
-        dataloader = DataLoader(dataset, batch_size=self._batch_size, drop_last=False)
-        pi_logits, vs = [], []
+        dataloader = DataLoader(dataset, batch_size=self._batch_size, drop_last=False, pin_memory=True)
+        pi_logits = []
+        vs = torch.zeros(len(dataset), device=self._device)
         with tqdm(desc="nn-eval/epoch", total=len(dataset)) as pbar:
-            for x, pi_mask_batch, _, _, _ in dataloader:
+            for batch_idx, data_tuple in enumerate(dataloader):
+                x, pi_mask_batch, _, _, _ = (data.to(self._device) for data in data_tuple)
                 pi_tensor_batch, value_batch = self._nn(x)
                 for pi_tensor_unsoftmaxed, pi_mask in zip(pi_tensor_batch, pi_mask_batch):
                     pi_vec = pi_tensor_unsoftmaxed[*torch.nonzero(pi_mask.squeeze()).T].ravel()
                     pi_logit = torch.nn.functional.log_softmax(pi_vec, dim=0)
                     pi_logits.append(pi_logit)
-                vs.extend(value_batch)
+
+                batch_size = x.shape[0]
+                vs[batch_idx * self._batch_size : batch_idx * self._batch_size + batch_size] = value_batch
                 pbar.update(x.shape[0])
         return torch.concat(pi_logits, dim=0), torch.as_tensor(vs)

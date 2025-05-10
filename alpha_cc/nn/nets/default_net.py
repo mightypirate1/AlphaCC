@@ -69,4 +69,4 @@ class DefaultNet(torch.nn.Module):
         mask = torch.as_tensor(state.action_mask)
         x_pi = self._policy_softmax(x_pi_all, mask)
         x_pi_vec = x_pi[:, *action_indexer(state)]
-        return x_pi_vec.squeeze(0).numpy(), x_value.squeeze().numpy()
+        return x_pi_vec.squeeze(0).cpu().numpy(), x_value.squeeze().cpu().numpy()

@@ -37,8 +37,10 @@ develop: clean venv
 	@bash -c "\
 		rustup component add clippy && \
 		source .venv/bin/activate && \
-                pip install uv && \
+        pip install uv && \
 		uv pip install -e ".[all]" \
+			--index-url https://pypi.org/simple \
+			--extra-index-url https://download.pytorch.org/whl/cu128 \
     "
 
 install: develop build-engine install-webapp

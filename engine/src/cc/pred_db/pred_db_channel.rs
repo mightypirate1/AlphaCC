@@ -57,6 +57,24 @@ impl PredDBChannel {
         };
     }
 
+    pub fn set_preds(&mut self, boards: &[Board], nn_preds: &[NNPred]) {
+        let items = boards.iter()
+            .zip(nn_preds.iter())
+            .map(|(board, nn_pred)| {
+                let field = board.compute_hash();
+                let encoded = nn_pred.serialize();
+                (field, encoded)
+            })
+            .collect::<Vec<(u64, Vec<u8>)>>();
+        let result: RedisResult<()> = self.pred_conn.hset_multiple(&self.pred_bucket, &items);
+        match result {
+            Ok(_) => {},
+            Err(e) => {
+                println!("set error: {:?}", e);
+            },
+        };
+    }
+
     pub fn get_pred(&mut self, board: &Board) -> Option<NNPred> {
         let field = board.compute_hash();
         match self.pred_conn.hget::<_, _, Vec<u8>>(&self.pred_bucket, field) {
@@ -175,6 +193,10 @@ impl PredDBChannel {
 
     pub fn post_pred(&mut self, board: &Board, nn_pred: &NNPred) {
         self.set_pred(board, nn_pred);
+    }
+
+    pub fn post_preds(&mut self, boards: Vec<Board>, nn_preds: Vec<NNPred>) {
+        self.set_preds(&boards, &nn_preds);
     }
 
     pub fn flush_preds(&mut self) {

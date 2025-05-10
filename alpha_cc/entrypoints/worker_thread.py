@@ -45,7 +45,7 @@ def main(
 ) -> None:
     def create_model(channel: int) -> MCTSAgent:
         return MCTSAgent(
-            Environment.host_redis,
+            redis_host=Environment.redis_host,
             pred_channel=channel,
             n_rollouts=n_rollouts,
             rollout_depth=rollout_depth,
@@ -55,7 +55,7 @@ def main(
         )
 
     init_rootlogger(verbose=verbose)
-    db = TrainingDB(host=Environment.host_redis)
+    db = TrainingDB(host=Environment.redis_host)
     agent = create_model(0)
 
     value_assignment_strategy = create_value_assignment_strategy(size, gamma, heuristic, non_terminal_value_weight)

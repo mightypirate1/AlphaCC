@@ -14,22 +14,24 @@ services:
   backend:
     image: alphacc/backend
     build:
-      dockerfile: Dockerfile.main
+      dockerfile: Dockerfile.webapp
       target: backend
     depends_on:
-      redis:
+      keydb-webapp:
         condition: service_healthy
     env_file:
       - .env.docker
+    environment:
+      - REDIS_HOST=keydb-webapp
     volumes:
       - models:/mnt/models:rw
     ports:
       - '8000:8000'
 
-  keydb:
+  keydb-webapp:
     image: eqalpha/keydb
     ports:
-      - '6379:6379'
+      - '6378:6379'
     command: [
       "keydb-server",
       "--appendonly", "no",

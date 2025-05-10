@@ -3,11 +3,49 @@ ENV WORKDIR=/code
 RUN mkdir -p ${WORKDIR}
 WORKDIR ${WORKDIR}
 COPY webapp $WORKDIR
-RUN npm install -g @angular/cli && \
-    npm install                 && \
-    npm run build
+RUN npm install -g @angular/cli \
+    && npm install              \
+    && npm run build
 
 
 FROM nginx AS webapp
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /code/dist/webapp/browser /usr/share/nginx/html
+
+
+FROM python:3.13-slim AS builder-rs
+ENV PYTHONUNBUFFERED=1               \
+    PYTHONDONTWRITEBYTECODE=1        \
+    PIP_NO_CACHE_DIR=off             \
+    PIP_DISABLE_PIP_VERSION_CHECK=on \
+    PIP_DEFAULT_TIMEOUT=100          \
+    WORKDIR=/code
+RUN mkdir -p ${WORKDIR}/engine
+WORKDIR ${WORKDIR}
+# Install build deps
+RUN apt-get update                                                              \
+    && apt-get install -y curl clang libssl-dev make pkg-config gcc python3-dev \
+    && apt-get clean                                                            \
+    && rm -rf /var/lib/apt/lists/*
+RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
+# Build package
+RUN pip install uv \
+    && uv venv .venv --prompt alpha-cc
+ENV PATH="$WORKDIR/.venv/bin:/root/.cargo/bin:$PATH"
+COPY . $WORKDIR
+RUN bash -c '                     \
+    uv pip install pip maturin && \
+    cd $WORKDIR/engine &&         \
+    maturin develop --release     \
+'
+
+FROM builder-rs AS builder-backend
+RUN uv pip install ".[api]" --index-url https://pypi.org/simple --extra-index-url https://download.pytorch.org/whl/cu128
+
+
+FROM builder-backend AS backend
+ENV PATH="$WORKDIR/.venv/bin:$PATH"
+RUN mkdir -p ${WORKDIR}/.venv
+WORKDIR ${WORKDIR}
+COPY --from=builder-backend /code/.venv /code/.venv
+CMD ["uvicorn", "alpha_cc.api.endpoints:app", "--proxy-headers", "--host", "0.0.0.0"]

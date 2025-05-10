@@ -4,6 +4,16 @@ services:
     build:
       dockerfile: Dockerfile.main
       target: main
+    shm_size: '8gb'
+    cpu_shares: 1024
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     depends_on:
       keydb:
         condition: service_healthy
@@ -13,23 +23,25 @@ services:
       - .env.docker
     command: [
       "alphacc-trainer",
-      "--run-id=alpha-cc-size-9-run-00",
+      "--run-id=alpha-cc-size-9-run-00-gpu",
       "--size=9",
       "--tournament-freq=30",
       "--n-train-samples=5000",
-      "--replay-buffer-size=25000",
+      "--replay-buffer-size=10000",
       "--epochs-per-update=5",
       "--policy-weight=1.0",
       "--value-weight=1.0",
       "--l2-reg=1e-5",
       "--batch-size=256",
       "--lr=1e-4",
+      "--gpu",
     ]
 
   worker:
     image: alphacc/main
+    cpu_shares: 2
     deploy:
-      replicas: 6
+      replicas: 30
     depends_on:
       - trainer
     env_file:
@@ -41,14 +53,21 @@ services:
       "--n-rollouts=1000",
       "--rollout-depth=200",
       "--max-game-length=300",
-      "--dirichlet-noise-weight=0.25",
+      "--dirichlet-noise-weight=0.15",
       "--rollout-gamma=0.99",
     ]
     
   nn-service:
     image: alphacc/main
+    cpu_shares: 1024
+    runtime: nvidia
     deploy:
-      replicas: 1
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     depends_on:
       - trainer
     env_file:
@@ -57,6 +76,7 @@ services:
     command: [
       "alphacc-nn-service",
       "--size=9",
+      "--gpu",
     ]
 
   tensorboard:

@@ -13,7 +13,8 @@ from alpha_cc.db.games_db import GamesDB
 from alpha_cc.logs import init_rootlogger
 
 app = FastAPI()
-game_manager = GameManager(GamesDB(Environment.host_redis))
+game_db = GamesDB(host=Environment.redis_host)
+game_manager = GameManager(game_db)
 
 app.add_middleware(
     CORSMiddleware,

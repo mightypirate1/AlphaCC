@@ -23,16 +23,19 @@ class ServedNN:
         nn: torch.nn.Module,
         log_frequency: int = 60,
         reload_frequency: int = 1,
+        device: str = "cpu",
     ) -> None:
         self._pred_db_channel = pred_db_channel
         self._training_db = training_db
-        self._nn: torch.nn.Module | None = nn
         self._log_frequency = log_frequency
         self._reload_frequency = reload_frequency
+        self._device = torch.device(device)
+        self._nn: torch.nn.Module | None = None
         self._current_weights_index = -1
         self._n_preds = 0
         self._n_batches = 0
         self._jobs = self._initialize_scheduler()
+        self._assign_nn(nn)
         pred_db_channel.flush_preds()
 
     @property
@@ -64,14 +67,33 @@ class ServedNN:
         self._jobs = self._initialize_scheduler()
 
     def _prepare_input(self, states: list[GameState]) -> torch.Tensor:
-        return torch.stack([state.tensor for state in states], dim=0)
+        """assumes at least one state is passed"""
+        batch_size = len(states)
+        state_shape = states[0].tensor.shape
+        input_tensor = torch.empty(batch_size, *state_shape, pin_memory=True)
+        for i, state in enumerate(states):
+            input_tensor[i] = state.tensor
+        return input_tensor.to(self._device, non_blocking=True)
 
     def _post_predictions(self, states: list[GameState], x_pis: torch.Tensor, x_vals: torch.Tensor) -> None:
-        for state, pi_tensor_unsoftmaxed, val in zip(states, x_pis, x_vals):
+        def create_nn_pred(state: GameState, pi_tensor_unsoftmaxed: torch.Tensor, val: torch.Tensor) -> NNPred:
             pi_unsoftmaxed = pi_tensor_unsoftmaxed[*action_indexer(state)]
             pi = torch.nn.functional.softmax(pi_unsoftmaxed, dim=0)
-            nn_pred = NNPred(pi.numpy().tolist(), val.item())
+            return NNPred(pi.cpu().numpy().tolist(), val.cpu().item())
+
+        nn_preds = [
+            create_nn_pred(state, pi_tensor_unsoftmaxed, val)
+            for state, pi_tensor_unsoftmaxed, val in zip(states, x_pis.cpu(), x_vals.cpu())
+        ]
+        for state, nn_pred in zip(states, nn_preds):
             self._pred_db_channel.post_pred(state.board, nn_pred)
+
+    def _assign_nn(self, nn: torch.nn.Module) -> None:
+        self._nn = nn
+        # TODO: make jit-compilation work
+        # self._nn = torch.jit.script(nn)
+        self._nn.to(self._device)
+        self._nn.eval()
 
     def _initialize_scheduler(self) -> list[Job]:
         stats_job = scheduler.add_job(self._log_stats, "interval", seconds=self._log_frequency)
@@ -110,14 +132,16 @@ class NNService:
     def __init__(
         self,
         nn_creator: Callable[[], torch.nn.Module],
-        host: str,
+        host: str = "localhost",
         log_frequency: int = 60,
         reload_frequency: int = 1,
+        gpu: bool = False,
     ) -> None:
         self._nn_creator = nn_creator
         self._host = host
         self._log_frequency = log_frequency
         self._reload_frequency = reload_frequency
+        self._device = "cuda" if gpu and torch.cuda.is_available() else "cpu"
         self._training_db = TrainingDB(host=host)
         self._n_preds = 0
         self._n_batches = 0
@@ -125,7 +149,7 @@ class NNService:
         self._initialize_scheduler()
 
     def run(self) -> None:
-        logger.info("Starting NNService")
+        logger.info(f"Starting NNService[{self._device}]")
         while True:
             for served_nn in self._served_nns:
                 served_nn.process_requests()
@@ -157,6 +181,7 @@ class NNService:
             nn,
             log_frequency=self._log_frequency,
             reload_frequency=self._reload_frequency,
+            device=self._device,
         )
 
     def _initialize_scheduler(self) -> None:

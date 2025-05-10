@@ -6,6 +6,7 @@ import redis
 
 from alpha_cc.agents.mcts import MCTSExperience
 from alpha_cc.db.models.tournament_results import TournamentResult
+from alpha_cc.db.redis_dbs import RedisDBs
 
 logger = logging.getLogger(__file__)
 
@@ -22,7 +23,7 @@ class TrainingDB:
     """
 
     def __init__(self, host: str = "localhost") -> None:
-        self._db = redis.Redis(host=host, db=0)
+        self._db = redis.Redis(host=host, db=RedisDBs.TRAINING.value)
 
     @property
     def queue_key(self) -> str:

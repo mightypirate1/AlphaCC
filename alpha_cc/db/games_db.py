@@ -2,12 +2,13 @@ import dill
 from redis import Redis
 
 from alpha_cc.db.models import DBGameState
+from alpha_cc.db.redis_dbs import RedisDBs
 from alpha_cc.engine import Board
 
 
 class GamesDB:
     def __init__(self, host: str = "localhost") -> None:
-        self._db = Redis(host=host, db=3)
+        self._db = Redis(host=host, db=RedisDBs.BACKEND.value)
 
     @property
     def db(self) -> Redis:

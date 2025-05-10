@@ -39,7 +39,7 @@ setup(
         "dill",
         "einops",
         "maturin",
-        "numpy<2.0.0",
+        "numpy",
         "python-dotenv",
         "redis",
         "scipy",

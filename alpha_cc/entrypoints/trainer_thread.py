@@ -37,6 +37,7 @@ logger = logging.getLogger(__file__)
 @click.option("--init-run-id", type=str, default=None)
 @click.option("--init-weights-index", type=int, default=None)
 @click.option("--init-champion-weight-index", type=int, default=None)
+@click.option("--gpu", is_flag=True, default=False)
 def main(
     run_id: str,
     size: int,
@@ -55,10 +56,12 @@ def main(
     init_run_id: str | None,
     init_weights_index: int | None,
     init_champion_weight_index: int | None,
+    gpu: bool,
 ) -> None:
     init_rootlogger(verbose=verbose)
     summary_writer = create_summary_writer(run_id)
-    db = TrainingDB(host=Environment.host_redis)
+    device = "cuda" if gpu and torch.cuda.is_available() else "cpu"
+    db = TrainingDB(host=Environment.redis_host)
     tournament_runtime = TournamentRuntime(size, db)
     replay_buffer = TrainingDataset(max_size=replay_buffer_size)
     trainer = Trainer(
@@ -71,6 +74,7 @@ def main(
         batch_size=batch_size,
         lr=lr,
         l2_reg=l2_reg,
+        device=device,
         summary_writer=summary_writer,
     )
 
