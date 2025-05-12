@@ -93,8 +93,8 @@ impl PredDBChannel {
                 return Vec::new();
             },
         };
-        // NOTE: if this crashes or misbehaves - there was a filtering here in .is_empty() that looked redundant...
         encoded_boards.into_iter()
+            .filter(|encoded_board| !encoded_board.is_empty())
             .map(|encoded_board| Board::deserialize_rs(&encoded_board))
             .collect()
     }
