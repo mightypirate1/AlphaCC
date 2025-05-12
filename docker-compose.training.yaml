@@ -17,7 +17,7 @@ services:
     depends_on:
       keydb-main:
         condition: service_healthy
-      keydb-cache:
+      keydb-pred:
         condition: service_healthy
     volumes:
       - local:/mnt:rw
