@@ -1,3 +1,5 @@
+use std::num::NonZero;
+
 use pyo3::prelude::*;
 use redis::{Client, Commands, Connection, ConnectionLike, RedisResult};
 
@@ -15,7 +17,7 @@ pub struct PredDBChannel {
 
 impl PredDBChannel {
     pub fn new(url: &str, channel: usize) -> Self {
-        let conn = PredDBChannel::connect(url, channel);        
+        let conn = PredDBChannel::connect(url, channel);       
         PredDBChannel { 
             conn,
             channel,
@@ -84,6 +86,10 @@ impl PredDBChannel {
         let key: u64 = board.compute_hash();
         match self.conn.get::<_, Vec<u8>>(key) {
             Ok(encoded) => {
+                if encoded.is_empty() {
+                    // TODO: check if this actually happens
+                    return None;
+                }
                 Some(NNPred::deserialize(&encoded))
             },
             Err(e) => {
@@ -93,18 +99,38 @@ impl PredDBChannel {
         }
     }
 
-    fn pop_all_boards_from_queue(&mut self) -> Vec<Board> {
-        let encoded_boards: Vec<Vec<u8>> = match self.conn.lrange(PRED_QUEUE, 0, -1) {
-            Ok(boards) => boards,
+    fn queue_len(&mut self) -> usize {
+        match self.conn.llen(PRED_QUEUE) {
+            Ok(len) => len,
             Err(e) => {
-                println!("Error fetching all from queue: {:?}", e);
-                return Vec::new();
+                println!("Error fetching queue length: {:?}", e);
+                0
             },
-        };
-        encoded_boards.into_iter()
-            .filter(|encoded_board| !encoded_board.is_empty())
-            .map(|encoded_board| Board::deserialize_rs(&encoded_board))
-            .collect()
+        }
+    }
+
+    fn pop_all_boards_from_queue(&mut self) -> Vec<Board> {
+        let queue_len = self.queue_len();
+        
+        if queue_len == 0 {
+            return Vec::new();
+        }
+
+        let mut boards: Vec<Board> = Vec::with_capacity(queue_len);
+        let encoded_boards = 
+            self.conn.lpop::<_, Vec<Vec<u8>>>(PRED_QUEUE, NonZero::new(queue_len));
+        match encoded_boards {
+            Ok(encoded_boards) => {
+                for encoded_board in encoded_boards {
+                    boards.push(Board::deserialize_rs(&encoded_board));
+                }
+            },
+            Err(e) => {
+                panic!("Error fetching boards from queue: {:?}", e);
+            },
+        }
+        
+        boards
     }
 }
 
@@ -126,6 +152,17 @@ impl PredDBChannel {
 
     pub fn request_pred(&mut self, board: &Board) -> Option<NNPred> {
         self.get_pred(board)
+    }
+
+    pub fn dbg(&mut self, board: &Board) {
+        let result: RedisResult<()> = self.conn.set("HEJ", 1);
+        match result {
+            Ok(_) => {},
+            Err(e) => {
+                println!("set error: {:?}", e);
+            },
+        };
+        self.add_to_pred_queue(board);
     }
 
     pub fn post_pred(&mut self, board: &Board, nn_pred: &NNPred) {

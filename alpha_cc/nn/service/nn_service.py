@@ -24,6 +24,7 @@ class ServedNN:
         training_db: TrainingDB,
         nn: torch.nn.Module,
         inference_batch_size: int = 512,
+        num_post_workers: int = 2,
         log_frequency: int = 60,
         reload_frequency: int = 1,
         device: str = "cpu",
@@ -40,7 +41,7 @@ class ServedNN:
         self._n_batches = 0
         self._jobs = self._initialize_scheduler()
         self._assign_nn(nn)
-        self._post_pool = ThreadPoolExecutor(max_workers=2)
+        self._post_pool = ThreadPoolExecutor(max_workers=num_post_workers)
         pred_db_channel.flush_preds()
 
     @property
@@ -64,7 +65,7 @@ class ServedNN:
             if len(batch_states) == 0:
                 continue
 
-            with torch.no_grad(), torch.cuda.amp.autocast("cuda"):
+            with torch.no_grad(), torch.cuda.amp.autocast(enabled=self._device == "cuda"):
                 x_batch_pis, x_batch_vals = self._nn(x_batch)
 
             # post in a separate thread to avoid blocking GPU
@@ -137,11 +138,11 @@ class ServedNN:
 
     def _update_weights(self) -> None:
         if self._nn is None:
-            logger.warn(f"[Channel-{self._pred_db_channel.channel}]: attempted reload but is deactivated")
+            logger.warning(f"[Channel-{self._pred_db_channel.channel}]: attempted reload but is deactivated")
             return
         target_weight_index = self._training_db.model_get_current().get(self.channel)
         if target_weight_index is None:
-            logger.warn(f"[Channel-{self._pred_db_channel.channel}]: attempted reload but has no target weights")
+            logger.warning(f"[Channel-{self._pred_db_channel.channel}]: attempted reload but has no target weights")
             return
 
         if target_weight_index == self._current_weights_index:
@@ -164,6 +165,7 @@ class NNService:
         log_frequency: int = 60,
         reload_frequency: int = 1,
         infecence_batch_size: int = 512,
+        num_post_workers: int = 2,
         gpu: bool = False,
     ) -> None:
         self._nn_creator = nn_creator
@@ -171,6 +173,7 @@ class NNService:
         self._log_frequency = log_frequency
         self._reload_frequency = reload_frequency
         self._infecence_batch_size = infecence_batch_size
+        self._num_post_workers = num_post_workers
         self._device = "cuda" if gpu and torch.cuda.is_available() else "cpu"
         self._training_db = TrainingDB(host=redis_host_main)
         self._n_preds = 0
@@ -210,6 +213,7 @@ class NNService:
             self._training_db,
             nn,
             inference_batch_size=self._infecence_batch_size,
+            num_post_workers=self._num_post_workers,
             log_frequency=self._log_frequency,
             reload_frequency=self._reload_frequency,
             device=self._device,
