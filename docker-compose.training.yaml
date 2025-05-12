@@ -48,7 +48,7 @@ services:
     deploy:
       replicas: 20
     depends_on:
-      - trainer
+      - nn-service
     env_file:
       - .env.docker
     restart: always
