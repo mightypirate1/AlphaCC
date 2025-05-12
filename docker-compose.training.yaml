@@ -15,7 +15,9 @@ services:
               count: 1
               capabilities: [gpu]
     depends_on:
-      keydb:
+      keydb-main:
+        condition: service_healthy
+      keydb-cache:
         condition: service_healthy
     volumes:
       - local:/mnt:rw
