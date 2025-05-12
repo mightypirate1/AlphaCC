@@ -5,6 +5,8 @@ import torch
 from apscheduler.job import Job
 from apscheduler.schedulers.background import BackgroundScheduler
 
+from concurrent.futures import ThreadPoolExecutor
+
 from alpha_cc.db import TrainingDB
 from alpha_cc.engine import NNPred, PredDBChannel
 from alpha_cc.engine.engine_utils import action_indexer
@@ -21,12 +23,14 @@ class ServedNN:
         pred_db_channel: PredDBChannel,
         training_db: TrainingDB,
         nn: torch.nn.Module,
+        inference_batch_size: int = 512,
         log_frequency: int = 60,
         reload_frequency: int = 1,
         device: str = "cpu",
     ) -> None:
         self._pred_db_channel = pred_db_channel
         self._training_db = training_db
+        self._inference_batch_size = inference_batch_size
         self._log_frequency = log_frequency
         self._reload_frequency = reload_frequency
         self._device = torch.device(device)
@@ -36,6 +40,7 @@ class ServedNN:
         self._n_batches = 0
         self._jobs = self._initialize_scheduler()
         self._assign_nn(nn)
+        self._post_pool = ThreadPoolExecutor(max_workers=2)
         pred_db_channel.flush_preds()
 
     @property
@@ -50,11 +55,28 @@ class ServedNN:
             return
         states = [GameState(board) for board in boards]
         x = self._prepare_input(states)
-        with torch.no_grad():
-            x_pis, x_vals = self._nn(x)
+        
+        # batch it up, in case we have a LOT of requests
+        for i in range(0, len(states), self._inference_batch_size):
+            batch_states = states[i : i + self._inference_batch_size]
+            x_batch = x[i : i + self._inference_batch_size]
+
+            if len(batch_states) == 0:
+                continue
+
+            with torch.no_grad(), torch.cuda.amp.autocast("cuda"):
+                x_batch_pis, x_batch_vals = self._nn(x_batch)
+
+            # post in a separate thread to avoid blocking GPU
+            self._post_pool.submit(
+                self._post_predictions,
+                    batch_states,
+                    x_batch_pis.detach().to("cpu", non_blocking=True),
+                    x_batch_vals.detach().to("cpu", non_blocking=True),
+                )
+
         self._n_preds += len(states)
         self._n_batches += 1
-        self._post_predictions(states, x_pis, x_vals)
 
     def deactivate(self) -> None:
         self._nn = None
@@ -76,14 +98,19 @@ class ServedNN:
         return input_tensor.to(self._device, non_blocking=True)
 
     def _post_predictions(self, states: list[GameState], x_pis: torch.Tensor, x_vals: torch.Tensor) -> None:
+        """
+        Post predictions to the prediction database.
+
+        They are assumed to be on the CPU, and in the same order as the states.
+        """
         def create_nn_pred(state: GameState, pi_tensor_unsoftmaxed: torch.Tensor, val: torch.Tensor) -> NNPred:
             pi_unsoftmaxed = pi_tensor_unsoftmaxed[*action_indexer(state)]
             pi = torch.nn.functional.softmax(pi_unsoftmaxed, dim=0)
-            return NNPred(pi.cpu().numpy().tolist(), val.cpu().item())
+            return NNPred(pi.numpy().tolist(), val.item())
 
         nn_preds = [
             create_nn_pred(state, pi_tensor_unsoftmaxed, val)
-            for state, pi_tensor_unsoftmaxed, val in zip(states, x_pis.cpu(), x_vals.cpu())
+            for state, pi_tensor_unsoftmaxed, val in zip(states, x_pis, x_vals)
         ]
         for state, nn_pred in zip(states, nn_preds):
             self._pred_db_channel.post_pred(state.board, nn_pred)
@@ -136,12 +163,14 @@ class NNService:
         redis_host_pred: str = "localhost",
         log_frequency: int = 60,
         reload_frequency: int = 1,
+        infecence_batch_size: int = 512,
         gpu: bool = False,
     ) -> None:
         self._nn_creator = nn_creator
         self._redis_host_pred = redis_host_pred
         self._log_frequency = log_frequency
         self._reload_frequency = reload_frequency
+        self._infecence_batch_size = infecence_batch_size
         self._device = "cuda" if gpu and torch.cuda.is_available() else "cpu"
         self._training_db = TrainingDB(host=redis_host_main)
         self._n_preds = 0
@@ -180,6 +209,7 @@ class NNService:
             pred_db_channel,
             self._training_db,
             nn,
+            inference_batch_size=self._infecence_batch_size,
             log_frequency=self._log_frequency,
             reload_frequency=self._reload_frequency,
             device=self._device,

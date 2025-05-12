@@ -82,6 +82,7 @@ services:
       "alphacc-nn-service",
       "--size=9",
       "--gpu",
+      "--inference-batch-size=512",
     ]
 
   tensorboard:

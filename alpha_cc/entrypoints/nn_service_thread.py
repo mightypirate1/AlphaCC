@@ -11,9 +11,18 @@ from alpha_cc.nn.service import NNService
 @click.command("alpha-cc-nn-service")
 @click.option("--size", type=int, default=9)
 @click.option("--reload-frequency", type=int, default=1)
+@click.option("--log-frequency", type=int, default=60)
+@click.option("--inference-batch-size", type=int, default=512)
 @click.option("--gpu", is_flag=True, default=False)
 @click.option("--verbose", is_flag=True, default=False)
-def main(size: int, reload_frequency: int, gpu: bool, verbose: bool) -> None:
+def main(
+    size: int,
+    reload_frequency: int,
+    log_frequency: int,
+    inference_batch_size: int,
+    gpu: bool,
+    verbose: bool,
+) -> None:
     init_rootlogger(verbose=verbose)
     # let the trainer start and flush the db
     time.sleep(5)
@@ -23,6 +32,8 @@ def main(size: int, reload_frequency: int, gpu: bool, verbose: bool) -> None:
         redis_host_main=Environment.redis_host_main,
         redis_host_pred=Environment.redis_host_pred,
         reload_frequency=reload_frequency,
+        log_frequency=log_frequency,
+        infecence_batch_size=inference_batch_size,
         gpu=gpu,
     )
     nn_service.run()
