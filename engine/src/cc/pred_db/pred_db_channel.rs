@@ -22,6 +22,18 @@ impl PredDBChannel {
          }
     }
 
+
+    fn connect(url: &str, db: usize) -> Connection {
+        let client = Client::open(format!("redis://{url}/{db}", url=url, db=db))
+            .expect("Invalid connection URL");
+        client.get_connection()
+            .expect("failed to connect to Redis")
+    }
+
+    pub fn ping(& mut self) -> bool {
+        self.conn.check_connection() && self.conn.check_connection()
+    }
+
     pub fn add_to_pred_queue(&mut self, board: &Board) {
         let value = board.serialize_rs();
         let result: RedisResult<()> = self.conn.rpush(PRED_QUEUE, value);
@@ -81,10 +93,6 @@ impl PredDBChannel {
         }
     }
 
-    pub fn ping(& mut self) -> bool {
-        self.conn.check_connection() && self.conn.check_connection()
-    }
-
     fn pop_all_boards_from_queue(&mut self) -> Vec<Board> {
         let encoded_boards: Vec<Vec<u8>> = match self.conn.lrange(PRED_QUEUE, 0, -1) {
             Ok(boards) => boards,
@@ -97,13 +105,6 @@ impl PredDBChannel {
             .filter(|encoded_board| !encoded_board.is_empty())
             .map(|encoded_board| Board::deserialize_rs(&encoded_board))
             .collect()
-    }
-
-    fn connect(url: &str, db: usize) -> Connection {
-        let client = Client::open(format!("redis://{url}/{db}", url=url, db=db))
-            .expect("Invalid connection URL");
-        client.get_connection()
-            .expect("failed to connect to Redis")
     }
 }
 
