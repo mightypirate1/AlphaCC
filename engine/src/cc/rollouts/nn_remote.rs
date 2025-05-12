@@ -25,8 +25,8 @@ impl NNRemote {
             None => {
                 self.pred_db.add_to_pred_queue(board);
                 loop {
-                    if self.pred_db.has_pred(board) {
-                        return self.pred_db.get_pred(board).unwrap();
+                    if let Some(nn_pred) = self.pred_db.get_pred(board) {
+                        return nn_pred;
                     }
                     thread::sleep(Duration::from_nanos(DELAY_NS));
                     patience -= 1;
