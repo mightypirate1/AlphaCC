@@ -132,17 +132,18 @@ class NNService:
     def __init__(
         self,
         nn_creator: Callable[[], torch.nn.Module],
-        host: str = "localhost",
+        redis_host_main: str = "localhost",
+        redis_host_pred: str = "localhost",
         log_frequency: int = 60,
         reload_frequency: int = 1,
         gpu: bool = False,
     ) -> None:
         self._nn_creator = nn_creator
-        self._host = host
+        self._redis_host_pred = redis_host_pred
         self._log_frequency = log_frequency
         self._reload_frequency = reload_frequency
         self._device = "cuda" if gpu and torch.cuda.is_available() else "cpu"
-        self._training_db = TrainingDB(host=host)
+        self._training_db = TrainingDB(host=redis_host_main)
         self._n_preds = 0
         self._n_batches = 0
         self._served_nns: list[ServedNN] = []
@@ -157,7 +158,7 @@ class NNService:
     def add_channel(self, channel: int) -> None:
         for served_nn in self._served_nns:
             if served_nn.channel == channel:
-                logger.warn(f"[Channel-{channel}]: already exists")
+                logger.warning(f"[Channel-{channel}]: already exists")
                 return
         self._served_nns.append(self._create_served_nn(channel))
 
@@ -173,7 +174,7 @@ class NNService:
         return any(snn.channel == channel for snn in self._served_nns)
 
     def _create_served_nn(self, channel: int) -> ServedNN:
-        pred_db_channel = PredDBChannel(self._host, channel)
+        pred_db_channel = PredDBChannel(self._redis_host_pred, channel)
         nn = self._nn_creator()
         return ServedNN(
             pred_db_channel,

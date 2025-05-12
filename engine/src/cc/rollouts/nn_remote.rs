@@ -20,18 +20,20 @@ impl NNRemote {
         // assumes there is a service running that will eventually
         // provide the prediction
         let mut patience = PATIENCE;
-        if self.pred_db.has_pred(board) {
-            return self.pred_db.get_pred(board).unwrap();
-        }
-        self.pred_db.add_to_pred_queue(board);
-        loop {
-            if self.pred_db.has_pred(board) {
-                return self.pred_db.get_pred(board).unwrap();
-            }
-            thread::sleep(Duration::from_nanos(DELAY_NS));
-            patience -= 1;
-            if patience == 0 {
-                panic!("service not responding in {}ms", PATIENCE * DELAY_NS / 1_000);
+        match self.pred_db.get_pred(board) {
+            Some(nn_pred) => nn_pred,
+            None => {
+                self.pred_db.add_to_pred_queue(board);
+                loop {
+                    if self.pred_db.has_pred(board) {
+                        return self.pred_db.get_pred(board).unwrap();
+                    }
+                    thread::sleep(Duration::from_nanos(DELAY_NS));
+                    patience -= 1;
+                    if patience == 0 {
+                        panic!("service not responding in {}ms", PATIENCE * DELAY_NS / 1_000);
+                    }
+                }
             }
         }
     }   
