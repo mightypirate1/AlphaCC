@@ -22,7 +22,7 @@ services:
     env_file:
       - .env.docker
     environment:
-      - REDIS_HOST=keydb-webapp
+      - REDIS_HOST_MAIN=keydb-webapp
     volumes:
       - models:/mnt/models:rw
     ports:
@@ -31,7 +31,7 @@ services:
   keydb-webapp:
     image: eqalpha/keydb
     ports:
-      - '6378:6379'
+      - '6377:6379'
     command: [
       "keydb-server",
       "--appendonly", "no",

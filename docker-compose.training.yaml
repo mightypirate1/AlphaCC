@@ -23,16 +23,19 @@ services:
       - .env.docker
     command: [
       "alphacc-trainer",
-      "--run-id=alpha-cc-size-9-run-00-gpu",
+      # "--run-id=alpha-cc-size-5-run-00-gpu",
+      "--run-id=dbg-10-size9",
       "--size=9",
       "--tournament-freq=30",
       "--n-train-samples=5000",
-      "--replay-buffer-size=10000",
+      "--replay-buffer-size=20000",
+      "--train-size=10000",
       "--epochs-per-update=5",
       "--policy-weight=1.0",
       "--value-weight=1.0",
-      "--l2-reg=1e-5",
-      "--batch-size=256",
+      "--entropy-weight=0.01",
+      "--l2-reg=3e-4",
+      "--batch-size=64",
       "--lr=1e-4",
       "--gpu",
     ]
@@ -41,7 +44,7 @@ services:
     image: alphacc/main
     cpu_shares: 2
     deploy:
-      replicas: 30
+      replicas: 20
     depends_on:
       - trainer
     env_file:
@@ -50,7 +53,7 @@ services:
     command: [
       "alphacc-worker",
       "--size=9",
-      "--n-rollouts=1000",
+      "--n-rollouts=1500",
       "--rollout-depth=200",
       "--max-game-length=300",
       "--dirichlet-noise-weight=0.15",
@@ -90,7 +93,7 @@ services:
       - "tensorboard"
       - "--logdir=/mnt/logdir"
 
-  keydb:
+  keydb-main:
     image: eqalpha/keydb
     ports:
       - '6379:6379'
@@ -102,7 +105,31 @@ services:
       "--tcp-backlog", "511",
       "--tcp-keepalive", "60",
       "--client-output-buffer-limit", "normal", "0", "0", "0",
-      "--client-output-buffer-limit", "pubsub", "32mb", "8mb", "60"
+      "--client-output-buffer-limit", "pubsub", "32mb", "8mb", "60",
+    ]
+    healthcheck:
+      test: [ "CMD", "redis-cli", "--raw", "incr", "ping" ]
+      interval: 5s
+      timeout: 30s
+      retries: 15
+      start_period: 5s
+
+  keydb-pred:
+    image: eqalpha/keydb
+    ports:
+      - '6378:6379'
+    command: [
+      "keydb-server",
+      "--appendonly", "no",
+      "--save", "",
+      "--server-threads", "4",
+      "--tcp-backlog", "511",
+      "--tcp-keepalive", "60",
+      "--client-output-buffer-limit", "normal", "0", "0", "0",
+      "--client-output-buffer-limit", "pubsub", "32mb", "8mb", "60",
+      "--maxmemory", "1gb",
+      "--maxmemory-policy", "allkeys-lru",
+      "--hz", "300",
     ]
     healthcheck:
       test: [ "CMD", "redis-cli", "--raw", "incr", "ping" ]

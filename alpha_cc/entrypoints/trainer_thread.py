@@ -136,7 +136,7 @@ def main(
     init_rootlogger(verbose=verbose)
     summary_writer = create_summary_writer(run_id)
     device = "cuda" if gpu and torch.cuda.is_available() else "cpu"
-    db = TrainingDB(host=Environment.redis_host)
+    db = TrainingDB(host=Environment.redis_host_main)
     tournament_runtime = TournamentRuntime(size, db)
     replay_buffer = TrainingDataset(max_size=replay_buffer_size)
     trainer = Trainer(

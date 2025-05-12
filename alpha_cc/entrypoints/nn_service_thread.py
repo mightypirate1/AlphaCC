@@ -20,7 +20,7 @@ def main(size: int, reload_frequency: int, gpu: bool, verbose: bool) -> None:
 
     nn_service = NNService(
         nn_creator=lambda: DefaultNet(size),
-        host=Environment.redis_host,
+        host=Environment.redis_host_pred,
         reload_frequency=reload_frequency,
         gpu=gpu,
     )
