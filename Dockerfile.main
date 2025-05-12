@@ -1,6 +1,5 @@
+# I found no cuda image with python 3.13, so we make one by hand
 FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04 AS base-cuda
-# I fount no cuda image with python 3.13,
-# so I use the base image and install python 3.13 manually
 ENV PYTHONUNBUFFERED=1               \
     PYTHONDONTWRITEBYTECODE=1        \
     PIP_NO_CACHE_DIR=off             \
@@ -26,29 +25,37 @@ RUN apt-get update && apt-get install -y                       \
 WORKDIR ${WORKDIR}
 
 
-FROM base-cuda AS builder-rs
+# Creates the venv and adds torch compiled with cuda 12.8
+FROM base-cuda as base-torch
+RUN python3 -m venv .venv --prompt alpha-cc
+ENV PATH="$WORKDIR/.venv/bin:$PATH"
+RUN pip install torch --index-url https://pypi.org/simple --extra-index-url https://download.pytorch.org/whl/cu128
+
+
+# Builds the rust engine and adds to the venv
+FROM base-torch AS builder-rs
 RUN mkdir -p ${WORKDIR}/engine
-# Install build deps
 RUN apt-get update                                \
     && apt-get install -y --no-install-recommends \
         clang libssl-dev make pkg-config gcc      \
     && apt-get clean                              \
     && rm -rf /var/lib/apt/lists/*
 RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
-# Build package
-RUN python3 -m venv .venv --prompt alpha-cc
-ENV PATH="$WORKDIR/.venv/bin:/root/.cargo/bin:$PATH"
+# Build engine
+ENV PATH="/root/.cargo/bin:$PATH"
 COPY . $WORKDIR
-RUN bash -c '                     \
+RUN bash -c '                         \
     python3 -m pip install maturin && \
-    cd $WORKDIR/engine &&         \
-    maturin develop --release     \
+    cd $WORKDIR/engine &&             \
+    maturin develop --release         \
 '
 
+
+# Build the python package in the venv
 FROM builder-rs AS builder
-RUN pip install . --index-url https://pypi.org/simple --extra-index-url https://download.pytorch.org/whl/cu128
+RUN pip install .
 
-
+# Move the venv over to the main image
 FROM base-cuda AS main
 ENV PATH="$WORKDIR/.venv/bin:$PATH"
 WORKDIR ${WORKDIR}
