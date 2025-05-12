@@ -30,4 +30,15 @@ impl MCTSNode {
         self.n[action] += 1;
         self.q[action] = (n_a * self.q[action] + value) / (n_a + 1.0);
     }
+
+    pub fn rollout_value(&self) -> f32 {
+        (0..self.n.len())
+            .map(|a| {
+                let n_a = self.n[a] as f32;
+                let v_tot = n_a * self.q[a] + self.v;
+                v_tot / (n_a + 1.0)
+            })
+            .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .unwrap_or(0.0)
+    }
 }

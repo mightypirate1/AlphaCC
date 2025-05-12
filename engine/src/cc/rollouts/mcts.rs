@@ -61,7 +61,7 @@ impl MCTS {
         // if we've seen this node before, we keep rolling
         if let Some(node) = nodes.get(&board) {
             if remaining_depth == 0 {
-                return -node.v;
+                return -node.rollout_value();
             }
     
             // prepare continued rollout
