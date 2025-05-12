@@ -15,6 +15,7 @@ DEV_REQUIRES = [
     "plotly-express",
     "pytest",
     "ruff",
+    "standard-imghdr",
 ]
 
 
