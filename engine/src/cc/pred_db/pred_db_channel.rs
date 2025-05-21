@@ -238,6 +238,8 @@ impl PredDBChannel {
     }
 
     pub fn flush_preds(&mut self) {
-        redis::cmd("FLUSHDB").exec(&mut self.conn).unwrap();
+        redis::cmd("FLUSHDB").arg("ASYNC").exec(&mut self.conn).unwrap_or_else(|e| {
+            println!("Error flushing predictions: {:?}", e);
+        });
     }
 }

@@ -188,7 +188,7 @@ impl MCTS {
         )
     }
 
-    pub fn get_node(&mut self, board: &Board) -> MCTSNode {
-        self.nodes.get(board).unwrap().clone()
+    pub fn get_node(&mut self, board: &Board) -> Option<MCTSNode> {
+        self.nodes.get(board).cloned()
     }
 }
