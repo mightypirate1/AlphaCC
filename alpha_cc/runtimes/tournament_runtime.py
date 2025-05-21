@@ -6,10 +6,9 @@ import numpy as np
 from tqdm_loggable.auto import tqdm
 
 from alpha_cc.agents.mcts.mcts_agent import MCTSAgent
-from alpha_cc.db.models import DBGameState, TournamentResult
-from alpha_cc.db.training_db import TrainingDB
+from alpha_cc.db import GamesDB, TrainingDB
+from alpha_cc.db.models import TournamentResult
 from alpha_cc.engine import Board
-from alpha_cc.state import GameState
 
 logger = getLogger(__file__)
 
@@ -24,38 +23,43 @@ class TournamentRuntime:
     and be merged with TournamentManager in the trainer theread endpoint.
     """
 
-    def __init__(self, size: int, training_db: TrainingDB, max_game_length: int | None = None) -> None:
+    def __init__(
+        self, size: int, training_db: TrainingDB, games_db: GamesDB | None = None, max_game_length: int | None = None
+    ) -> None:
         self._size = size
         self._training_db = training_db
+        self._games_db = games_db
         self._max_game_duration = np.inf if max_game_length is None else max_game_length
         self._allocated_channels: list[int] | None = None  # used to help creator of tournament to clean up
 
-    def play_and_record_game(self, agent_channel_dict: dict[int, MCTSAgent]) -> DBGameState:
+    def play_and_record_game(self, agent_channel_dict: dict[int, MCTSAgent]) -> None:
+        game_id = f"tournament-game/{datetime.now().strftime(r'%Y-%m-%d-%H-%M-%S')}"
+        if self._games_db is not None:
+            self._games_db.create_game(game_id, self._size)
         # since trainer will block until tournament is over,
         # we try-catch and post back the result in case of failure.
         # there is still a rare bug causing a crash
         try:
-            game_id = f"tournament-game/{datetime.now().strftime(r'%Y-%m-%d-%H-%M-%S')}"
             board = Board(self._size)
             agents = tuple(agent_channel_dict.values())
             current_agent_idx = 0
 
-            states = []
             actions = []
-            with tqdm("tournament-game", total=self._max_game_duration) as pbar:
+            with tqdm(desc="tournament-game", total=self._max_game_duration) as pbar:
                 while not board.info.game_over and board.info.duration < self._max_game_duration:
                     # get and record action/board
                     agent = agents[current_agent_idx]
                     action_index = agent.choose_move(board, training=False)
-                    states.append(GameState(board))
                     actions.append(action_index)
                     # apply action
                     move = board.get_moves()[action_index]
                     board = board.apply(move)
                     pbar.update(1)
                     current_agent_idx = 1 - current_agent_idx
+                    if self._games_db is not None:
+                        # record action
+                        self._games_db.add_move(game_id, action_index)
             player_1, player_2 = agent_channel_dict.keys()
-            states.append(GameState(board))
 
         except Exception as e:
             logger.error("Tournament game FAILED!")
@@ -70,11 +74,6 @@ class TournamentRuntime:
         elif board.info.winner == 2:
             self._training_db.tournament_add_result(player_1, player_2, winner=player_2)
         self._training_db.tournament_increment_counter()
-        return DBGameState(
-            game_id=game_id,
-            size=self._size,
-            move_indices=actions,
-        )
 
     def run_tournament(self, weight_indices: list[int], n_rounds: int = 5) -> TournamentResult:
         """
@@ -109,15 +108,18 @@ class TournamentRuntime:
         return n_expected_games
 
     def _await_tournament_results(self, expected_games: int, deallocate_channels: bool = True) -> TournamentResult:
-        with tqdm(desc="awaiting tournament", total=expected_games) as pbar:
+        with tqdm(desc="tournament: awaiting", total=expected_games) as pbar:
             last_completed_games = 0
             while (completed_games := self._training_db.tournament_get_n_completed_games()) < expected_games:
                 pbar.update(completed_games - last_completed_games)
                 last_completed_games = completed_games
                 time.sleep(1)
+        logger.info("tournament: completed")
 
         # deallocate pred-channels
         if self._allocated_channels is not None and deallocate_channels:
             for channel in self._allocated_channels:
+                logger.info(f"tournament: deallocating channel {channel}")
                 self._training_db.model_remove(channel)
+        logger.info("tournament: fetching results")
         return self._training_db.tournament_get_results()

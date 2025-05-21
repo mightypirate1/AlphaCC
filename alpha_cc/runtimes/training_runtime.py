@@ -12,15 +12,14 @@ class TrainingRunTime:
     def __init__(
         self,
         board: Board,
-        agent: MCTSAgent | StandaloneMCTSAgent,
         value_assignment_strategy: ValueAssignmentStrategy,
     ) -> None:
         self._board = board
-        self._agent = agent
         self._value_assignment_strategy = value_assignment_strategy
 
     def play_game(
         self,
+        agent: MCTSAgent | StandaloneMCTSAgent,
         n_rollouts: int | None = None,
         rollout_depth: int | None = None,
         action_temperature: float = 1.0,
@@ -28,14 +27,13 @@ class TrainingRunTime:
         argmax_delay: int | None = None,
     ) -> list[MCTSExperience]:
         board = self._board.reset()
-        agent = self._agent
         max_game_duration = np.inf if max_game_length is None else max_game_length
         time_to_argmax = argmax_delay if argmax_delay is not None else np.inf
         agent.on_game_start()
 
         trajectory: list[MCTSExperience] = []
 
-        with tqdm("training-game", total=max_game_length) as pbar:
+        with tqdm(desc="training", total=max_game_length) as pbar:
             while not board.info.game_over and board.info.duration < max_game_duration:
                 pi, value = agent.run_rollouts(
                     board,

@@ -12,6 +12,7 @@ DEV_REQUIRES = [
     "mypy",
     "nbformat>4.2.0",
     "pandas",
+    "plotext",
     "plotly-express",
     "pytest",
     "ruff",
@@ -61,6 +62,8 @@ setup(
             "alphacc-nn-service = alpha_cc.entrypoints.nn_service_thread:main",
             "alphacc-singlethread-training = alpha_cc.entrypoints.singlethread_training:main",
             "alphacc-eval-weights = alpha_cc.entrypoints.eval_weights:main",
+            "alphacc-param-schedule-eval = alpha_cc.entrypoints.param_schedule_eval:main",
+            "alphacc-db-game-inspection = alpha_cc.entrypoints.db_game_inspection:main",
         ],
     }
 )

@@ -65,7 +65,9 @@ class MCTSAgent(Agent):
 
     def _rollout_policy(self, board: Board, temperature: float = 1.0) -> np.ndarray:
         node = self._mcts.get_node(board)
-        weighted_counts = np.array(node.n)
+
+        # in case we did not do any rollouts yet, we default to uniform
+        weighted_counts = np.ones(len(board.get_moves())) if node is None else np.array(node.n)
         if temperature != 1.0:  # save some flops
             weighted_counts = weighted_counts ** (1 / temperature)
         pi = weighted_counts / weighted_counts.sum()
