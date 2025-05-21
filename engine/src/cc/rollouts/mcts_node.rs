@@ -2,6 +2,8 @@ extern crate pyo3;
 
 use pyo3::prelude::*;
 
+use crate::cc::Move;
+
 
 #[pyclass(module="alpha_cc_engine")]
 #[derive(Clone)]
@@ -14,15 +16,17 @@ pub struct MCTSNode {
     pub pi: Vec<f32>,
     #[pyo3(get)]
     pub v: f32,
+    #[pyo3(get)]
+    pub moves: Vec<Move>,
 }
 
 
 impl MCTSNode {
-    pub fn new_leaf(pi: Vec<f32>, v: f32) -> Self {
+    pub fn new_leaf(pi: Vec<f32>, v: f32, moves: Vec<Move>) -> Self {
         let num_actions = pi.len();
         let n = vec![0; num_actions];
         let q = vec![0.0; num_actions];
-        MCTSNode { n, q, pi, v }
+        MCTSNode { n, q, pi, v, moves }
     }
 
     pub fn update_on_visit(&mut self, action: usize, value: f32) {

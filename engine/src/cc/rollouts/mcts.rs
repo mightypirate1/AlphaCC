@@ -70,8 +70,7 @@ impl MCTS {
                 &mcts_params.c_puct_init,
                 &mcts_params.c_puct_base,
             );
-            let moves = find_all_moves(&board);
-            let s_prime = board.apply(&moves[a]);
+            let s_prime = board.apply(&node.moves[a]);
             
             // continue rollout
             let v = MCTS::rollout(
@@ -145,7 +144,8 @@ impl MCTS {
             }
         }
 
-        let node= MCTSNode::new_leaf(pi, v);
+        let moves = find_all_moves(&board);
+        let node= MCTSNode::new_leaf(pi, v, moves);
         nodes.put(board,node);
     }
 }
