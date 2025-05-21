@@ -23,7 +23,7 @@ logger = logging.getLogger(__file__)
 @click.option("--size", type=int, default=9)
 @click.option("--n-rollouts", type=str, default="100")
 @click.option("--rollout-depth", type=str, default="100")
-@click.option("--max-game-length", type=int)
+@click.option("--max-game-length", type=str)
 @click.option("--rollout-gamma", type=float, default=1.0)
 @click.option("--dirichlet-noise-weight", type=float, default=0.0)
 @click.option("--argmax-delay", type=str, default=None)
@@ -36,7 +36,7 @@ def main(
     size: int,
     n_rollouts: str,
     rollout_depth: str,
-    max_game_length: int | None,
+    max_game_length: str | None,
     rollout_gamma: float,
     dirichlet_noise_weight: float,
     argmax_delay: str | None,
@@ -56,6 +56,7 @@ def main(
             dirichlet_weight=dirichlet_noise_weight,
         )
 
+    max_game_length_schedule = ParamSchedule.from_str(max_game_length or "inf")
     argmax_delay_schedule = ParamSchedule.from_str(argmax_delay or "inf")
     n_rollouts_schedule = ParamSchedule.from_str(n_rollouts)
     rollout_depth_schedule = ParamSchedule.from_str(rollout_depth)
@@ -67,7 +68,9 @@ def main(
 
     value_assignment_strategy = create_value_assignment_strategy(size, gamma, heuristic, non_terminal_value_weight)
     training_runtime = TrainingRunTime(Board(size), value_assignment_strategy)
-    tournament_runtime = TournamentRuntime(size, training_db, games_db, max_game_length=max_game_length)
+    tournament_runtime = TournamentRuntime(
+        size, training_db, games_db, max_game_length=max_game_length_schedule.as_int(0)
+    )
 
     # the trainer needs to start and flush the db, so we wait
     time.sleep(10)  # TODO: figure out why workers can start before trainer
@@ -84,9 +87,9 @@ def main(
             )
         traj = training_runtime.play_game(
             agent=create_model(0, trainer_time),
-            max_game_length=max_game_length,
+            max_game_length=max_game_length_schedule.as_int(trainer_time),
             action_temperature=action_temperature_schedule.as_float(trainer_time),
-            argmax_delay=argmax_delay_schedule.as_int(0),
+            argmax_delay=argmax_delay_schedule.as_int(trainer_time),
         )
         training_db.trajectory_post(traj)
 

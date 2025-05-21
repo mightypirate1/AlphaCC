@@ -167,8 +167,8 @@ def main(
         champion_index=champion_index,
     )
 
-    # workers will wait for the first weights getting published so everyone has the same net
     db.model_set_current(0, curr_index)
+
     while True:
         # wait until we have enough new samples
         trajectories = await_samples(db, n_train_samples)

@@ -26,6 +26,7 @@ class ServedNN:
         nn: torch.nn.Module,
         current_weights_index: int,
         inference_batch_size: int = 512,
+        fetch_batch_size: int = 2048,
         num_post_workers: int = 2,
         log_frequency: int = 60,
         device: str = "cpu",
@@ -35,6 +36,7 @@ class ServedNN:
         self._nn_creator = nn_creator
         self._current_weights_index = current_weights_index
         self._inference_batch_size = inference_batch_size
+        self._fetch_batch_size = fetch_batch_size
         self._log_frequency = log_frequency
         self._device = torch.device(device)
         self._n_preds = 0
@@ -55,7 +57,7 @@ class ServedNN:
         return self._current_weights_index
 
     def process_requests(self) -> None:
-        boards = self._pred_db_channel.fetch_all_requests()
+        boards = self._pred_db_channel.fetch_requests(self._fetch_batch_size)
         if len(boards) == 0:
             return
         states = [GameState(board) for board in boards]

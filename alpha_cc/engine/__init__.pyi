@@ -115,8 +115,8 @@ class PredDBChannel:
     def has_pred(self, board: Board) -> bool:
         """Check if a prediction is available for the given board"""
 
-    def fetch_all_requests(self) -> list[Board]:
-        """Pop all pred requests from the channel"""
+    def fetch_requests(self, count: int) -> list[Board]:
+        """Pop pred requests from the channel"""
 
     def request_pred(self, board: Board) -> None:
         """Request a prediction for the given board"""
@@ -127,7 +127,7 @@ class PredDBChannel:
     def post_preds(self, boards: list[Board], nn_preds: list[NNPred]) -> None:
         """Post a list of predictions for the given boards"""
 
-    def fetch_pred(self, board: Board, timeout: int | None) -> NNPred | None:
+    def fetch_pred(self, board: Board, timeout_ms: int | None) -> NNPred | None:
         """
         Fetch a prediction for the given board
 
