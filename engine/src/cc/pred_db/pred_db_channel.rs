@@ -9,6 +9,8 @@ use crate::cc::pred_db::nn_pred::NNPred;
 
 const PRED_QUEUE: &str = "queue";
 const CHANNEL_DB_OFFSET: usize = 2;
+const PUBSUB_BACKOFF_MS: u64 = 10;
+const PUBSUB_RETRY_COUNT: u64 = 5;
 
 
 #[pyclass(module="alpha_cc_engine")]
@@ -46,24 +48,7 @@ impl PredDBChannel {
     }
 
     pub fn set_pred(&mut self, board: &Board, nn_pred: &NNPred) {
-        let key = board.compute_hash();
-        let encoded = nn_pred.serialize();
-        let set_result: RedisResult<()> = self.conn.set(key, &encoded);
-        match set_result {
-            Ok(_) => {
-                let notification_key = PredDBChannel::notify_key(&board.compute_hash());
-                let notify_result: RedisResult<()> = self.conn.publish(notification_key, &encoded);
-                match notify_result {
-                    Ok(_) => {},
-                    Err(e) => {
-                        println!("notify error: {:?}", e);
-                    },
-                };
-            },
-            Err(e) => {
-                println!("set error: {:?}", e);
-            },
-        };
+        self.set_preds(&[board.clone()], &[nn_pred.clone()]);
     }
 
     pub fn set_preds(&mut self, boards: &[Board], nn_preds: &[NNPred]) {
@@ -101,42 +86,50 @@ impl PredDBChannel {
 
     pub fn get_pred(&mut self, board: &Board) -> Option<NNPred> {
         let key: u64 = board.compute_hash();
-        let encoded = self.conn.get::<_, Vec<u8>>(key).unwrap();
-        if !encoded.is_empty() {
-            Some(NNPred::deserialize(&encoded))
-        } else {
-            None
+        if let Ok(encoded) = self.conn.get::<_, Vec<u8>>(key) {
+            if !encoded.is_empty() {
+                return Some(NNPred::deserialize(&encoded));
+            }
         }
+        None
     }
 
     pub fn await_pred(&mut self, board: &Board, timeout: Option<Duration>) -> Option<NNPred> {
-        fn await_notification(
+        fn await_notification_with_retry(
             conn: &mut Connection,
             notification_key: &str,
             timeout: Option<Duration>,
         ) -> RedisResult<NNPred> {
             let mut pubsub = conn.as_pubsub();
             pubsub.set_read_timeout(timeout)?;
-            pubsub.subscribe(notification_key)?;
-            let message = pubsub.get_message()?;
-            let encoded_pred: Vec<u8> = message.get_payload()?;
-            let nn_pred = NNPred::deserialize(&encoded_pred);
+
+            let mut retry_count: u64 = 0;
+            loop {
+                match pubsub.subscribe(notification_key) {
+                    Ok(_) => break,
+                    Err(e) => {
+                        if retry_count >= PUBSUB_RETRY_COUNT - 1 {
+                            return Err(e);
+                        }
+                        retry_count += 1;
+                        std::thread::sleep(Duration::from_millis(PUBSUB_BACKOFF_MS * retry_count));
+                    },
+                }
+            }
+            let message = pubsub.get_message();
             match pubsub.unsubscribe(notification_key) {
                 Ok(_) => {},
                 Err(e) => {
                     println!("unsubscribe error: {:?}", e);
-                },
+                }
             };
+            let encoded_pred: Vec<u8> = message?.get_payload()?;
+            let nn_pred = NNPred::deserialize(&encoded_pred);
             Ok(nn_pred)
         }
 
-        let pred_opt = self.get_pred(board);
-        if pred_opt.is_some() {
-            return pred_opt;
-        }
-        
         let notification_key = PredDBChannel::notify_key(&board.compute_hash());
-        let result = await_notification(
+        let result = await_notification_with_retry(
             &mut self.conn,
             &notification_key,
             timeout,
@@ -157,26 +150,10 @@ impl PredDBChannel {
         format!("notify:{}", key)
     }
 
-    fn queue_len(&mut self) -> usize {
-        match self.conn.llen(PRED_QUEUE) {
-            Ok(len) => len,
-            Err(e) => {
-                println!("Error fetching queue length: {:?}", e);
-                0
-            },
-        }
-    }
-
-    fn pop_all_boards_from_queue(&mut self) -> Vec<Board> {
-        let queue_len = self.queue_len();
-        
-        if queue_len == 0 {
-            return Vec::new();
-        }
-
-        let mut boards: Vec<Board> = Vec::with_capacity(queue_len);
+    fn pop_boards_from_queue(&mut self, count: usize) -> Vec<Board> {
+        let mut boards: Vec<Board> = Vec::with_capacity(count);
         let encoded_boards = 
-            self.conn.lpop::<_, Vec<Vec<u8>>>(PRED_QUEUE, NonZero::new(queue_len));
+            self.conn.lpop::<_, Vec<Vec<u8>>>(PRED_QUEUE, NonZero::new(count));
         match encoded_boards {
             Ok(encoded_boards) => {
                 for encoded_board in encoded_boards {
@@ -213,8 +190,8 @@ impl PredDBChannel {
         self.conn.check_connection() && self.conn.check_connection()
     }
 
-    pub fn fetch_all_requests(&mut self) -> Vec<Board> {
-        self.pop_all_boards_from_queue()
+    pub fn fetch_requests(&mut self, count: usize) -> Vec<Board> {
+        self.pop_boards_from_queue(count)
     }
 
     pub fn request_pred(&mut self, board: &Board) {
@@ -230,8 +207,10 @@ impl PredDBChannel {
     }
 
     pub fn fetch_pred(&mut self, board: &Board, timeout_ms: Option<u64>) -> Option<NNPred> {
-        if timeout_ms.is_some() {
-            self.await_pred(board, timeout_ms.map(Duration::from_millis))
+        if let Some(timeout) = timeout_ms {
+            self.get_pred(board).or_else(|| {
+                self.await_pred(board, Some(Duration::from_millis(timeout)))
+            })
         } else {
             self.get_pred(board)
         }
