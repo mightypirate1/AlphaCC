@@ -43,4 +43,8 @@ impl NNPred {
     fn get_value(&self) -> f32 {
         self.value
     }
+
+    fn __repr__(&self) -> String {
+        format!("NNPred[val={}, pi={:?}]", self.value, self.pi)
+    }
 }
