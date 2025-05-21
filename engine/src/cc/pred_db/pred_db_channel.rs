@@ -134,16 +134,19 @@ impl PredDBChannel {
             &notification_key,
             timeout,
         );
-        match result {
-            Ok(nn_pred) => {
-                Some(nn_pred)
-            },
-            Err(e) => {
-                // TODO: decide whether this is actually a problem
-                println!("pubsub error: {:?}", e);
-                None
-            },
-        }
+
+        /*
+         * Under high load, the keydb sometimes does not respond
+         * as quickly as we would wish. Thus we convert all errors
+         * to `None`, which semantically means that the prediction
+         * was not found.
+         * 
+         * TODO: see what can be done to fix that, and decide
+         * what to do about this case. For now, I simply pretend
+         * there was no prediction, and the caller will have to
+         * handle it.
+         */
+        result.ok()
     }
 
     fn notify_key(key: &u64) -> String {
