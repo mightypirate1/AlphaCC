@@ -45,6 +45,10 @@ class Trainer:
     def nn(self) -> DefaultNet:
         return self._nn
 
+    @property
+    def optimizer(self) -> torch.optim.Optimizer:
+        return self._optimizer
+
     def train(self, dataset: TrainingDataset, train_size: int) -> None:
         self._update_nn(dataset, train_size)
         self._global_step += 1

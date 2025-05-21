@@ -9,6 +9,7 @@ use crate::cc::pred_db::nn_pred::NNPred;
 
 const PRED_QUEUE: &str = "queue";
 const CHANNEL_DB_OFFSET: usize = 2;
+
 const PUBSUB_BACKOFF_MS: u64 = 10;
 const PUBSUB_RETRY_COUNT: u64 = 5;
 
