@@ -26,8 +26,8 @@ def agent(nn: DefaultNet) -> StandaloneMCTSAgent:
 
 
 @pytest.fixture
-def training_runtime(agent: StandaloneMCTSAgent) -> TrainingRunTime:
-    return TrainingRunTime(Board(5), agent, DefaultAssignmentStrategy(0.99))
+def training_runtime() -> TrainingRunTime:
+    return TrainingRunTime(Board(5), DefaultAssignmentStrategy(0.99))
 
 
 @pytest.fixture
@@ -53,8 +53,8 @@ def training_dataset() -> TrainingDataset:
 
 
 @pytest.fixture
-def trajectory(training_runtime: TrainingRunTime) -> list[MCTSExperience]:
-    return training_runtime.play_game(max_game_length=8)
+def trajectory(agent: StandaloneMCTSAgent, training_runtime: TrainingRunTime) -> list[MCTSExperience]:
+    return training_runtime.play_game(agent, max_game_length=8)
 
 
 @pytest.fixture
