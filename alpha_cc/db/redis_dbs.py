@@ -7,6 +7,5 @@ class RedisDBs(Enum):
     """
 
     TRAINING = 0  # for moving training data
-    PRED_QUEUE = 1  # for workers to request predictions (used by rust)
-    PRED_CACHE = 2  # for nn service to output predictions (used by rust)
-    BACKEND = 3  # for backend to store data
+    BACKEND = 1  # for backend to store data
+    # higher numbers are reserved for PredDBChannel predictions

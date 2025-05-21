@@ -109,9 +109,28 @@ class PredDBChannel:
     def __init__(self, url: str, channel: int) -> None: ...
     @property
     def channel(self) -> int: ...
-    def fetch_all(self) -> list[Board]: ...
-    def bfetch_all(self) -> list[Board]: ...
-    def request_pred(self, board: Board) -> NNPred | None: ...
-    def post_pred(self, board: Board, nn_pred: NNPred) -> None: ...
-    def post_preds(self, boards: list[Board], nn_preds: list[NNPred]) -> None: ...
+    def ping(self) -> bool:
+        """Tests if channel is connected correctly"""
+    def has_pred(self, board: Board) -> bool:
+        """Check if a prediction is available for the given board"""
+
+    def fetch_all_requests(self) -> list[Board]:
+        """Pop all pred requests from the channel"""
+
+    def request_pred(self, board: Board) -> None:
+        """Request a prediction for the given board"""
+
+    def post_pred(self, board: Board, nn_pred: NNPred) -> None:
+        """Post a prediction for the given board"""
+
+    def post_preds(self, boards: list[Board], nn_preds: list[NNPred]) -> None:
+        """Post a list of predictions for the given boards"""
+
+    def fetch_pred(self, board: Board, timeout: int | None) -> NNPred | None:
+        """
+        Fetch a prediction for the given board
+
+        - `timeout`: if set, wait for the given number of milliseconds
+        """
+
     def flush_preds(self) -> None: ...
