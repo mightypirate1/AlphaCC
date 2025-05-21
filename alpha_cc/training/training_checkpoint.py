@@ -4,7 +4,7 @@ from typing import Any, Self
 
 import torch
 
-from alpha_cc.training import TrainingDataset
+from alpha_cc.training.training_dataset import TrainingDataset
 
 
 @dataclass
