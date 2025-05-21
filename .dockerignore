@@ -3,6 +3,7 @@
 
 # project specific
 tmp
+data
 tests
 Dockerfile
 ## python
@@ -16,6 +17,7 @@ webapp/.angular
 **/*.rs.bk files *.db
 engine/target
 engine/Cargo.lock
+docker-compose.*.yaml
 
 
 # Python
