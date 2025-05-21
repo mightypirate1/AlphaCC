@@ -111,6 +111,7 @@ class PredDBChannel:
     def channel(self) -> int: ...
     def ping(self) -> bool:
         """Tests if channel is connected correctly"""
+
     def has_pred(self, board: Board) -> bool:
         """Check if a prediction is available for the given board"""
 
