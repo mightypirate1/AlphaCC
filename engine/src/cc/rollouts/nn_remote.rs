@@ -1,4 +1,5 @@
 use core::time::Duration;
+use std::io::{Error, ErrorKind};
 use crate::cc::pred_db::PredDBChannel;
 use crate::cc::pred_db::NNPred;
 use crate::cc::board::Board;
@@ -20,11 +21,11 @@ impl NNRemote {
         NNRemote { pred_db }
     }
 
-    pub fn fetch_pred(&mut self, board: &Board) -> NNPred {
+    pub fn fetch_pred(&mut self, board: &Board) -> Result<NNPred, Error> {
         // assumes there is a service running that will eventually
         // provide the prediction
         match self.pred_db.get_pred(board) {
-            Some(nn_pred) => nn_pred,
+            Some(nn_pred) => Ok(nn_pred),
             None => {
                 /* resons for retry:
                  * - weight reloads in the nn service needs to flush old preds,
@@ -39,7 +40,7 @@ impl NNRemote {
                 for patience in ATTEMPT_PATIENCES {
                     self.pred_db.add_to_pred_queue(board);
                     if let Some(nn_pred) = self.pred_db.await_pred(board, Some(patience)) {
-                        return nn_pred;
+                        return Ok(nn_pred);
                     }
                     if patience > Duration::from_millis(1000) {
                         println!("service[channel: {}] slow or unavailable: retrying...",
@@ -47,11 +48,15 @@ impl NNRemote {
                         );
                     }
                 }
-                panic!(
+                println!(
                     "service[channel: {}] not responding in {} attemps",
                     self.pred_db.get_channel(),
                     ATTEMPT_PATIENCES.len(),
                 );
+                Err(Error::new(
+                    ErrorKind::TimedOut,
+                    "NN service not responding",
+                ))
             }
         }
     }

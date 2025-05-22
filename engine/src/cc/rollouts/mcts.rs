@@ -2,6 +2,7 @@ extern crate pyo3;
 extern crate rand_distr;
 extern crate lru;
 
+use std::io::Error;
 use std::num::NonZeroUsize;
 use pyo3::prelude::*;
 use rand::prelude::*;
@@ -52,16 +53,16 @@ impl MCTS {
         nodes: &mut LruCache<Board, MCTSNode>,
         remaining_depth: usize,
         mcts_params: &MCTSParams,
-    ) -> f32 {
+    ) -> Result<f32, Error> {
         let info = board.get_info();
         if info.game_over {
-            return -info.reward;
+            return Ok(-info.reward);
         }
         
         // if we've seen this node before, we keep rolling
         if let Some(node) = nodes.get(&board) {
             if remaining_depth == 0 {
-                return -node.rollout_value();
+                return Ok(-node.rollout_value());
             }
     
             // prepare continued rollout
@@ -79,16 +80,16 @@ impl MCTS {
                 nodes,
                 remaining_depth - 1,
                 mcts_params,
-            );
+            )?;
             let gamma_v = mcts_params.gamma * v;
             
             // backprop rollout update
             nodes.get_mut(&board).unwrap().update_on_visit(a, gamma_v);
-            return -gamma_v;
+            return Ok(-gamma_v);
         }
 
 
-        let nn_pred = nn_remote.fetch_pred(&board);
+        let nn_pred = nn_remote.fetch_pred(&board)?;
         MCTS::add_as_new_node(
             nodes,
             board,
@@ -96,7 +97,7 @@ impl MCTS {
             mcts_params.dirichlet_weight,
             mcts_params.dirichlet_alpha,
         );
-        -nn_pred.value
+        Ok(-nn_pred.value)
     }
 
     fn find_best_action_for_node(node: &MCTSNode, c_puct_init: &f32, c_puct_base: &f32) -> usize {
@@ -178,7 +179,7 @@ impl MCTS {
         )
     }
 
-    pub fn run(&mut self, board: &Board, rollout_depth: usize) -> f32 {
+    pub fn run(&mut self, board: &Board, rollout_depth: usize) -> Result<f32, Error> {
         MCTS::rollout(
             board.clone(),
             &mut self.nn_remote,
