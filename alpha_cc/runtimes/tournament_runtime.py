@@ -34,6 +34,7 @@ class TournamentRuntime:
 
     def play_and_record_game(self, agent_channel_dict: dict[int, MCTSAgent]) -> None:
         game_id = f"tournament-game/{datetime.now().strftime(r'%Y-%m-%d-%H-%M-%S')}"
+        player_1, player_2 = agent_channel_dict.keys()
         if self._games_db is not None:
             self._games_db.create_game(game_id, self._size)
         # since trainer will block until tournament is over,
@@ -59,7 +60,6 @@ class TournamentRuntime:
                     if self._games_db is not None:
                         # record action
                         self._games_db.add_move(game_id, action_index)
-            player_1, player_2 = agent_channel_dict.keys()
 
         except Exception as e:
             logger.error("Tournament game FAILED!")
