@@ -22,12 +22,12 @@ class TrainingCheckpoint:
 
     def __repr__(self) -> str:
         return (
-            r"TrainingCheckpoint {""\n"
+            "TrainingCheckpoint {\n"
             f"    run_id: {self.run_id},\n"
             f"    current_index: {self.current_index},\n"
             f"    champion_index: {self.champion_index},\n"
             f"    replay_buffer_size: {len(self.replay_buffer)},\n"
-            r"}"
+            "}"
         )
 
     @classmethod
