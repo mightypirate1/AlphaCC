@@ -111,6 +111,7 @@ class TrainingDB:
         payload = dill.dumps(state_dict)
         self._db.set(self.weight_key(index), payload)
         if set_latest:
+            self._db.set(self.latest_weights_index_key, index)
             self._db.set(self.latest_weights_key, payload)
         logger.debug(f"published weights {index}")
 
