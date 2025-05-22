@@ -174,7 +174,7 @@ class NNService:
         redis_host_main: str = "localhost",
         redis_host_pred: str = "localhost",
         log_frequency: int = 60,
-        reload_frequency: int = 5,
+        reload_frequency: int = 1,
         infecence_batch_size: int = 512,
         num_post_workers: int = 2,
         gpu: bool = False,

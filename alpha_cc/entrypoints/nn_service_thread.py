@@ -10,7 +10,7 @@ from alpha_cc.nn.service import NNService
 
 @click.command("alpha-cc-nn-service")
 @click.option("--size", type=int, default=9)
-@click.option("--reload-frequency", type=int, default=5)
+@click.option("--reload-frequency", type=int, default=1)
 @click.option("--log-frequency", type=int, default=60)
 @click.option("--inference-batch-size", type=int, default=512)
 @click.option("--num-post-workers", type=int, default=2)
