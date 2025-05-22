@@ -184,6 +184,7 @@ def initialize_weights(
         # no checkpoint found, start from scratch
         curr_index = db.weights_publish_latest(trainer.nn.state_dict())
         champion_index = curr_index
+        logger.info(f"starting from scratch: {curr_index=}")
         return curr_index, champion_index
 
     if init_champion_weight_index is not None and init_champion_weight_index != checkpoint.champion_index:
@@ -221,9 +222,7 @@ def load_saved_checkpoint(run_id: str) -> TrainingCheckpoint | None:
     checkpoint_path = save_latest_checkpoint_path(run_id)
     if not Path(checkpoint_path).exists():
         return None
-    checkpoint = TrainingCheckpoint.from_path(checkpoint_path)
-    logger.info(f"Loaded checkpoint from {checkpoint_path}")
-    return checkpoint
+    return TrainingCheckpoint.from_path(checkpoint_path, verbose=True)
 
 
 def create_and_register_signal_handler(
@@ -239,18 +238,20 @@ def create_and_register_signal_handler(
     """
 
     def save_checkpoint() -> None:
-        save_path = save_latest_checkpoint_path(run_id)
+        current_index = training_db.weights_fetch_latest_index()
+        save_path_latest = save_latest_checkpoint_path(run_id)
+        save_path_current = save_checkpoint_path(run_id, current_index)
         checkpoint = TrainingCheckpoint(
             run_id,
             model_state_dict=trainer.nn.state_dict(),
             champion_state_dict=training_db.weights_fetch(tournament_manager.champion_index),
             optimizer_state_dict=trainer.optimizer.state_dict(),
-            current_index=training_db.weights_fetch_latest_index(),
+            current_index=current_index,
             champion_index=tournament_manager.champion_index,
             replay_buffer=replay_buffer,
         )
-        checkpoint.save(save_path)
-        logger.info(f"Saved checkpoint to {save_path}")
+        checkpoint.save(save_path_latest, verbose=True)
+        checkpoint.save(save_path_current, verbose=True)
 
     def signal_handler(signum: int, _: Any) -> None:
         if shutdown_requested.is_set():
@@ -295,7 +296,11 @@ def save_root(run_id: str) -> str:
 
 
 def save_latest_checkpoint_path(run_id: str) -> str:
-    return f"{save_root(run_id)}/checkpoint.pth"
+    return f"{save_root(run_id)}/checkpoint-latest.pth"
+
+
+def save_checkpoint_path(run_id: str, index: int) -> str:
+    return f"{save_root(run_id)}/checkpoint-{str(index).zfill(4)}.pth"
 
 
 def create_summary_writer(run_id: str) -> SummaryWriter:
