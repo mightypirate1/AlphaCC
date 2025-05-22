@@ -113,7 +113,6 @@ def main(
 
         # train on samples
         trainer.train(replay_buffer, train_size)
-        trainer.set_lr(lr)  # reset lr after warmup
         replay_buffer.move_new_to_main_buffer()
 
         # publish weights
