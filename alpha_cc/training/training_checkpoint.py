@@ -19,6 +19,7 @@ class TrainingCheckpoint:
     current_index: int
     champion_index: int
     replay_buffer: TrainingDataset
+    trainer_steps: tuple[int, int]
 
     def __repr__(self) -> str:
         return (
@@ -27,6 +28,7 @@ class TrainingCheckpoint:
             f"    current_index: {self.current_index},\n"
             f"    champion_index: {self.champion_index},\n"
             f"    replay_buffer_size: {len(self.replay_buffer)},\n"
+            f"    trainer_steps: {self.trainer_steps},\n"
             "}"
         )
 

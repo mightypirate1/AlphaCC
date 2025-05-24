@@ -53,6 +53,13 @@ class Trainer:
         self._update_nn(dataset, train_size)
         self._global_step += 1
 
+    def set_steps(self, global_step: int, eval_step: int) -> None:
+        self._global_step = global_step
+        self._eval_step = eval_step
+
+    def get_steps(self) -> tuple[int, int]:
+        return self._global_step, self._eval_step
+
     def set_lr(self, lr: float) -> None:
         for g in self._optimizer.param_groups:
             g["lr"] = lr

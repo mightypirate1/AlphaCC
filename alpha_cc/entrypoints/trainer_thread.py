@@ -207,6 +207,8 @@ def initialize_weights(
         checkpoint.model_state_dict = init_weights
         checkpoint.current_index = init_weights_index
 
+    # set the clocks in the trainer
+    trainer.set_steps(*checkpoint.trainer_steps)
     # publish the weights to the db so they are available to the workers
     if checkpoint.current_index != checkpoint.champion_index:
         db.weights_publish(checkpoint.champion_state_dict, checkpoint.champion_index)
@@ -248,6 +250,7 @@ def create_and_register_signal_handler(
             current_index=current_index,
             champion_index=tournament_manager.champion_index,
             replay_buffer=replay_buffer,
+            trainer_steps=trainer.get_steps(),
         )
         checkpoint.save(save_path_latest, verbose=True)
         checkpoint.save(save_path_current, verbose=True)
