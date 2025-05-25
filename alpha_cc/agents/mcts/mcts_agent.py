@@ -9,7 +9,7 @@ class MCTSAgent(Agent):
         self,
         redis_pred_shard_urls: list[str],
         pred_channel: int = 0,
-        cache_size: int = 500000,
+        cache_size: int = 300000,
         n_rollouts: int = 100,
         rollout_depth: int = 500,
         rollout_gamma: float = 1.0,
