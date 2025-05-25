@@ -7,9 +7,9 @@ from alpha_cc.engine import MCTS, Board
 class MCTSAgent(Agent):
     def __init__(
         self,
-        redis_host: str,
+        redis_pred_shard_urls: list[str],
         pred_channel: int = 0,
-        cache_size: int = 1000000,
+        cache_size: int = 500000,
         n_rollouts: int = 100,
         rollout_depth: int = 500,
         rollout_gamma: float = 1.0,
@@ -19,7 +19,7 @@ class MCTSAgent(Agent):
         c_puct_base: float = 10000.0,
         argmax_delay: int | None = None,
     ) -> None:
-        self._redis_host = redis_host
+        self._redis_pred_shard_urls = redis_pred_shard_urls
         self._pred_channel = pred_channel
         self._cache_size = cache_size
         self._n_rollouts = n_rollouts
@@ -35,7 +35,7 @@ class MCTSAgent(Agent):
 
     def on_game_start(self) -> None:
         self._steps_left_to_argmax = (self._argmax_delay or np.inf) + 1
-        self._mcts = self._recreate_mcts()
+        self._mcts.clear_nodes()
 
     def on_game_end(self) -> None:
         pass
@@ -75,7 +75,7 @@ class MCTSAgent(Agent):
 
     def _recreate_mcts(self) -> MCTS:
         return MCTS(
-            self._redis_host,
+            self._redis_pred_shard_urls,
             self._pred_channel,
             self._cache_size,
             self._rollout_gamma,

@@ -2,6 +2,7 @@ use bincode::{self, config::standard};
 extern crate pyo3;
 use pyo3::prelude::*;
 
+pub type EncPred = Vec<u8>;
 
 #[pyclass(module="alpha_cc_engine")]
 #[derive(Clone, bincode::Encode, bincode::Decode)]

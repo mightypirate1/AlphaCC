@@ -18,7 +18,10 @@ use crate::cc::{BoardInfo, HexCoord, Move};
 use crate::cc::moves::find_all_moves;
 
 pub const MAX_SIZE: usize = 9;
+
 type BoardMatrix = [[i8; MAX_SIZE]; MAX_SIZE];
+pub type EncBoard = Vec<u8>;
+pub type BoardHash = u64;
 
 
 #[pyclass(module="alpha_cc_engine")]
@@ -117,7 +120,7 @@ impl Board {
         }
     }
 
-    pub fn compute_hash(&self) -> u64 {
+    pub fn compute_hash(&self) -> BoardHash {
         let mut hasher = DefaultHasher::new();
         self.hash(&mut hasher);
         hasher.finish()
@@ -247,7 +250,7 @@ impl Board {
         (hs * (hs + 1)) / 2
     }
 
-    pub fn serialize_rs(&self) -> Vec<u8> {
+    pub fn serialize_rs(&self) -> EncBoard {
         bincode::encode_to_vec(self, bincode::config::standard())
             .map_err(|e| {
                 pyo3::exceptions::PyValueError::new_err(

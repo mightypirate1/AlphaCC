@@ -76,7 +76,7 @@ class MCTSNode:
 class MCTS:
     def __init__(
         self,
-        url: str,
+        urls: list[str],
         channel: int,
         cache_size: int,
         rollout_gamma: float,
@@ -96,6 +96,7 @@ class MCTS:
             dirichlet_alpha: alpha parameter of the dirichlet noise
         """
 
+    def clear_nodes(self) -> None: ...
     def get_node(self, board: Board) -> MCTSNode | None: ...
     def run(self, board: Board, rollout_depth: int) -> float: ...
 
@@ -106,7 +107,7 @@ class NNPred:
     def __init__(self, pi: list[float], value: float) -> None: ...
 
 class PredDBChannel:
-    def __init__(self, url: str, channel: int) -> None: ...
+    def __init__(self, urls: list[str], channel: int) -> None: ...
     @property
     def channel(self) -> int: ...
     def ping(self) -> bool:

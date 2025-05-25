@@ -9,7 +9,7 @@ use rand::prelude::*;
 use rand_distr::Dirichlet;
 use lru::LruCache;
 
-use crate::cc::board::Board;
+use crate::cc::board::{Board, BoardHash};
 use crate::cc::moves::find_all_moves;
 use crate::cc::rollouts::nn_remote::NNRemote;
 use crate::cc::rollouts::mcts_node::MCTSNode;
@@ -19,7 +19,7 @@ use crate::cc::pred_db::{NNPred, PredDBChannel};
 #[pyclass(module="alpha_cc_engine")]
 pub struct MCTS {
     nn_remote: NNRemote,
-    nodes: LruCache<Board, MCTSNode>,
+    nodes: LruCache<BoardHash, MCTSNode>,
     mcts_params: MCTSParams,
 }
 
@@ -50,7 +50,7 @@ impl MCTS {
     fn rollout(
         board: Board,
         nn_remote: &mut NNRemote,
-        nodes: &mut LruCache<Board, MCTSNode>,
+        nodes: &mut LruCache<BoardHash, MCTSNode>,
         remaining_depth: usize,
         mcts_params: &MCTSParams,
     ) -> Result<f32, Error> {
@@ -60,7 +60,7 @@ impl MCTS {
         }
         
         // if we've seen this node before, we keep rolling
-        if let Some(node) = nodes.get(&board) {
+        if let Some(node) = nodes.get(&board.compute_hash()) {
             if remaining_depth == 0 {
                 return Ok(-node.rollout_value());
             }
@@ -84,7 +84,7 @@ impl MCTS {
             let gamma_v = mcts_params.gamma * v;
             
             // backprop rollout update
-            nodes.get_mut(&board).unwrap().update_on_visit(a, gamma_v);
+            nodes.get_mut(&board.compute_hash()).unwrap().update_on_visit(a, gamma_v);
             return Ok(-gamma_v);
         }
 
@@ -118,7 +118,7 @@ impl MCTS {
     }
 
     fn add_as_new_node(
-        nodes: &mut LruCache<Board, MCTSNode>,
+        nodes: &mut LruCache<BoardHash, MCTSNode>,
         board: Board,
         nn_pred: &NNPred,
         dirichlet_weight: f32,
@@ -147,7 +147,7 @@ impl MCTS {
 
         let moves = find_all_moves(&board);
         let node= MCTSNode::new_leaf(pi, v, moves);
-        nodes.put(board,node);
+        nodes.put(board.compute_hash(),node);
     }
 }
 
@@ -157,7 +157,7 @@ impl MCTS {
     #[allow(clippy::too_many_arguments)]
     #[new]
     fn create(
-        url: String,
+        shard_urls: Vec<String>,
         channel: usize,
         cache_size: usize,
         gamma: f32,
@@ -167,7 +167,7 @@ impl MCTS {
         c_puct_base: f32,
     ) -> MCTS {
         MCTS::new(
-            NNRemote::new(PredDBChannel::new(&url, channel)),
+            NNRemote::new(PredDBChannel::new_py(shard_urls, channel)),
             cache_size,
             MCTSParams {
                 gamma,
@@ -190,6 +190,10 @@ impl MCTS {
     }
 
     pub fn get_node(&mut self, board: &Board) -> Option<MCTSNode> {
-        self.nodes.get(board).cloned()
+        self.nodes.get(&board.compute_hash()).cloned()
+    }
+
+    pub fn clear_nodes(&mut self) {
+        self.nodes.clear();
     }
 }

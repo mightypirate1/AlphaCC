@@ -1,7 +1,9 @@
 import logging
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from threading import Thread
+from threading import Thread, Event, Lock
+from collections import deque
 
 import torch
 from apscheduler.job import Job
@@ -28,6 +30,7 @@ class ServedNN:
         inference_batch_size: int = 512,
         fetch_batch_size: int = 2048,
         num_post_workers: int = 2,
+        prefetch_size: int = 5,
         log_frequency: int = 60,
         device: str = "cpu",
     ) -> None:
@@ -47,6 +50,13 @@ class ServedNN:
         self._post_pool = ThreadPoolExecutor(max_workers=num_post_workers)
         self._is_loading_weights = False
         pred_db_channel.flush_preds()
+        self._prefetch_boards = deque(maxlen=prefetch_size)
+        self._prefetch_states = deque(maxlen=prefetch_size)
+        self._prefetch_tensors = deque(maxlen=prefetch_size)
+        self._prefetch_lock = Lock()
+        self._prefetch_stop = Event()
+        self._prefetch_thread = None
+        self._start_prefetch_thread()
 
     @property
     def channel(self) -> int:
@@ -57,11 +67,20 @@ class ServedNN:
         return self._current_weights_index
 
     def process_requests(self) -> None:
-        boards = self._pred_db_channel.fetch_requests(self._fetch_batch_size)
-        if len(boards) == 0:
-            return
-        states = [GameState(board) for board in boards]
-        x = self._prepare_input(states)
+        batch_available = False
+        with self._prefetch_lock:
+            batch_available = bool(self._prefetch_boards)
+            if batch_available:
+                boards = self._prefetch_boards.popleft()
+                states = self._prefetch_states.popleft()
+                x = self._prefetch_tensors.popleft()
+                
+        if not batch_available:  # fall back to direct fetching
+            boards = self._pred_db_channel.fetch_requests(self._fetch_batch_size)
+            if not boards:
+                return
+            states = [GameState(board) for board in boards]
+            x = self._prepare_input(states)
 
         # batch it up, in case we have a LOT of requests
         for i in range(0, len(states), self._inference_batch_size):
@@ -86,6 +105,9 @@ class ServedNN:
         self._n_batches += 1
 
     def deactivate(self) -> None:
+        self._prefetch_stop.set()
+        if self._prefetch_thread and self._prefetch_thread.is_alive():
+            self._prefetch_thread.join(timeout=1.0)
         for job in self._jobs:
             job.remove()
 
@@ -153,15 +175,47 @@ class ServedNN:
         nn = nn.to(self._device)
         nn = nn.eval()
         return nn
+    
+    def _start_prefetch_thread(self) -> None:
+        """Start a thread that continuously prefetches board requests."""
+        def prefetch_worker():
+            while not self._prefetch_stop.is_set():
+                with self._prefetch_lock:
+                    need_more = len(self._prefetch_boards) < self._prefetch_boards.maxlen
+                
+                if need_more:
+                    boards = self._pred_db_channel.fetch_requests(self._fetch_batch_size)
+                    if not boards:
+                        time.sleep(0.001)
+                        continue
+                        
+                    states = [GameState(board) for board in boards]
+                    x = self._prepare_input(states)
+                    
+                    with self._prefetch_lock:
+                        self._prefetch_boards.append(boards)
+                        self._prefetch_states.append(states)
+                        self._prefetch_tensors.append(x)
+                else:
+                    time.sleep(0.001)
+            logger.info(f"[Channel-{self._pred_db_channel.channel}]: Prefetch thread stopped")
+            
+        self._prefetch_thread = Thread(target=prefetch_worker, daemon=True)
+        self._prefetch_thread.start()
+        logger.info(f"[Channel-{self._pred_db_channel.channel}]: Started prefetch thread")
 
     def _initialize_scheduler(self) -> list[Job]:
         stats_job = scheduler.add_job(self._log_stats, "interval", seconds=self._log_frequency)
         return [stats_job]
 
     def _log_stats(self) -> None:
+        prefetch_usage = 0
+        with self._prefetch_lock:
+            prefetch_usage = len(self._prefetch_boards)
         logger.info(
             f"[Channel-{self._pred_db_channel.channel}]: Processed"
             f" {self._n_preds} predictions in {self._n_batches} batches"
+            f" (Prefetch: {prefetch_usage}/{self._prefetch_boards.maxlen})"
         )
         self._n_preds = 0
         self._n_batches = 0
@@ -171,8 +225,8 @@ class NNService:
     def __init__(
         self,
         nn_creator: Callable[[], torch.nn.Module],
+        redis_pred_shard_urls: list[str],
         redis_host_main: str = "localhost",
-        redis_host_pred: str = "localhost",
         log_frequency: int = 60,
         reload_frequency: int = 1,
         infecence_batch_size: int = 512,
@@ -180,7 +234,7 @@ class NNService:
         gpu: bool = False,
     ) -> None:
         self._nn_creator = nn_creator
-        self._redis_host_pred = redis_host_pred
+        self._redis_pred_shard_urls = redis_pred_shard_urls
         self._log_frequency = log_frequency
         self._reload_frequency = reload_frequency
         self._infecence_batch_size = infecence_batch_size
@@ -224,7 +278,7 @@ class NNService:
         return any(snn.channel == channel for snn in self._served_nns)
 
     def _create_served_nn(self, channel: int, weight_index: int) -> ServedNN:
-        pred_db_channel = PredDBChannel(self._redis_host_pred, channel)
+        pred_db_channel = PredDBChannel(self._redis_pred_shard_urls, channel)
         nn = self._nn_creator()
         served_nn = ServedNN(
             pred_db_channel,
