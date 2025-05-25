@@ -1,16 +1,16 @@
 import logging
 import time
+from collections import deque
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from threading import Thread, Event, Lock
-from collections import deque
+from threading import Event, Lock, Thread
 
 import torch
 from apscheduler.job import Job
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from alpha_cc.db import TrainingDB
-from alpha_cc.engine import NNPred, PredDBChannel
+from alpha_cc.engine import Board, NNPred, PredDBChannel
 from alpha_cc.engine.engine_utils import action_indexer
 from alpha_cc.state import GameState
 
@@ -50,12 +50,12 @@ class ServedNN:
         self._post_pool = ThreadPoolExecutor(max_workers=num_post_workers)
         self._is_loading_weights = False
         pred_db_channel.flush_preds()
-        self._prefetch_boards = deque(maxlen=prefetch_size)
-        self._prefetch_states = deque(maxlen=prefetch_size)
-        self._prefetch_tensors = deque(maxlen=prefetch_size)
+        self._prefetch_boards: deque[list[Board]] = deque(maxlen=prefetch_size)
+        self._prefetch_states: deque[list[GameState]] = deque(maxlen=prefetch_size)
+        self._prefetch_tensors: deque[torch.Tensor] = deque(maxlen=prefetch_size)
         self._prefetch_lock = Lock()
         self._prefetch_stop = Event()
-        self._prefetch_thread = None
+        self._prefetch_thread: Thread | None = None
         self._start_prefetch_thread()
 
     @property
@@ -74,7 +74,7 @@ class ServedNN:
                 boards = self._prefetch_boards.popleft()
                 states = self._prefetch_states.popleft()
                 x = self._prefetch_tensors.popleft()
-                
+
         if not batch_available:  # fall back to direct fetching
             boards = self._pred_db_channel.fetch_requests(self._fetch_batch_size)
             if not boards:
@@ -108,6 +108,7 @@ class ServedNN:
         self._prefetch_stop.set()
         if self._prefetch_thread and self._prefetch_thread.is_alive():
             self._prefetch_thread.join(timeout=1.0)
+            self._prefetch_thread = None
         for job in self._jobs:
             job.remove()
 
@@ -175,31 +176,42 @@ class ServedNN:
         nn = nn.to(self._device)
         nn = nn.eval()
         return nn
-    
+
     def _start_prefetch_thread(self) -> None:
         """Start a thread that continuously prefetches board requests."""
-        def prefetch_worker():
+
+        def prefetch_worker() -> None:
             while not self._prefetch_stop.is_set():
                 with self._prefetch_lock:
-                    need_more = len(self._prefetch_boards) < self._prefetch_boards.maxlen
-                
+                    need_more = len(self._prefetch_boards) < (self._prefetch_boards.maxlen or 1000)
+
                 if need_more:
                     boards = self._pred_db_channel.fetch_requests(self._fetch_batch_size)
                     if not boards:
-                        time.sleep(0.001)
+                        time.sleep(0.0001)
                         continue
-                        
+
                     states = [GameState(board) for board in boards]
                     x = self._prepare_input(states)
-                    
+
                     with self._prefetch_lock:
-                        self._prefetch_boards.append(boards)
-                        self._prefetch_states.append(states)
-                        self._prefetch_tensors.append(x)
+                        # If the prefetch queue is empty or the last batch is full, add as new batch.
+                        # Otherwise, append to the last batch. This tries to keep batches gpu-sized.
+                        if (
+                            not self._prefetch_boards
+                            or len(self._prefetch_boards[-1]) + len(boards) > self._inference_batch_size
+                        ):
+                            self._prefetch_boards.append(boards)
+                            self._prefetch_states.append(states)
+                            self._prefetch_tensors.append(x)
+                        else:
+                            self._prefetch_boards[-1].extend(boards)
+                            self._prefetch_states[-1].extend(states)
+                            self._prefetch_tensors[-1] = torch.cat((self._prefetch_tensors[-1], x), dim=0)
                 else:
-                    time.sleep(0.001)
+                    time.sleep(0.0001)
             logger.info(f"[Channel-{self._pred_db_channel.channel}]: Prefetch thread stopped")
-            
+
         self._prefetch_thread = Thread(target=prefetch_worker, daemon=True)
         self._prefetch_thread.start()
         logger.info(f"[Channel-{self._pred_db_channel.channel}]: Started prefetch thread")

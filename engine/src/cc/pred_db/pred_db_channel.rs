@@ -33,7 +33,7 @@ impl PredDBChannel {
         }
         let conns = shard_urls.iter()
             .map(|url| {
-                PredDBChannel::connect(&url, channel)
+                PredDBChannel::connect(url, channel)
             })
             .collect::<Vec<Connection>>();
         let n_shards = conns.len() as u64 - 1;
@@ -243,7 +243,7 @@ impl PredDBChannel {
 
     fn conn_idx_for_key(&self, key: u64) -> usize {
         // one for the queue, and one for each shard
-        (1 + self.shard_idx_for_key(key)) as usize
+        1 + self.shard_idx_for_key(key)
     }
 }
 
