@@ -48,12 +48,7 @@ def main(
 ) -> None:
     def create_model(channel: int, trainer_time: int) -> MCTSAgent:
         return MCTSAgent(
-            redis_pred_shard_urls=[
-                Environment.redis_host_pred_1,
-                Environment.redis_host_pred_2,
-                Environment.redis_host_pred_3,
-                Environment.redis_host_pred_4,
-            ],
+            redis_url=Environment.redis_host_pred,
             pred_channel=channel,
             n_rollouts=n_rollouts_schedule.as_int(trainer_time),
             rollout_depth=rollout_depth_schedule.as_int(trainer_time),

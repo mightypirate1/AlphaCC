@@ -76,7 +76,7 @@ class MCTSNode:
 class MCTS:
     def __init__(
         self,
-        urls: list[str],
+        url: str,
         channel: int,
         cache_size: int,
         rollout_gamma: float,
@@ -107,7 +107,7 @@ class NNPred:
     def __init__(self, pi: list[float], value: float) -> None: ...
 
 class PredDBChannel:
-    def __init__(self, urls: list[str], channel: int) -> None: ...
+    def __init__(self, url: str, channel: int) -> None: ...
     @property
     def channel(self) -> int: ...
     def ping(self) -> bool:

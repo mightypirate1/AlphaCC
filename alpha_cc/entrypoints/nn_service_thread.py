@@ -31,12 +31,7 @@ def main(
 
     nn_service = NNService(
         nn_creator=lambda: DefaultNet(size),
-        redis_pred_shard_urls=[
-            Environment.redis_host_pred_1,
-            Environment.redis_host_pred_2,
-            Environment.redis_host_pred_3,
-            Environment.redis_host_pred_4,
-        ],
+        redis_url=Environment.redis_host_pred,
         redis_host_main=Environment.redis_host_main,
         reload_frequency=reload_frequency,
         log_frequency=log_frequency,

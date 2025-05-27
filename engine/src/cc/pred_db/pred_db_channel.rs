@@ -4,9 +4,8 @@ use std::time::Duration;
 use pyo3::prelude::*;
 use redis::{Client, Commands, Connection, ConnectionLike, RedisResult};
 
-use crate::cc::board::{BoardHash, EncBoard};
 use crate::cc::Board;
-use crate::cc::pred_db::nn_pred::{EncPred, NNPred};
+use crate::cc::pred_db::nn_pred::NNPred;
 
 const PRED_QUEUE: &str = "queue";
 const CHANNEL_DB_OFFSET: usize = 2;
@@ -14,58 +13,33 @@ const CHANNEL_DB_OFFSET: usize = 2;
 const PUBSUB_BACKOFF_MS: u64 = 10;
 const PUBSUB_RETRY_COUNT: u64 = 5;
 
-const QUEUE_CONN_IDX: usize = 0;
-
 
 #[pyclass(module="alpha_cc_engine")]
 pub struct PredDBChannel {
-    conns: Vec<Connection>,
+    conn: Connection,
     channel: usize,
-    n_shards: u64,
-    shard_urls: Vec<String>,  // for reconnects
 }
 
 
 impl PredDBChannel {
-    pub fn new(shard_urls: Vec<String>, channel: usize) -> Self {
-        if shard_urls.len() < 2 {
-            panic!("provide one queue URL, and at least one shard URL");
-        }
-        let conns = shard_urls.iter()
-            .map(|url| {
-                PredDBChannel::connect(url, channel)
-            })
-            .collect::<Vec<Connection>>();
-        let n_shards = conns.len() as u64 - 1;
+    pub fn new(url: &str, channel: usize) -> Self {
+        let conn = PredDBChannel::connect(url, channel + CHANNEL_DB_OFFSET);
         PredDBChannel { 
-            conns,
+            conn,
             channel,
-            n_shards,
-            shard_urls,
         }
     }
 
-    fn connect(url: &str, channel: usize) -> Connection {
-        let db = channel + CHANNEL_DB_OFFSET;
+    fn connect(url: &str, db: usize) -> Connection {
         let client = Client::open(format!("redis://{url}/{db}", url=url, db=db))
             .expect("Invalid connection URL");
         client.get_connection()
             .expect("failed to connect to Redis")
     }
 
-    fn reconnect_shard_conn(&mut self, shard_idx: usize) {
-        let conn_idx = self.conn_idx_for_shard_idx(shard_idx);
-        if conn_idx >= self.conns.len() {
-            panic!("Invalid connection index: {}", conn_idx);
-        }
-        println!("Reconnecting connection shard: {}", conn_idx);
-        let url = &self.shard_urls[conn_idx];
-        self.conns[conn_idx] = PredDBChannel::connect(url, self.channel);
-    }
-
     pub fn add_to_pred_queue(&mut self, board: &Board) {
         let value = board.serialize_rs();
-        let result: RedisResult<()> = self.queue_conn().rpush(PRED_QUEUE, value);
+        let result: RedisResult<()> = self.conn.rpush(PRED_QUEUE, value);
         match result {
             Ok(_) => {},
             Err(e) => {
@@ -79,57 +53,41 @@ impl PredDBChannel {
     }
 
     pub fn set_preds(&mut self, boards: &[Board], nn_preds: &[NNPred]) {
-        // group into items, split by shards
-        let mut shards_items: Vec<Vec<(BoardHash, EncPred)>> = (0..self.n_shards as usize)
-            .map(|_| Vec::new())
-            .collect();
-        boards.iter()
+        let items = boards.iter()
             .zip(nn_preds.iter())
-            .for_each(|(board, nn_pred)| {
-                let key = board.compute_hash();
+            .map(|(board, nn_pred)| {
+                let pred_key = board.compute_hash();
                 let encoded_pred = nn_pred.serialize();
-                let item = (key, encoded_pred);
-                let shard_items = shards_items.get_mut(
-                    self.shard_idx_for_key(key)
-                ).unwrap();
-                shard_items.push(item);
-            });
-
-        // for each shard:
-        for (shard_idx, shard_items) in shards_items.iter().enumerate() {
-            if shard_items.is_empty() {
-                continue;
-            }
-            // publish preds
-            let set_result: RedisResult<()> = self.conn_by_shard_idx(shard_idx).mset(shard_items);
-            // publish notifications
-            match set_result {
-                Ok(_) => {
-                    let mut pipe = redis::pipe();
-                    shard_items.iter()
-                        .for_each(|(key, encoded_pred)| {
-                            let notification_key = PredDBChannel::notify_key(key);
-                            pipe.publish(notification_key, encoded_pred).ignore();
-                        });
-                    let mut conn = self.conn_by_shard_idx(shard_idx);
-                        match pipe.query::<()>(&mut conn) {
-                            Ok(_) => {},
-                            Err(e) => {
-                                println!("notify error: {:?}", e);
-                            }
-                        };
-                },
-                Err(e) => {
-                    println!("set error: {:?}", e);
-                    self.reconnect_shard_conn(shard_idx);
-                },
-            };
-        }
+                (pred_key, encoded_pred)
+            })
+            .collect::<Vec<(u64, Vec<u8>)>>();
+        let set_result: RedisResult<()> = self.conn.mset(&items);
+        match set_result {
+            Ok(_) => {
+                let mut pipe = redis::pipe();
+                items
+                    .iter()
+                    .for_each(|(pred_key, encoded_pred)| {
+                        let notification_key = PredDBChannel::notify_key(pred_key);
+                        pipe.publish(notification_key, encoded_pred).ignore();
+                    });
+                let notify_result: RedisResult<()> = pipe.query::<()>(&mut self.conn);
+                match notify_result {
+                    Ok(_) => {},
+                    Err(e) => {
+                        println!("notify error: {:?}", e);
+                    },
+                };
+            },
+            Err(e) => {
+                println!("set error: {:?}", e);
+            },
+        };
     }
 
     pub fn get_pred(&mut self, board: &Board) -> Option<NNPred> {
         let key: u64 = board.compute_hash();
-        if let Ok(encoded) = self.conn(key).get::<_, EncPred>(key) {
+        if let Ok(encoded) = self.conn.get::<_, Vec<u8>>(key) {
             if !encoded.is_empty() {
                 return Some(NNPred::deserialize(&encoded));
             }
@@ -166,15 +124,14 @@ impl PredDBChannel {
                     println!("unsubscribe error: {:?}", e);
                 }
             };
-            let encoded_pred: EncPred = message?.get_payload()?;
+            let encoded_pred: Vec<u8> = message?.get_payload()?;
             let nn_pred = NNPred::deserialize(&encoded_pred);
             Ok(nn_pred)
         }
 
-        let key = board.compute_hash();
-        let notification_key = PredDBChannel::notify_key(&key);
+        let notification_key = PredDBChannel::notify_key(&board.compute_hash());
         let result = await_notification_with_retry(
-            self.conn(key),
+            &mut self.conn,
             &notification_key,
             timeout,
         );
@@ -200,7 +157,7 @@ impl PredDBChannel {
     fn pop_boards_from_queue(&mut self, count: usize) -> Vec<Board> {
         let mut boards: Vec<Board> = Vec::with_capacity(count);
         let encoded_boards = 
-            self.queue_conn().lpop::<_, Vec<EncBoard>>(PRED_QUEUE, NonZero::new(count));
+            self.conn.lpop::<_, Vec<Vec<u8>>>(PRED_QUEUE, NonZero::new(count));
         match encoded_boards {
             Ok(encoded_boards) => {
                 for encoded_board in encoded_boards {
@@ -211,47 +168,16 @@ impl PredDBChannel {
                 panic!("Error fetching boards from queue: {:?}", e);
             },
         }
+        
         boards
-    }
-
-    fn queue_conn(&mut self) -> &mut Connection {
-        &mut self.conns[QUEUE_CONN_IDX]
-    }
-
-    fn conn(&mut self, key: u64) -> &mut Connection {
-        let conn_idx = self.conn_idx_for_key(key);
-        self.conns.get_mut(conn_idx).unwrap_or_else(|| {
-            panic!("Invalid connection index for key: {} which maps to conn_idx: {}", key, conn_idx);
-        })
-    }
-
-    fn conn_by_shard_idx(&mut self, shard_idx: usize) -> &mut Connection {
-        // one for the queue, and one for each shard
-        self.conns.get_mut(1 + shard_idx).unwrap_or_else(|| {
-            panic!("Invalid shard index: {}", shard_idx)
-        })
-    }
-
-    fn shard_idx_for_key(&self, key: u64) -> usize {
-        (key % self.n_shards) as usize
-    }
-
-    fn conn_idx_for_shard_idx(&self, shard_idx: usize) -> usize {
-        // one for the queue, and one for each shard
-        1 + shard_idx
-    }
-
-    fn conn_idx_for_key(&self, key: u64) -> usize {
-        // one for the queue, and one for each shard
-        1 + self.shard_idx_for_key(key)
     }
 }
 
 #[pymethods]
 impl PredDBChannel {
     #[new]
-    pub fn new_py(shard_urls: Vec<String>, channel: usize) -> Self {
-        PredDBChannel::new(shard_urls, channel)
+    pub fn new_py(url: &str, channel: usize) -> Self {
+        PredDBChannel::new(url, channel)
     }
 
     #[getter]
@@ -261,12 +187,11 @@ impl PredDBChannel {
 
     pub fn has_pred(&mut self, board: &Board) -> bool {
         let key = board.compute_hash();
-        self.conn(key).exists(key).unwrap()
+        self.conn.exists(key).unwrap()
     }
 
     pub fn ping(& mut self) -> bool {
-        self.conns.iter_mut()
-            .all(|conn| conn.check_connection())
+        self.conn.check_connection() && self.conn.check_connection()
     }
 
     pub fn fetch_requests(&mut self, count: usize) -> Vec<Board> {
@@ -296,10 +221,8 @@ impl PredDBChannel {
     }
 
     pub fn flush_preds(&mut self) {
-        for conn in self.conns.iter_mut() {
-            redis::cmd("FLUSHDB").arg("ASYNC").exec(conn).unwrap_or_else(|e| {
-                println!("Error flushing predictions: {:?}", e);
-            });
-        }
+        redis::cmd("FLUSHDB").arg("ASYNC").exec(&mut self.conn).unwrap_or_else(|e| {
+            println!("Error flushing predictions: {:?}", e);
+        });
     }
 }

@@ -7,7 +7,7 @@ from alpha_cc.engine import MCTS, Board
 class MCTSAgent(Agent):
     def __init__(
         self,
-        redis_pred_shard_urls: list[str],
+        redis_url: str,
         pred_channel: int = 0,
         cache_size: int = 300000,
         n_rollouts: int = 100,
@@ -19,19 +19,20 @@ class MCTSAgent(Agent):
         c_puct_base: float = 10000.0,
         argmax_delay: int | None = None,
     ) -> None:
-        self._redis_pred_shard_urls = redis_pred_shard_urls
-        self._pred_channel = pred_channel
-        self._cache_size = cache_size
         self._n_rollouts = n_rollouts
         self._rollout_depth = rollout_depth
-        self._rollout_gamma = rollout_gamma
-        self._dirichlet_weight = dirichlet_weight
-        self._dirichlet_alpha = dirichlet_alpha
-        self._c_puct_init = c_puct_init
-        self._c_puct_base = c_puct_base
         self._argmax_delay = argmax_delay
         self._steps_left_to_argmax = argmax_delay or np.inf
-        self._mcts = self._recreate_mcts()
+        self._mcts = MCTS(
+            redis_url,
+            pred_channel,
+            cache_size,
+            rollout_gamma,
+            dirichlet_weight,
+            dirichlet_alpha,
+            c_puct_init,
+            c_puct_base,
+        )
 
     def on_game_start(self) -> None:
         self._steps_left_to_argmax = (self._argmax_delay or np.inf) + 1
@@ -72,15 +73,3 @@ class MCTSAgent(Agent):
             weighted_counts = weighted_counts ** (1 / temperature)
         pi = weighted_counts / weighted_counts.sum()
         return pi
-
-    def _recreate_mcts(self) -> MCTS:
-        return MCTS(
-            self._redis_pred_shard_urls,
-            self._pred_channel,
-            self._cache_size,
-            self._rollout_gamma,
-            self._dirichlet_weight,
-            self._dirichlet_alpha,
-            self._c_puct_init,
-            self._c_puct_base,
-        )

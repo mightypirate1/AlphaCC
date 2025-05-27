@@ -46,7 +46,7 @@ class TrainingDataset(Dataset):
     @property
     def samples(self) -> list[MCTSExperience]:
         return self._new_experiences + list(self._experiences)
-    
+
     def resize(self, new_size: int) -> None:
         experiences = self._experiences
         self._experiences = deque(maxlen=new_size)

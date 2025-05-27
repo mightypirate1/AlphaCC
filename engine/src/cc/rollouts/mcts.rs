@@ -157,7 +157,7 @@ impl MCTS {
     #[allow(clippy::too_many_arguments)]
     #[new]
     fn create(
-        shard_urls: Vec<String>,
+        url: String,
         channel: usize,
         cache_size: usize,
         gamma: f32,
@@ -167,7 +167,7 @@ impl MCTS {
         c_puct_base: f32,
     ) -> MCTS {
         MCTS::new(
-            NNRemote::new(PredDBChannel::new_py(shard_urls, channel)),
+            NNRemote::new(PredDBChannel::new(&url, channel)),
             cache_size,
             MCTSParams {
                 gamma,
