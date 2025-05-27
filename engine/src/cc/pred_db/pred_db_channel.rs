@@ -30,13 +30,13 @@ impl PredDBChannel {
 
     fn connect(keydb_host: &str, memcached_host: &str, db: usize) -> (redis::Connection, memcache::Client) {
         let keydb_url = format!("redis://{host}/{db}", host=keydb_host, db=db);
-        let memcached_url = format!("{host}:{port}", host=memcached_host, port=11211);
-        let client = redis::Client::open(keydb_url)
+        let memcached_url = format!("memcache://{host}:{port}?binary=true&tcp_nodelay=true", host=memcached_host, port=11211);
+        let client = redis::Client::open(keydb_url.clone())
             .expect("Invalid connection URL");
         let keydb_conn = client.get_connection()
-            .expect("failed to connect to Redis");
-        let memcached_client = memcache::Client::connect(memcached_url)
-            .expect("Failed to connect to Memcached");
+            .expect(&format!("failed to connect to keydb on: {}", keydb_url));
+        let memcached_client = memcache::connect(memcached_url.clone())
+            .expect(&format!("Failed to connect to memcached on: {}", memcached_url));
         (keydb_conn, memcached_client)
     }
 
