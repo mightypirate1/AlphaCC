@@ -237,7 +237,8 @@ class NNService:
     def __init__(
         self,
         nn_creator: Callable[[], torch.nn.Module],
-        redis_url: str,
+        redis_host: str,
+        memcached_host: str,
         redis_host_main: str = "localhost",
         log_frequency: int = 60,
         reload_frequency: int = 1,
@@ -246,7 +247,8 @@ class NNService:
         gpu: bool = False,
     ) -> None:
         self._nn_creator = nn_creator
-        self._redis_url = redis_url
+        self._redis_host = redis_host
+        self._memcached_host = memcached_host
         self._log_frequency = log_frequency
         self._reload_frequency = reload_frequency
         self._infecence_batch_size = infecence_batch_size
@@ -290,7 +292,7 @@ class NNService:
         return any(snn.channel == channel for snn in self._served_nns)
 
     def _create_served_nn(self, channel: int, weight_index: int) -> ServedNN:
-        pred_db_channel = PredDBChannel(self._redis_url, channel)
+        pred_db_channel = PredDBChannel(self._redis_host, self._memcached_host, channel)
         nn = self._nn_creator()
         served_nn = ServedNN(
             pred_db_channel,

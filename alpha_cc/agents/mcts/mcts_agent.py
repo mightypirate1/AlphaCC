@@ -7,7 +7,8 @@ from alpha_cc.engine import MCTS, Board
 class MCTSAgent(Agent):
     def __init__(
         self,
-        redis_url: str,
+        redis_host: str,
+        memcached_host: str,
         pred_channel: int = 0,
         cache_size: int = 300000,
         n_rollouts: int = 100,
@@ -24,7 +25,8 @@ class MCTSAgent(Agent):
         self._argmax_delay = argmax_delay
         self._steps_left_to_argmax = argmax_delay or np.inf
         self._mcts = MCTS(
-            redis_url,
+            redis_host,
+            memcached_host,
             pred_channel,
             cache_size,
             rollout_gamma,

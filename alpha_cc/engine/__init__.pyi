@@ -76,7 +76,8 @@ class MCTSNode:
 class MCTS:
     def __init__(
         self,
-        url: str,
+        keydb_url: str,
+        memcached_url: str,
         channel: int,
         cache_size: int,
         rollout_gamma: float,
@@ -84,18 +85,7 @@ class MCTS:
         dirichlet_alpha: float,
         c_puct_init: float,
         c_puct_base: float,
-    ) -> None:
-        """
-        MCTS agent
-
-        Args:
-            url: url to the model (e.g. "redis://localhost/2" for db 2 on localhost)
-            cache_size: size of the MCTS search tree. If more nodes are visited,
-                nodes are removed according to a LRU policy
-            dirichlet_weight: weight of the dirichlet noise
-            dirichlet_alpha: alpha parameter of the dirichlet noise
-        """
-
+    ) -> None: ...
     def clear_nodes(self) -> None: ...
     def get_node(self, board: Board) -> MCTSNode | None: ...
     def run(self, board: Board, rollout_depth: int) -> float: ...
@@ -107,11 +97,14 @@ class NNPred:
     def __init__(self, pi: list[float], value: float) -> None: ...
 
 class PredDBChannel:
-    def __init__(self, url: str, channel: int) -> None: ...
+    def __init__(self, keydb_url: str, memcached_url: str, channel: int) -> None: ...
     @property
     def channel(self) -> int: ...
     def ping(self) -> bool:
         """Tests if channel is connected correctly"""
+
+    def get_channel(self) -> int:
+        """Get the channel number"""
 
     def has_pred(self, board: Board) -> bool:
         """Check if a prediction is available for the given board"""
@@ -127,12 +120,5 @@ class PredDBChannel:
 
     def post_preds(self, boards: list[Board], nn_preds: list[NNPred]) -> None:
         """Post a list of predictions for the given boards"""
-
-    def fetch_pred(self, board: Board, timeout_ms: int | None) -> NNPred | None:
-        """
-        Fetch a prediction for the given board
-
-        - `timeout`: if set, wait for the given number of milliseconds
-        """
 
     def flush_preds(self) -> None: ...

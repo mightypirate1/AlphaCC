@@ -48,7 +48,8 @@ def main(
 ) -> None:
     def create_model(channel: int, trainer_time: int) -> MCTSAgent:
         return MCTSAgent(
-            redis_url=Environment.redis_host_pred,
+            redis_host=Environment.redis_host_pred,
+            memcached_host=Environment.memcached_host,
             pred_channel=channel,
             n_rollouts=n_rollouts_schedule.as_int(trainer_time),
             rollout_depth=rollout_depth_schedule.as_int(trainer_time),

@@ -4,7 +4,8 @@ use crate::cc::pred_db::PredDBChannel;
 use crate::cc::pred_db::NNPred;
 use crate::cc::board::Board;
 
-const ATTEMPT_PATIENCES: [Duration; 5] = [
+const ATTEMPT_PATIENCES: [Duration; 6] = [
+    Duration::from_millis(1),
     Duration::from_millis(10),
     Duration::from_millis(100),
     Duration::from_millis(1000),
@@ -37,11 +38,12 @@ impl NNRemote {
                  * - a tournament started, and the nn service has not yet fired
                  *   up the network on the tournament channels.
                  */
+                self.pred_db.add_to_pred_queue(board);
                 for patience in ATTEMPT_PATIENCES {
-                    self.pred_db.add_to_pred_queue(board);
-                    if let Some(nn_pred) = self.pred_db.await_pred(board, Some(patience)) {
+                    if let Some(nn_pred) = self.pred_db.get_pred(board) {
                         return Ok(nn_pred);
                     }
+                    std::thread::sleep(patience);
                     if patience > Duration::from_millis(1000) {
                         println!("service[channel: {}] slow or unavailable: retrying...",
                             self.pred_db.get_channel(),

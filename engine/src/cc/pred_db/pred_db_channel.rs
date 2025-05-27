@@ -1,45 +1,48 @@
 use std::num::NonZero;
-use std::time::Duration;
 
 use pyo3::prelude::*;
-use redis::{Client, Commands, Connection, ConnectionLike, RedisResult};
+use redis::{Commands, ConnectionLike, RedisResult};
 
 use crate::cc::Board;
 use crate::cc::pred_db::nn_pred::NNPred;
 
 const PRED_QUEUE: &str = "queue";
-const CHANNEL_DB_OFFSET: usize = 2;
-
-const PUBSUB_BACKOFF_MS: u64 = 10;
-const PUBSUB_RETRY_COUNT: u64 = 5;
+const KEYDB_DB: usize = 2;
 
 
 #[pyclass(module="alpha_cc_engine")]
 pub struct PredDBChannel {
-    conn: Connection,
+    keydb_conn: redis::Connection,
+    memcached_client: memcache::Client,
     channel: usize,
 }
 
 
 impl PredDBChannel {
-    pub fn new(url: &str, channel: usize) -> Self {
-        let conn = PredDBChannel::connect(url, channel + CHANNEL_DB_OFFSET);
+    pub fn new(keydb_host: &str, memcached_host: &str, channel: usize) -> Self {
+        let (keydb_conn, memcached_client) = PredDBChannel::connect(keydb_host, memcached_host, KEYDB_DB);
         PredDBChannel { 
-            conn,
+            keydb_conn,
+            memcached_client,
             channel,
         }
     }
 
-    fn connect(url: &str, db: usize) -> Connection {
-        let client = Client::open(format!("redis://{url}/{db}", url=url, db=db))
+    fn connect(keydb_host: &str, memcached_host: &str, db: usize) -> (redis::Connection, memcache::Client) {
+        let keydb_url = format!("redis://{host}/{db}", host=keydb_host, db=db);
+        let memcached_url = format!("memcached://{host}:{port}", host=memcached_host, port=11211);
+        let client = redis::Client::open(keydb_url)
             .expect("Invalid connection URL");
-        client.get_connection()
-            .expect("failed to connect to Redis")
+        let keydb_conn = client.get_connection()
+            .expect("failed to connect to Redis");
+        let memcached_client = memcache::Client::connect(memcached_url)
+            .expect("Failed to connect to Memcached");
+        (keydb_conn, memcached_client)
     }
 
     pub fn add_to_pred_queue(&mut self, board: &Board) {
         let value = board.serialize_rs();
-        let result: RedisResult<()> = self.conn.rpush(PRED_QUEUE, value);
+        let result: RedisResult<()> = self.keydb_conn.rpush(PRED_QUEUE, value);
         match result {
             Ok(_) => {},
             Err(e) => {
@@ -48,116 +51,10 @@ impl PredDBChannel {
         };
     }
 
-    pub fn set_pred(&mut self, board: &Board, nn_pred: &NNPred) {
-        self.set_preds(&[board.clone()], &[nn_pred.clone()]);
-    }
-
-    pub fn set_preds(&mut self, boards: &[Board], nn_preds: &[NNPred]) {
-        let items = boards.iter()
-            .zip(nn_preds.iter())
-            .map(|(board, nn_pred)| {
-                let pred_key = board.compute_hash();
-                let encoded_pred = nn_pred.serialize();
-                (pred_key, encoded_pred)
-            })
-            .collect::<Vec<(u64, Vec<u8>)>>();
-        let set_result: RedisResult<()> = self.conn.mset(&items);
-        match set_result {
-            Ok(_) => {
-                let mut pipe = redis::pipe();
-                items
-                    .iter()
-                    .for_each(|(pred_key, encoded_pred)| {
-                        let notification_key = PredDBChannel::notify_key(pred_key);
-                        pipe.publish(notification_key, encoded_pred).ignore();
-                    });
-                let notify_result: RedisResult<()> = pipe.query::<()>(&mut self.conn);
-                match notify_result {
-                    Ok(_) => {},
-                    Err(e) => {
-                        println!("notify error: {:?}", e);
-                    },
-                };
-            },
-            Err(e) => {
-                println!("set error: {:?}", e);
-            },
-        };
-    }
-
-    pub fn get_pred(&mut self, board: &Board) -> Option<NNPred> {
-        let key: u64 = board.compute_hash();
-        if let Ok(encoded) = self.conn.get::<_, Vec<u8>>(key) {
-            if !encoded.is_empty() {
-                return Some(NNPred::deserialize(&encoded));
-            }
-        }
-        None
-    }
-
-    pub fn await_pred(&mut self, board: &Board, timeout: Option<Duration>) -> Option<NNPred> {
-        fn await_notification_with_retry(
-            conn: &mut Connection,
-            notification_key: &str,
-            timeout: Option<Duration>,
-        ) -> RedisResult<NNPred> {
-            let mut pubsub = conn.as_pubsub();
-            pubsub.set_read_timeout(timeout)?;
-
-            let mut retry_count: u64 = 0;
-            loop {
-                match pubsub.subscribe(notification_key) {
-                    Ok(_) => break,
-                    Err(e) => {
-                        if retry_count >= PUBSUB_RETRY_COUNT - 1 {
-                            return Err(e);
-                        }
-                        retry_count += 1;
-                        std::thread::sleep(Duration::from_millis(PUBSUB_BACKOFF_MS * retry_count));
-                    },
-                }
-            }
-            let message = pubsub.get_message();
-            match pubsub.unsubscribe(notification_key) {
-                Ok(_) => {},
-                Err(e) => {
-                    println!("unsubscribe error: {:?}", e);
-                }
-            };
-            let encoded_pred: Vec<u8> = message?.get_payload()?;
-            let nn_pred = NNPred::deserialize(&encoded_pred);
-            Ok(nn_pred)
-        }
-
-        let notification_key = PredDBChannel::notify_key(&board.compute_hash());
-        let result = await_notification_with_retry(
-            &mut self.conn,
-            &notification_key,
-            timeout,
-        );
-
-        /*
-         * Under high load, the keydb sometimes does not respond
-         * as quickly as we would wish. Thus we convert all errors
-         * to `None`, which semantically means that the prediction
-         * was not found.
-         * 
-         * TODO: see what can be done to fix that, and decide
-         * what to do about this case. For now, I simply pretend
-         * there was no prediction, and the caller will have to
-         * handle it.
-         */
-        result.ok()
-    }
-
-    fn notify_key(key: &u64) -> String {
-        format!("notify:{}", key)
-    }
-
     fn pop_boards_from_queue(&mut self, count: usize) -> Vec<Board> {
         let mut boards: Vec<Board> = Vec::with_capacity(count);
         let encoded_boards = 
-            self.conn.lpop::<_, Vec<Vec<u8>>>(PRED_QUEUE, NonZero::new(count));
+            self.keydb_conn.lpop::<_, Vec<Vec<u8>>>(PRED_QUEUE, NonZero::new(count));
         match encoded_boards {
             Ok(encoded_boards) => {
                 for encoded_board in encoded_boards {
@@ -171,13 +68,41 @@ impl PredDBChannel {
         
         boards
     }
+
+    pub fn set_pred(&mut self, board: &Board, nn_pred: &NNPred) {
+        let key = self.pred_key(board);
+        self.memcached_client.set(&key, nn_pred.serialize().as_slice(), 0)
+            .expect("Failed to set prediction in Memcached");
+    }
+
+    pub fn set_preds(&mut self, boards: &[Board], nn_preds: &[NNPred]) {
+        for (board, nn_pred) in boards.iter().zip(nn_preds.iter()) {
+            self.set_pred(board, nn_pred);
+        }
+    }
+
+    pub fn get_pred(&mut self, board: &Board) -> Option<NNPred> {
+        let key = self.pred_key(board);
+        if let Ok(value) = self.memcached_client.get::<Vec<u8>>(&key) {
+            if let Some(encoded) = value {
+                return Some(NNPred::deserialize(&encoded));
+            }
+        } else {
+            panic!("Failed to get prediction from Memcached for key: {}", key);
+        }
+        None
+    }
+
+    fn pred_key(&self, board: &Board) -> String {
+        format!("{}:{}", self.channel, board.compute_hash())
+    }
 }
 
 #[pymethods]
 impl PredDBChannel {
     #[new]
-    pub fn new_py(url: &str, channel: usize) -> Self {
-        PredDBChannel::new(url, channel)
+    pub fn new_py(keydb_host: &str, memcached_host: &str, channel: usize) -> Self {
+        PredDBChannel::new(keydb_host, memcached_host, channel)
     }
 
     #[getter]
@@ -186,12 +111,11 @@ impl PredDBChannel {
     }
 
     pub fn has_pred(&mut self, board: &Board) -> bool {
-        let key = board.compute_hash();
-        self.conn.exists(key).unwrap()
+        self.get_pred(board).is_some()
     }
 
     pub fn ping(& mut self) -> bool {
-        self.conn.check_connection() && self.conn.check_connection()
+        self.keydb_conn.check_connection() && self.memcached_client.set("ping", "pong", 0).is_ok()
     }
 
     pub fn fetch_requests(&mut self, count: usize) -> Vec<Board> {
@@ -210,19 +134,8 @@ impl PredDBChannel {
         self.set_preds(&boards, &nn_preds);
     }
 
-    pub fn fetch_pred(&mut self, board: &Board, timeout_ms: Option<u64>) -> Option<NNPred> {
-        if let Some(timeout) = timeout_ms {
-            self.get_pred(board).or_else(|| {
-                self.await_pred(board, Some(Duration::from_millis(timeout)))
-            })
-        } else {
-            self.get_pred(board)
-        }
-    }
-
     pub fn flush_preds(&mut self) {
-        redis::cmd("FLUSHDB").arg("ASYNC").exec(&mut self.conn).unwrap_or_else(|e| {
-            println!("Error flushing predictions: {:?}", e);
-        });
+        self.memcached_client.flush()
+            .expect("Failed to flush Memcached");
     }
 }

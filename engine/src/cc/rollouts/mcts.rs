@@ -157,7 +157,8 @@ impl MCTS {
     #[allow(clippy::too_many_arguments)]
     #[new]
     fn create(
-        url: String,
+        keydb_host: String,
+        memcached_host: String,
         channel: usize,
         cache_size: usize,
         gamma: f32,
@@ -167,7 +168,7 @@ impl MCTS {
         c_puct_base: f32,
     ) -> MCTS {
         MCTS::new(
-            NNRemote::new(PredDBChannel::new(&url, channel)),
+            NNRemote::new(PredDBChannel::new(&keydb_host, &memcached_host, channel)),
             cache_size,
             MCTSParams {
                 gamma,
