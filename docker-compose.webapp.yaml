@@ -22,7 +22,7 @@ services:
     env_file:
       - .env.docker
     environment:
-      - REDIS_HOST_MAIN=keydb-webapp
+      - REDIS_HOST=keydb-webapp
     volumes:
       - models:/mnt/models:rw
     ports:

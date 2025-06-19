@@ -6,6 +6,14 @@ services:
       target: main
     shm_size: '8gb'
     cpu_shares: 1024
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     depends_on:
       keydb-main:
         condition: service_healthy
@@ -17,13 +25,12 @@ services:
       - .env.docker
     command: [
       "alphacc-trainer",
-      # "--run-id=alpha-cc-size-5-run-00-gpu",
-      "--run-id=dbg-11-size9",
+      "--run-id=dbg-12-size9-0",
       "--size=9",
-      "--tournament-freq=30",
+      "--tournament-freq=10",
       "--n-train-samples=5000",
-      "--replay-buffer-size=20000",
-      "--train-size=10000",
+      "--replay-buffer-size=30000",
+      "--train-size=15000",
       "--epochs-per-update=5",
       "--policy-weight=1.0",
       "--value-weight=1.0",
@@ -36,6 +43,7 @@ services:
 
   worker:
     image: alphacc/main
+    # cpu_shares: 256
     cpu_shares: 2
     deploy:
       replicas: 20
@@ -47,16 +55,24 @@ services:
     command: [
       "alphacc-worker",
       "--size=9",
-      "--n-rollouts=3000",
-      "--rollout-depth=100",
-      "--max-game-length=300",
+      "--n-rollouts=init=50,step=10,max=3000",
+      "--rollout-depth=init=10,step=3,max=100",
+      "--max-game-length=100",
       "--dirichlet-noise-weight=0.15",
       "--rollout-gamma=0.99",
     ]
-    
+
   nn-service:
     image: alphacc/main
     cpu_shares: 1024
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     depends_on:
       - trainer
     env_file:
@@ -80,8 +96,9 @@ services:
       - "tensorboard"
       - "--logdir=/mnt/logdir"
 
-  keydb:
+  keydb-main:
     image: eqalpha/keydb
+    # cpu_shares: 256
     ports:
       - '6379:6379'
     command: [
@@ -103,6 +120,7 @@ services:
 
   keydb-pred:
     image: eqalpha/keydb
+    # cpu_shares: 256
     ports:
       - '6378:6379'
     command: [

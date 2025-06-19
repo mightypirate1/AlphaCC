@@ -1,0 +1,31 @@
+services:
+  keydb-pred:
+    image: eqalpha/keydb
+    cpu_shares: 4096
+    ports:
+      - '6379'
+    command: [
+      "keydb-server",
+      "--appendonly", "no",
+      "--save", "",
+      "--server-threads", "16",
+      "--tcp-backlog", "2048",
+      "--tcp-keepalive", "60",
+      "--io-threads", "8",
+      "--maxclients", "1000",
+      "--tcp-backlog", "2048",
+      "--timeout", "3",
+      "--client-output-buffer-limit", "normal", "0", "0", "0",
+      "--client-output-buffer-limit", "pubsub", "64mb", "16mb", "240",
+      "--maxmemory", "1gb",
+      "--maxmemory-policy", "allkeys-lru",
+      "--protected-mode", "no",
+      "--dynamic-hz", "yes",
+      "--hz", "100",
+    ]
+    healthcheck:
+      test: [ "CMD", "redis-cli", "--raw", "incr", "ping" ]
+      interval: 5s
+      timeout: 30s
+      retries: 15
+      start_period: 5s

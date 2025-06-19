@@ -4,9 +4,12 @@ use crate::cc::pred_db::PredDBChannel;
 use crate::cc::pred_db::NNPred;
 use crate::cc::board::Board;
 
-const ATTEMPT_PATIENCES: [Duration; 6] = [
+const ATTEMPT_PATIENCES: [Duration; 9] = [
     Duration::from_millis(1),
+    Duration::from_millis(3),
+    Duration::from_millis(5),
     Duration::from_millis(10),
+    Duration::from_millis(15),
     Duration::from_millis(100),
     Duration::from_millis(1000),
     Duration::from_millis(10000),

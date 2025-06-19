@@ -6,6 +6,14 @@ services:
       target: main
     shm_size: '8gb'
     cpu_shares: 1024
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     depends_on:
       keydb-main:
         condition: service_healthy
@@ -57,6 +65,14 @@ services:
   nn-service:
     image: alphacc/main
     cpu_shares: 1024
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     depends_on:
       - trainer
     env_file:
@@ -80,7 +96,7 @@ services:
       - "tensorboard"
       - "--logdir=/mnt/logdir"
 
-  keydb:
+  keydb-main:
     image: eqalpha/keydb
     ports:
       - '6379:6379'

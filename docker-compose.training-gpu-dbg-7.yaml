@@ -5,11 +5,25 @@ services:
       dockerfile: Dockerfile.main
       target: main
     shm_size: '8gb'
-    cpu_shares: 1024
+    cpu_shares: 4096
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     depends_on:
       keydb-main:
         condition: service_healthy
-      keydb-pred:
+      keydb-pred-1:
+        condition: service_healthy
+      keydb-pred-2:
+        condition: service_healthy
+      keydb-pred-3:
+        condition: service_healthy
+      keydb-pred-4:
         condition: service_healthy
     volumes:
       - local:/mnt:rw
@@ -17,28 +31,27 @@ services:
       - .env.docker
     command: [
       "alphacc-trainer",
-      # "--run-id=alpha-cc-size-5-run-00-gpu",
-      "--run-id=dbg-11-size9",
+      "--run-id=lesgo-size9-sharded-2-nsamples=1000",
       "--size=9",
-      "--tournament-freq=30",
-      "--n-train-samples=5000",
-      "--replay-buffer-size=20000",
-      "--train-size=10000",
-      "--epochs-per-update=5",
+      "--tournament-freq=20",
+      "--n-train-samples=1000",
+      "--replay-buffer-size=30000",
+      "--train-size=15000",
+      "--epochs-per-update=3",
       "--policy-weight=1.0",
       "--value-weight=1.0",
       "--entropy-weight=0.01",
       "--l2-reg=3e-4",
-      "--batch-size=64",
+      "--batch-size=128",
       "--lr=1e-4",
       "--gpu",
     ]
 
   worker:
     image: alphacc/main
-    cpu_shares: 2
+    #cpu_shares: 256
     deploy:
-      replicas: 20
+      replicas: 100
     depends_on:
       - nn-service
     env_file:
@@ -47,16 +60,25 @@ services:
     command: [
       "alphacc-worker",
       "--size=9",
-      "--n-rollouts=3000",
-      "--rollout-depth=100",
-      "--max-game-length=300",
+      "--n-rollouts=init=100,step=4,min=0,max=3000",
+      "--rollout-depth=init=10,step=1,max=100",
+      "--action-temperature=init=1.3,step=-0.0015,min=0.01,max=1.0",
+      "--max-game-length=init=250,random_add=100",
       "--dirichlet-noise-weight=0.15",
       "--rollout-gamma=0.99",
     ]
-    
+
   nn-service:
     image: alphacc/main
-    cpu_shares: 1024
+    cpu_shares: 8192
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     depends_on:
       - trainer
     env_file:
@@ -65,8 +87,8 @@ services:
     command: [
       "alphacc-nn-service",
       "--size=9",
-      "--gpu",
       "--inference-batch-size=256",
+      "--gpu",
     ]
 
   tensorboard:
@@ -80,15 +102,16 @@ services:
       - "tensorboard"
       - "--logdir=/mnt/logdir"
 
-  keydb:
+  keydb-main:
     image: eqalpha/keydb
+    cpu_shares: 256
     ports:
       - '6379:6379'
     command: [
       "keydb-server",
       "--appendonly", "no",
       "--save", "",
-      "--server-threads", "4",
+      "--server-threads", "2",
       "--tcp-backlog", "511",
       "--tcp-keepalive", "60",
       "--client-output-buffer-limit", "normal", "0", "0", "0",
@@ -101,29 +124,33 @@ services:
       retries: 15
       start_period: 5s
 
-  keydb-pred:
-    image: eqalpha/keydb
+  keydb-pred-1:
+    extends:
+      file: docker/pred-db.yaml
+      service: keydb-pred
     ports:
       - '6378:6379'
-    command: [
-      "keydb-server",
-      "--appendonly", "no",
-      "--save", "",
-      "--server-threads", "4",
-      "--tcp-backlog", "511",
-      "--tcp-keepalive", "60",
-      "--client-output-buffer-limit", "normal", "0", "0", "0",
-      "--client-output-buffer-limit", "pubsub", "32mb", "8mb", "60",
-      "--maxmemory", "1gb",
-      "--maxmemory-policy", "allkeys-lru",
-      "--hz", "300",
-    ]
-    healthcheck:
-      test: [ "CMD", "redis-cli", "--raw", "incr", "ping" ]
-      interval: 5s
-      timeout: 30s
-      retries: 15
-      start_period: 5s
+
+  keydb-pred-2:
+    extends:
+      file: docker/pred-db.yaml
+      service: keydb-pred
+    ports:
+      - '6377:6379'
+
+  keydb-pred-3:
+    extends:
+      file: docker/pred-db.yaml
+      service: keydb-pred
+    ports:
+      - '6376:6379'
+
+  keydb-pred-4:
+    extends:
+      file: docker/pred-db.yaml
+      service: keydb-pred
+    ports:
+      - '6375:6379'
 
 volumes:
   local:
