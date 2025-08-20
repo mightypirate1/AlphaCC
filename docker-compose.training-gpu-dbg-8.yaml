@@ -17,15 +17,13 @@ services:
     depends_on:
       keydb-main:
         condition: service_healthy
-      keydb-pred:
-        condition: service_started
     volumes:
       - local:/mnt:rw
     env_file:
       - .env.docker
     command: [
       "alphacc-trainer",
-      "--run-id=lesgo-size9-keydb+memcache-0-nsamples=3000",
+      "--run-id=august-v1.1-zmq-rescaled-waits+100k-nodes",
       "--size=9",
       "--tournament-freq=20",
       "--n-train-samples=3000",
@@ -45,7 +43,7 @@ services:
     image: alphacc/main
     #cpu_shares: 256
     deploy:
-      replicas: 50
+      replicas: 100
     depends_on:
       - nn-service
     env_file:
@@ -74,14 +72,23 @@ services:
               count: 1
               capabilities: [gpu]
     depends_on:
-      - trainer
+      keydb-pred:
+        condition: service_started
+      keydb-main:
+        condition: service_healthy
+      memcached:
+        condition: service_started
     env_file:
       - .env.docker
     restart: always
+    expose:
+      - "5555"
     command: [
       "alphacc-nn-service",
       "--size=9",
-      "--inference-batch-size=256",
+      # "--inference-batch-size=256",
+      "--inference-batch-size=32",
+      "--log-frequency=10",
       "--gpu",
     ]
 
