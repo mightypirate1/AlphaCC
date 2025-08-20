@@ -79,12 +79,14 @@ class Trainer:
         if self._summary_writer is None:
             return
 
+        experiences = [exp for traj in trajectories for exp in traj]
         game_lengths = np.array([len(traj) for traj in trajectories])
-        v_targets = np.array([e.v_target for traj in trajectories for e in traj])
+        game_ended_early = np.array([not traj[-1].state.info.game_over for traj in trajectories if len(traj) > 0])
+        v_targets = np.array([e.v_target for e in experiences])
         pi_targets_logits_flat = np.concatenate(
             [np.log(e.pi_target.clip(1e-6).ravel()) for traj in trajectories for e in traj]
         )
-        eval_dataset = TrainingDataset([exp for traj in trajectories for exp in traj])
+        eval_dataset = TrainingDataset(experiences)
         pi_logits, v = self._evaluate(eval_dataset)
         pi_targets = torch.stack([pi_target for _, _, pi_target, _, _ in eval_dataset])  # type: ignore
         pi_target_entropy = entropy(pi_targets)
@@ -99,6 +101,11 @@ class Trainer:
         self._summary_writer.add_histogram("trainer/v-target", v_targets, global_step=self._global_step)
         log_aggregates("game-length", game_lengths)
         log_aggregates("pi-target-entropy", pi_target_entropy)
+        self._summary_writer.add_scalar(
+            "train-rollouts/frac-ended-early",
+            game_ended_early.mean(),
+            global_step=self._global_step,
+        )
 
     def _update_nn(self, dataset: TrainingDataset, train_size: int) -> None:
         def train_epoch(dataloader: DataLoader) -> tuple[float, float, float]:
