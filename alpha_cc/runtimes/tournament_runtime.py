@@ -75,14 +75,14 @@ class TournamentRuntime:
             self._training_db.tournament_add_result(player_1, player_2, winner=player_2)
         self._training_db.tournament_increment_counter()
 
-    def run_tournament(self, champion_idx: int, n_rounds: int = 5) -> TournamentResult:
+    def run_tournament(self, challenger_idx: int, champion_idx: int, n_rounds: int = 5) -> TournamentResult:
         """
         Arranges tournament by setting up the db accordingly and waiting for the results.
         """
-        expected_games = self._arrange_tournament(champion_idx, n_rounds)
+        expected_games = self._arrange_tournament(challenger_idx, champion_idx, n_rounds)
         return self._await_tournament_results(expected_games)
 
-    def _arrange_tournament(self, champion_idx: int, n_rounds: int = 5) -> int:
+    def _arrange_tournament(self, challenger_idx: int, champion_idx: int, n_rounds: int = 5) -> int:
         """
         Arranges a tournament by:
         - setting the model configuration to the given weight indices
@@ -92,12 +92,13 @@ class TournamentRuntime:
 
         """
         # assign weights to tournament channels
-        self._training_db.model_set_current(1, champion_idx)
+        n_players = 2
+        channels = [1, 2]  # 0 is the current weights
+        self._training_db.model_set_current(1, challenger_idx)
+        self._training_db.model_set_current(2, champion_idx)
 
         # reset tournament counter and add matches
-        n_players = 2
         self._training_db.tournament_reset()
-        channels = [0, 1]  # 0 is the current weights, 1 is the champion weights
         for _ in range(n_rounds):
             for channel_1 in channels:
                 for channel_2 in [c for c in channels if c != channel_1]:

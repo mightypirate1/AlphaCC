@@ -41,7 +41,7 @@ class TournamentManager:
         """
 
         def _run_tournament() -> None:
-            tournament_results = self._tournament_runtime.run_tournament(self._champion_index, n_rounds=5)
+            tournament_results = self._tournament_runtime.run_tournament(challenger_idx, self._champion_index, n_rounds=5)
             win_rate, win_rate_as_white, win_rate_as_black = self._extract_winrate(tournament_results)
             if win_rate > 0.55:
                 self._champion_index = challenger_idx
