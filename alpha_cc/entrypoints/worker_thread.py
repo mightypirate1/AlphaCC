@@ -30,7 +30,7 @@ logger = logging.getLogger(__file__)
 @click.option("--action-temperature", type=str, default="1.0")
 @click.option("--gamma", type=float, default=1.0)
 @click.option("--heuristic", is_flag=True, default=False)
-@click.option("--non-terminal-value-weight", type=float, default=0.2)
+@click.option("--non-terminal-value-weight", type=float, default=0.1)
 @click.option("--verbose", is_flag=True, default=False)
 def main(
     size: int,
@@ -48,7 +48,7 @@ def main(
 ) -> None:
     def create_model(channel: int, trainer_time: int) -> MCTSAgent:
         return MCTSAgent(
-            redis_host=Environment.redis_host_pred,
+            zmq_url=Environment.zmq_url,
             memcached_host=Environment.memcached_host,
             pred_channel=channel,
             n_rollouts=n_rollouts_schedule.as_int(trainer_time),

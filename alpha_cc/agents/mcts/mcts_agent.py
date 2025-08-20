@@ -7,7 +7,7 @@ from alpha_cc.engine import MCTS, Board
 class MCTSAgent(Agent):
     def __init__(
         self,
-        redis_host: str,
+        zmq_url: str,
         memcached_host: str,
         pred_channel: int = 0,
         cache_size: int = 300000,
@@ -25,7 +25,7 @@ class MCTSAgent(Agent):
         self._argmax_delay = argmax_delay
         self._steps_left_to_argmax = argmax_delay or np.inf
         self._mcts = MCTS(
-            redis_host,
+            zmq_url,
             memcached_host,
             pred_channel,
             cache_size,
@@ -41,7 +41,7 @@ class MCTSAgent(Agent):
         self._mcts.clear_nodes()
 
     def on_game_end(self) -> None:
-        pass
+        self._mcts.clear_nodes()
 
     def choose_move(self, board: Board, training: bool = False, temperature: float = 1.0) -> int:
         if self._argmax_delay is not None:

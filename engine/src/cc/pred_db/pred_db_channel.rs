@@ -1,71 +1,76 @@
-use std::num::NonZero;
-
+use std::cell::RefCell;
 use pyo3::prelude::*;
-use redis::{Commands, ConnectionLike, RedisResult};
 
 use crate::cc::Board;
 use crate::cc::pred_db::nn_pred::NNPred;
 
-const PRED_QUEUE: &str = "queue";
-const KEYDB_DB: usize = 2;
+const ZMQ_HWM: i32 = 10000;
 
+lazy_static::lazy_static! {
+    static ref ZMQ_CONTEXT: zmq::Context = zmq::Context::new();
+    static ref SHARED_PULL_SOCKETS: [std::sync::Mutex<Option<zmq::Socket>>; 3] = [
+        std::sync::Mutex::new(None),
+        std::sync::Mutex::new(None),
+        std::sync::Mutex::new(None),
+    ];
+}
+
+thread_local! {
+    static THREAD_SOCKETS_PUSH: [RefCell<Option<zmq::Socket>>; 3] = const {[
+        RefCell::new(None),
+        RefCell::new(None),
+        RefCell::new(None),
+    ]};
+}
 
 #[pyclass(module="alpha_cc_engine")]
 pub struct PredDBChannel {
-    keydb_conn: redis::Connection,
+    zmq_url: String,
     memcached_client: memcache::Client,
     channel: usize,
 }
 
 
 impl PredDBChannel {
-    pub fn new(keydb_host: &str, memcached_host: &str, channel: usize) -> Self {
-        let (keydb_conn, memcached_client) = PredDBChannel::connect(keydb_host, memcached_host, KEYDB_DB);
+    pub fn new(zmq_url: &str, memcached_host: &str, channel: usize) -> Self {
+        let memcached_url = format!("memcache://{host}:{port}?binary=true&tcp_nodelay=true", host=memcached_host, port=11211);
+        let memcached_client = memcache::Client::connect(memcached_url)
+            .expect("Failed to connect to memcached");
+        
         PredDBChannel { 
-            keydb_conn,
+            zmq_url: zmq_url.to_string(),
             memcached_client,
             channel,
         }
     }
 
-    fn connect(keydb_host: &str, memcached_host: &str, db: usize) -> (redis::Connection, memcache::Client) {
-        let keydb_url = format!("redis://{host}/{db}", host=keydb_host, db=db);
-        let memcached_url = format!("memcache://{host}:{port}?binary=true&tcp_nodelay=true", host=memcached_host, port=11211);
-        let client = redis::Client::open(keydb_url.clone())
-            .expect("Invalid connection URL");
-        let keydb_conn = client.get_connection()
-            .expect(&format!("failed to connect to keydb on: {}", keydb_url));
-        let memcached_client = memcache::connect(memcached_url.clone())
-            .expect(&format!("Failed to connect to memcached on: {}", memcached_url));
-        (keydb_conn, memcached_client)
-    }
-
-    pub fn add_to_pred_queue(&mut self, board: &Board) {
+    pub fn add_to_pred_queue(&self, board: &Board) {
         let value = board.serialize_rs();
-        let result: RedisResult<()> = self.keydb_conn.rpush(PRED_QUEUE, value);
-        match result {
-            Ok(_) => {},
-            Err(e) => {
-                println!("error: {:?}", e);
-            },
-        };
+        self.with_push_socket(|socket| {
+            if let Err(e) = socket.send(&value, 0) {
+                println!("ZMQ error: {:?}", e);
+            }
+        });
     }
 
-    fn pop_boards_from_queue(&mut self, count: usize) -> Vec<Board> {
-        let mut boards: Vec<Board> = Vec::with_capacity(count);
-        let encoded_boards = 
-            self.keydb_conn.lpop::<_, Vec<Vec<u8>>>(PRED_QUEUE, NonZero::new(count));
-        match encoded_boards {
-            Ok(encoded_boards) => {
-                for encoded_board in encoded_boards {
-                    boards.push(Board::deserialize_rs(&encoded_board));
+    pub fn pop_boards_from_queue(&self, count: usize) -> Vec<Board> {
+        let mut boards = Vec::with_capacity(count);    
+        self.with_pull_socket(|socket| {
+            for _ in 0..count {
+                match socket.recv_bytes(zmq::DONTWAIT) {
+                    Ok(data) => {
+                        boards.push(Board::deserialize_rs(&data));
+                    },
+                    Err(zmq::Error::EAGAIN) => {
+                        break;
+                    },
+                    Err(e) => {
+                        println!("ZMQ receive error: {:?}", e);
+                        break;
+                    }
                 }
-            },
-            Err(e) => {
-                panic!("Error fetching boards from queue: {:?}", e);
-            },
-        }
-        
+            }
+        });
         boards
     }
 
@@ -93,6 +98,41 @@ impl PredDBChannel {
         None
     }
 
+    fn with_push_socket<F, R>(&self, f: F) -> R where F: FnOnce(&zmq::Socket) -> R {
+        THREAD_SOCKETS_PUSH.with(|sockets_array| {
+            let socket_cell = &sockets_array[self.channel];
+            let mut socket_opt = socket_cell.borrow_mut();
+            
+            if socket_opt.is_none() {
+                let socket = ZMQ_CONTEXT.socket(zmq::PUSH).expect("Failed to create socket");
+                socket.set_sndhwm(ZMQ_HWM).expect("Failed to set HWM");
+                let port = 5555 + self.channel;
+                socket.connect(&format!("tcp://{}:{}", self.zmq_url, port))
+                    .unwrap_or_else(|_| panic!("Failed to connect to ZMQ server on port {}", port));
+                *socket_opt = Some(socket);
+            }
+            
+            f(socket_opt.as_ref().unwrap())
+        })
+    }
+
+    fn with_pull_socket<F, R>(&self, f: F) -> R where F: FnOnce(&zmq::Socket) -> R {
+        let mut socket_guard = SHARED_PULL_SOCKETS[self.channel].lock().unwrap();
+
+        if socket_guard.is_none() {
+            let socket = ZMQ_CONTEXT.socket(zmq::PULL).expect("Failed to create socket");
+            socket.set_rcvhwm(ZMQ_HWM).expect("Failed to set HWM");
+            socket.set_linger(0).expect("Failed to set LINGER");
+            let port = 5555 + self.channel;
+            socket.bind(&format!("tcp://0.0.0.0:{}", port))
+                .unwrap_or_else(|_| panic!("Failed to bind ZMQ socket on port {}", port));
+                
+            *socket_guard = Some(socket);
+        }
+        
+        f(socket_guard.as_ref().unwrap())
+    }
+
     fn pred_key(&self, board: &Board) -> String {
         format!("{}:{}", self.channel, board.compute_hash())
     }
@@ -101,8 +141,8 @@ impl PredDBChannel {
 #[pymethods]
 impl PredDBChannel {
     #[new]
-    pub fn new_py(keydb_host: &str, memcached_host: &str, channel: usize) -> Self {
-        PredDBChannel::new(keydb_host, memcached_host, channel)
+    pub fn new_py(zmq_url: &str, memcached_host: &str, channel: usize) -> Self {
+        PredDBChannel::new(zmq_url, memcached_host, channel)
     }
 
     #[getter]
@@ -115,7 +155,7 @@ impl PredDBChannel {
     }
 
     pub fn ping(& mut self) -> bool {
-        self.keydb_conn.check_connection() && self.memcached_client.set("ping", "pong", 0).is_ok()
+        self.memcached_client.set("ping", "pong", 0).is_ok()
     }
 
     pub fn fetch_requests(&mut self, count: usize) -> Vec<Board> {

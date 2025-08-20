@@ -4,17 +4,20 @@ use crate::cc::pred_db::PredDBChannel;
 use crate::cc::pred_db::NNPred;
 use crate::cc::board::Board;
 
-const ATTEMPT_PATIENCES: [Duration; 9] = [
-    Duration::from_millis(1),
-    Duration::from_millis(3),
+const ATTEMPT_PATIENCES: [Duration; 10] = [
     Duration::from_millis(5),
     Duration::from_millis(10),
     Duration::from_millis(15),
+    Duration::from_millis(25),
+    Duration::from_millis(50),
     Duration::from_millis(100),
+    Duration::from_millis(300),
     Duration::from_millis(1000),
     Duration::from_millis(10000),
     Duration::from_millis(10000),
 ];
+
+const REPOST_THRESHOLD: Duration = Duration::from_millis(100);
 
 pub struct NNRemote {
     pred_db: PredDBChannel,
@@ -46,8 +49,11 @@ impl NNRemote {
                     if let Some(nn_pred) = self.pred_db.get_pred(board) {
                         return Ok(nn_pred);
                     }
+                    if patience >= REPOST_THRESHOLD {
+                        self.pred_db.request_pred(board);
+                    }
                     std::thread::sleep(patience);
-                    if patience > Duration::from_millis(1000) {
+                    if patience >= Duration::from_millis(1000) {
                         println!("service[channel: {}] slow or unavailable: retrying...",
                             self.pred_db.get_channel(),
                         );
