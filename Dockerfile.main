@@ -44,10 +44,10 @@ RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
 # Build engine
 ENV PATH="/root/.cargo/bin:$PATH"
 COPY . $WORKDIR
-RUN bash -c '                         \
-    python3 -m pip install maturin && \
-    cd $WORKDIR/engine &&             \
-    maturin develop --release         \
+RUN bash -c '                                   \
+    python3 -m pip install maturin[patchelf] && \
+    cd $WORKDIR/engine &&                       \
+    maturin develop --release                   \
 '
 
 

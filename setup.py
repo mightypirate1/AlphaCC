@@ -40,7 +40,7 @@ setup(
         "click",
         "dill",
         "einops",
-        "maturin",
+        "maturin[patchelf]",
         "numpy",
         "python-dotenv",
         "redis",
