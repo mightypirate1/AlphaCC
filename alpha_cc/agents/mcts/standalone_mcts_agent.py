@@ -4,7 +4,7 @@ from typing import Any, Self
 import numpy as np
 import torch
 
-from alpha_cc.agents.agent import Agent
+from alpha_cc.agents.mcts.mcts_agent import MCTSAgent
 from alpha_cc.agents.mcts.mcts_node_py import MCTSNodePy
 from alpha_cc.agents.mcts.node_store import LocalNodeStore, NodeStore
 from alpha_cc.engine import Board
@@ -12,12 +12,18 @@ from alpha_cc.nn.nets import DefaultNet
 from alpha_cc.state import GameState
 
 
-class StandaloneMCTSAgent(Agent):
+class StandaloneMCTSAgent(MCTSAgent):
     """
     Standalone implementation of the MCTSAgent.
 
     It is slower, but can be used without the need of a Redis server,
     and the nn-service.
+
+    TODO: this sublcasses MCTSAgent, but it should not ideally.
+    It is done so that the TrainingRunTime can be passed this (for testing purposes).
+    If the runtime accepts this type, then the runtime would import torch, which is
+    undesirable since then the worker thread would have to import it as well, which
+    takes a lot of memory.
     """
 
     def __init__(
@@ -87,7 +93,7 @@ class StandaloneMCTSAgent(Agent):
         rollout_depth = rollout_depth if rollout_depth is not None else self._rollout_depth
         state = GameState(board)
         value = -np.array([self._rollout(state, remaining_depth=rollout_depth) for _ in range(n_rollouts)]).mean()
-        pi = self._rollout_policy(state, temperature)
+        pi = self._rollout_policy(state.board, temperature)
         return pi, value
 
     def with_weights(self, path: str | Path) -> Self:
@@ -101,8 +107,8 @@ class StandaloneMCTSAgent(Agent):
     def set_node_store(self, node_store: NodeStore) -> None:
         self._node_store = node_store
 
-    def _rollout_policy(self, state: GameState, temperature: float = 1.0) -> np.ndarray:
-        node = self.node_store.get(state.board)
+    def _rollout_policy(self, board: Board, temperature: float = 1.0) -> np.ndarray:
+        node = self.node_store.get(board)
         weighted_counts = node.n
         if temperature != 1.0:  # save some flops
             weighted_counts = node.n ** (1 / temperature)

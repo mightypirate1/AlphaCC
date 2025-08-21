@@ -13,6 +13,7 @@ from alpha_cc.db import TrainingDB
 from alpha_cc.engine import Board, NNPred, PredDBChannel
 from alpha_cc.engine.engine_utils import action_indexer
 from alpha_cc.state import GameState
+from alpha_cc.state.state_tensors import states_tensor
 
 logger = logging.getLogger(__file__)
 logging.getLogger("apscheduler").setLevel(logging.WARN)
@@ -143,12 +144,7 @@ class ServedNN:
         Thread(target=background_loading).start()
 
     def _prepare_input(self, states: list[GameState]) -> torch.Tensor:
-        """assumes at least one state is passed"""
-        batch_size = len(states)
-        state_shape = states[0].tensor.shape
-        input_tensor = torch.empty(batch_size, *state_shape, pin_memory=True)
-        for i, state in enumerate(states):
-            input_tensor[i] = state.tensor
+        input_tensor = states_tensor(states)
         return input_tensor.to(self._device, non_blocking=True)
 
     def _post_predictions(self, states: list[GameState], x_pis: torch.Tensor, x_vals: torch.Tensor) -> None:
@@ -167,8 +163,8 @@ class ServedNN:
             create_nn_pred(state, pi_tensor_unsoftmaxed, val)
             for state, pi_tensor_unsoftmaxed, val in zip(states, x_pis, x_vals)
         ]
-        for state, nn_pred in zip(states, nn_preds):
-            self._pred_db_channel.post_pred(state.board, nn_pred)
+        boards = [state.board for state in states]
+        self._pred_db_channel.post_preds(boards, nn_preds)
 
     def _configure_nn(self, nn: torch.nn.Module) -> torch.nn.Module:
         # TODO: make jit-compilation work

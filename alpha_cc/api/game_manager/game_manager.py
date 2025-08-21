@@ -10,6 +10,7 @@ from alpha_cc.config import Environment
 from alpha_cc.db.games_db import GamesDB
 from alpha_cc.db.models import DBGameState
 from alpha_cc.nn.nets import DefaultNet
+from alpha_cc.state import GameState
 
 WEIGHT_DIR = Path(Environment.model_dir)
 
@@ -63,7 +64,7 @@ class GameManager:
     def fetch_mcts_node(self, game_id: str, board_index: int, as_sorted: bool) -> MCTSNodePy:
         node_store = DBNodeStore(game_id, self._games_db.db)
         db_state = self.fetch_game(game_id)
-        state = db_state.get_state(board_index)
+        state = GameState(db_state.boards[board_index])
         node = node_store.get(state.board)
         if state.info.current_player == 2:
             node = node.with_flipped_value()
@@ -86,7 +87,7 @@ class GameManager:
         if game_id in self._show_mode_jobs:
             return self._show_mode_jobs[game_id].request_move()
         db_state = self._games_db.get_state(game_id)
-        state = db_state.current_game_state
+        state = GameState(db_state.boards[-1])
         agent = self._agents[state.info.size]
         db_node_store = DBNodeStore(game_id, self._games_db.db)
         agent.node_store.load_from(db_node_store)
@@ -109,9 +110,7 @@ class GameManager:
         db_state = self._games_db.get_state(game_id)
         agent = get_agent(db_state.size)
         db_node_store = DBNodeStore(game_id, self._games_db.db)
-        self._show_mode_jobs[game_id] = ShowModeJob(
-            game_id, db_state.current_game_state.board, agent, db_node_store, self._games_db
-        )
+        self._show_mode_jobs[game_id] = ShowModeJob(game_id, db_state.boards[-1], agent, db_node_store, self._games_db)
         self._show_mode_jobs[game_id].start()
 
     def show_mode_off(self, game_id: str) -> None:

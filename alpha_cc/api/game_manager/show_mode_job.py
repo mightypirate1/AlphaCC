@@ -60,12 +60,12 @@ class ShowModeJob:
     def request_move(self) -> DBGameState:
         # make a move
         db_state = self._games_db.get_state(self._game_id)
-        move_index = self._agent.choose_move(db_state.current_game_state.board)
+        move_index = self._agent.choose_move(db_state.boards[-1])
         db_state.add_move(move_index)
         # update db
         self._games_db.add_move(self._game_id, move_index)
-        self._games_db.set_show_mode_board(self._game_id, db_state.current_game_state.board)
-        if db_state.current_game_state.info.game_over:
+        self._games_db.set_show_mode_board(self._game_id, db_state.boards[-1])
+        if db_state.boards[-1]:
             self.stop()
         return db_state
 

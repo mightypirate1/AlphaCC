@@ -4,6 +4,7 @@ import pytest
 from alpha_cc.engine import Board, HexCoord
 from alpha_cc.nn.nets import DefaultNet
 from alpha_cc.state import GameState
+from alpha_cc.state.state_tensors import state_tensor
 
 from .common import get_random_board_state
 
@@ -21,15 +22,14 @@ def test_properties(board_size: int) -> None:
     state.hash  # noqa
     state.matrix  # noqa
     state.unflipped_matrix  # noqa
-    state.tensor  # noqa
 
 
 @pytest.mark.parametrize("board_size", [3, 5, 7, 9])
 def test_representations(board_size: int) -> None:
     state = GameState(get_random_board_state(board_size))
     assert state.matrix.shape == (board_size, board_size)
-    assert state.tensor.shape == (2, board_size, board_size)
     assert state.action_mask.sum() == len(state.action_mask_indices)
+    assert state_tensor(state).shape == (2, board_size, board_size)
 
 
 @pytest.mark.parametrize("board_size", [3, 5, 7, 9])
@@ -47,7 +47,7 @@ def test_pickling(board_size: int) -> None:
     assert state.info.current_player == recreated_state.info.current_player
     assert state.info.duration == recreated_state.info.duration
     assert (state.action_mask == recreated_state.action_mask).all()
-    assert (state.tensor == recreated_state.tensor).all()
+    assert (state_tensor(state) == state_tensor(recreated_state)).all()
     assert len(state.action_mask_indices) == len(recreated_state.action_mask_indices)
     for i, (from_coord, to_coord) in state.action_mask_indices.items():
         rec_from_coord, rec_to_coord = recreated_state.action_mask_indices[i]
@@ -55,7 +55,7 @@ def test_pickling(board_size: int) -> None:
         assert_coords_eq(to_coord, rec_to_coord)
 
     assert len(state.children) == len(recreated_state.children)
-    assert (state.tensor == recreated_state.tensor).all()
+    assert (state_tensor(state) == state_tensor(recreated_state)).all()
     assert (recreated_state.matrix == state.matrix).all()
     assert (recreated_state.unflipped_matrix == state.unflipped_matrix).all()
     assert state.hash == recreated_state.hash
@@ -68,6 +68,6 @@ def test_pickling(board_size: int) -> None:
 def test_nn(board_size: int) -> None:
     state = GameState(Board(board_size))
     nn = DefaultNet(board_size)
-    pi, v = nn(state.tensor.unsqueeze(0))
+    pi, v = nn(state_tensor(state).unsqueeze(0))
     assert pi.shape == (1, board_size, board_size, board_size, board_size)
     assert v.shape == (1,)
