@@ -87,13 +87,13 @@ def main(
                     player_2: create_model(player_2, trainer_time),
                 }
             )
-        traj = training_runtime.play_game(
+        training_data = training_runtime.play_game(
             agent=create_model(0, trainer_time),
             max_game_length=max_game_length_schedule.as_int(trainer_time),
             action_temperature=action_temperature_schedule.as_float(trainer_time),
             argmax_delay=argmax_delay_schedule.as_int(trainer_time),
         )
-        training_db.trajectory_post(traj)
+        training_db.training_data_post(training_data)
 
 
 def create_value_assignment_strategy(

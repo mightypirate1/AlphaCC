@@ -1,6 +1,7 @@
 import numpy as np
 
 from alpha_cc.agents.agent import Agent
+from alpha_cc.agents.mcts.mcts_node_py import MCTSNodePy
 from alpha_cc.engine import MCTS, Board
 
 
@@ -35,6 +36,10 @@ class MCTSAgent(Agent):
             c_puct_init,
             c_puct_base,
         )
+
+    @property
+    def internal_nodes(self) -> dict[Board, MCTSNodePy]:
+        return {board: MCTSNodePy.from_node(node) for board, node in self._mcts.get_nodes().items()}
 
     def on_game_start(self) -> None:
         self._steps_left_to_argmax = (self._argmax_delay or np.inf) + 1

@@ -2,6 +2,7 @@ import logging
 import signal
 import sys
 import threading
+from math import ceil
 from pathlib import Path
 from typing import Any
 
@@ -10,13 +11,16 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 from tqdm_loggable.auto import tqdm
 
-from alpha_cc.agents.mcts import MCTSExperience
+from alpha_cc.agents.mcts.mcts_node_py import MCTSNodePy
+from alpha_cc.agents.mcts.training_data import TrainingData
 from alpha_cc.config import Environment
 from alpha_cc.db import TrainingDB
 from alpha_cc.logs import init_rootlogger
 from alpha_cc.nn.nets.default_net import DefaultNet
 from alpha_cc.runtimes import TournamentRuntime
+from alpha_cc.state import GameState
 from alpha_cc.training import TournamentManager, Trainer, TrainingCheckpoint, TrainingDataset
+from alpha_cc.utils.param_schedule import ParamSchedule
 
 logger = logging.getLogger(__file__)
 shutdown_requested = threading.Event()
@@ -41,6 +45,9 @@ checkpoint_lock = threading.Lock()
 @click.option("--init-run-id", type=str, default=None)
 @click.option("--init-weights-index", type=int, default=None)
 @click.option("--init-champion-weight-index", type=int, default=None)
+@click.option("--internal-nodes-fraction", type=str, default="0.0")
+@click.option("--internal-nodes-min-visits", type=str, default="1")
+@click.option("--multiple-training-steps-on-internal-nodes", is_flag=True, default=False)
 @click.option("--gpu", is_flag=True, default=False)
 def main(
     run_id: str,
@@ -60,11 +67,18 @@ def main(
     init_run_id: str | None,
     init_weights_index: int | None,
     init_champion_weight_index: int | None,
+    internal_nodes_fraction: str,
+    internal_nodes_min_visits: str,
+    multiple_training_steps_on_internal_nodes: bool,
     gpu: bool,
 ) -> None:
     init_rootlogger(verbose=verbose)
     summary_writer = create_summary_writer(run_id)
     device = "cuda" if gpu and torch.cuda.is_available() else "cpu"
+
+    internal_nodes_fraction_schedule = ParamSchedule.from_str(internal_nodes_fraction)
+    internal_nodes_min_visits_schedule = ParamSchedule.from_str(internal_nodes_min_visits)
+
     db = TrainingDB(host=Environment.redis_host_main)
     tournament_runtime = TournamentRuntime(size, db)
     replay_buffer = TrainingDataset(max_size=replay_buffer_size)
@@ -106,14 +120,19 @@ def main(
 
     while True:
         # wait until we have enough new samples
-        trajectories = await_samples(db, n_train_samples)
-        logger.debug(f"fetched {len(trajectories)} trajectories")
-        replay_buffer.add_trajectories(trajectories)
-        trainer.report_rollout_stats(trajectories)
+        training_datas = await_samples(db, n_train_samples)
+        for training_data in training_datas:
+            training_data.internal_nodes = filter_internal_nodes(
+                training_data,
+                internal_nodes_fraction=internal_nodes_fraction_schedule.as_float(curr_index),
+                internal_nodes_min_visits=internal_nodes_min_visits_schedule.as_int(curr_index),
+            )
+        trainer.report_rollout_stats(training_datas)
+        replay_buffer.add_datas(training_datas)
 
         # train on samples
         trainer.train(replay_buffer, train_size)
-        replay_buffer.move_new_to_main_buffer()
+        replay_buffer.move_new_to_main_buffer(drop_internal_nodes=not multiple_training_steps_on_internal_nodes)
 
         # publish weights
         curr_index = db.weights_publish_latest(trainer.nn.state_dict())
@@ -125,27 +144,64 @@ def main(
             tournament_manager.run_tournament(curr_index)
 
 
-def await_samples(db: TrainingDB, n_train_samples: int) -> list[list[MCTSExperience]]:
+def await_samples(db: TrainingDB, n_train_samples: int) -> list[TrainingData]:
     """
     Awaiting samples from the workers, and returns the list of trajectories.
     """
-    trajectories = []
+    training_datas = []
     n_remaining = n_train_samples
     with tqdm(desc="awaiting samples", total=n_train_samples) as pbar:
         while n_remaining > 0:
-            trajectory = db.trajectory_fetch(blocking=True)
-            trajectories.append(trajectory)
-            n_remaining -= len(trajectory)
-            pbar.set_postfix({"n": len(trajectory)})
-            pbar.update(len(trajectory))
+            training_data = db.training_data_fetch(blocking=True)
+            training_datas.append(training_data)
+            n_remaining -= len(training_data.trajectory)
+            pbar.set_postfix({"n": len(training_data.trajectory)})
+            pbar.update(len(training_data.trajectory))
     # if the trainer doesnt keep up with the workers, there will be samples
     # remaining on the queue. thus, we clear the queue so we can train on
     # the latest data. as as bonus, we also get to notice this  happening in
     # tensorboard
-    if remaining_trajectories := db.trajectory_fetch_all():
-        logger.warning(f"trainer is behind by {len(remaining_trajectories)} samples")
-        trajectories.extend(remaining_trajectories)
-    return trajectories
+    if remaining_training_datas := db.training_data_fetch_all():
+        logger.warning(f"trainer is behind by {len(remaining_training_datas)} samples")
+        training_datas.extend(remaining_training_datas)
+    return training_datas
+
+
+def filter_internal_nodes(
+    training_data: TrainingData, internal_nodes_fraction: float, internal_nodes_min_visits: int
+) -> dict[GameState, MCTSNodePy]:
+    """
+    Select up to ceil(fraction * n_real) internal nodes whose visit counts
+    are >= internal_nodes_min_visits. If fewer qualify, return them all.
+    Guarantees we never exceed the target (ties are truncated).
+    """
+    if internal_nodes_fraction <= 0.0:
+        return {}
+
+    n_real = len(training_data.trajectory)
+    if n_real == 0:
+        return {}
+
+    target = ceil(n_real * internal_nodes_fraction)
+    if target <= 0:
+        return {}
+
+    # Filter by min visits first
+    candidates = [
+        (state, node)
+        for state, node in training_data.internal_nodes.items()
+        if node.n.sum() >= internal_nodes_min_visits
+    ]
+    if not candidates:
+        return {}
+
+    if len(candidates) <= target:
+        return dict(candidates)
+
+    # Sort descending by visit count and take the top `target`
+    candidates.sort(key=lambda sn: sn[1].n.sum(), reverse=True)
+    top = candidates[:target]
+    return dict(top)
 
 
 def initialize_weights(
@@ -207,7 +263,9 @@ def initialize_weights(
         checkpoint.model_state_dict = init_weights
         checkpoint.current_index = init_weights_index
 
-    # set the clocks in the trainer
+    # set the weights/clocks in the trainer
+    trainer.nn.load_state_dict(checkpoint.model_state_dict)
+    trainer.optimizer.load_state_dict(checkpoint.optimizer_state_dict)
     trainer.set_steps(*checkpoint.trainer_steps)
     # publish the weights to the db so they are available to the workers
     if checkpoint.current_index != checkpoint.champion_index:

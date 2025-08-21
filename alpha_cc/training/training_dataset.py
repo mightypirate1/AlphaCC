@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Iterable
 
@@ -7,8 +8,16 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from alpha_cc.agents.mcts import MCTSExperience
+from alpha_cc.agents.mcts.mcts_experience import MCTSExperience
+from alpha_cc.agents.mcts.mcts_node_py import MCTSNodePy
+from alpha_cc.agents.mcts.training_data import TrainingData
+from alpha_cc.state.game_state import GameState
 from alpha_cc.state.state_tensors import state_tensor
+
+
+class TrainingDataWeighter(ABC):
+    @abstractmethod
+    def weigh_internal_node(self, state: GameState, node: MCTSNodePy) -> float: ...
 
 
 class TrainingDataset(Dataset):
@@ -17,22 +26,30 @@ class TrainingDataset(Dataset):
     can sample the dataset and be sure to see the most recent ones along with a
     random selection of "old" samples.
 
-    - on `add_trajectories` and `add_trajectory`, experiences are added as "new
+    - on `add_*`, experiences are added as "new"
     - on `sample`, "new" experiments are sampled, and then if there's enough
       room left, "old" samples are added. All "new" samples are moved to "old"
       once they have been sampled once.
 
     """
 
-    def __init__(self, experiences: Iterable[MCTSExperience] | None = None, max_size: int = 10000) -> None:
+    def __init__(
+        self,
+        experiences: Iterable[MCTSExperience] | None = None,
+        max_size: int = 10000,
+        weighter: TrainingDataWeighter | None = None,
+    ) -> None:
         self._max_size = max_size
+        self._weighter = weighter
         self._experiences = deque[MCTSExperience](maxlen=max_size)
         self._new_experiences: list[MCTSExperience] = [] if experiences is None else list(experiences)
 
     def __len__(self) -> int:
         return len(self._new_experiences) + len(self._experiences)
 
-    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def __getitem__(
+        self, index: int
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         n_new = len(self._new_experiences)
         # faster than concatenating
         exp = self._new_experiences[index] if index < n_new else self._experiences[index - n_new]
@@ -42,7 +59,15 @@ class TrainingDataset(Dataset):
         pi_target = self._create_pi_target_tensor(exp)
         value_target = torch.as_tensor(exp.v_target)
         weight = torch.as_tensor(exp.weight)
-        return x.float(), pi_mask.bool(), pi_target.float(), value_target.float(), weight.float()
+        is_internal_node = torch.as_tensor(exp.is_internal_node)
+        return (
+            x.float(),
+            pi_mask.bool(),
+            pi_target.float(),
+            value_target.float(),
+            weight.float(),
+            is_internal_node.bool(),
+        )
 
     @property
     def samples(self) -> list[MCTSExperience]:
@@ -84,7 +109,18 @@ class TrainingDataset(Dataset):
         samples = self.samples
         np.random.shuffle(samples)  # type: ignore
         n = int(len(samples) * frac)
-        return TrainingDataset(samples[:n]), TrainingDataset(samples[n:])
+        return (
+            TrainingDataset(samples[:n], max_size=self._max_size, weighter=self._weighter),
+            TrainingDataset(samples[n:], max_size=self._max_size, weighter=self._weighter),
+        )
+
+    def add_data(self, training_data: TrainingData) -> None:
+        self.add_trajectory(training_data.trajectory)
+        self.add_internal_nodes(training_data.internal_nodes)
+
+    def add_datas(self, training_datas: list[TrainingData]) -> None:
+        for training_data in training_datas:
+            self.add_data(training_data)
 
     def add_trajectories(self, trajectories: list[list[MCTSExperience]]) -> None:
         self._new_experiences.extend([exp for traj in trajectories for exp in traj])
@@ -92,8 +128,30 @@ class TrainingDataset(Dataset):
     def add_trajectory(self, trajectory: list[MCTSExperience]) -> None:
         self._new_experiences.extend(trajectory)
 
-    def move_new_to_main_buffer(self) -> None:
-        self._experiences.extendleft(self._new_experiences)
+    def add_internal_node(self, state: GameState, node: MCTSNodePy) -> None:
+        n_visits = np.sum(node.n)
+        pi_target = np.ones_like(node.n) / len(node.n) if n_visits == 0 else node.n / n_visits
+        self._new_experiences.append(
+            MCTSExperience(
+                state=state,
+                pi_target=pi_target,
+                v_target=0.0,
+                weight=self._weighter.weigh_internal_node(state, node) if self._weighter else 1.0,
+                is_internal_node=True,
+            )
+        )
+
+    def add_internal_nodes(self, internal_nodes: dict[GameState, MCTSNodePy]) -> None:
+        for state, node in internal_nodes.items():
+            self.add_internal_node(state, node)
+
+    def move_new_to_main_buffer(self, drop_internal_nodes: bool = False) -> None:
+        experiences = (
+            self._new_experiences
+            if not drop_internal_nodes
+            else [exp for exp in self._new_experiences if exp.v_target is not None]
+        )
+        self._experiences.extendleft(experiences)
         self._new_experiences.clear()
 
     def _create_pi_target_tensor(self, exp: MCTSExperience) -> torch.Tensor:
