@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Self
 
 import numpy as np
+
+from alpha_cc.engine import MCTSNode
 
 
 @dataclass
@@ -17,6 +20,15 @@ class MCTSNodePy:
         if len(self.q) == 0:
             return 0.0
         return float(self.q.max())
+
+    @classmethod
+    def from_node(cls: type[Self], node: MCTSNode) -> Self:
+        return cls(
+            pi=np.array(node.pi, dtype=np.float32),
+            v_hat=float(node.v),
+            n=np.array(node.n, dtype=np.int32),
+            q=np.array(node.q, dtype=np.float32),
+        )
 
     def with_flipped_value(self) -> MCTSNodePy:
         return MCTSNodePy(

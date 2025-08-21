@@ -1,6 +1,5 @@
 use core::time::Duration;
 use std::io::{Error, ErrorKind};
-use zmq::SocketType::REP;
 
 use crate::cc::pred_db::PredDBChannel;
 use crate::cc::pred_db::NNPred;

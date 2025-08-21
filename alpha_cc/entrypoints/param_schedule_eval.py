@@ -1,7 +1,7 @@
 import click
 import plotext as plt
 
-from alpha_cc.training import ParamSchedule
+from alpha_cc.utils.param_schedule import ParamSchedule
 
 
 @click.command("alpha-cc-param-schedule-eval")

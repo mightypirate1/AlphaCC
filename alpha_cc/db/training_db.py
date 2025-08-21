@@ -4,7 +4,7 @@ from typing import Any
 import dill
 import redis
 
-from alpha_cc.agents.mcts import MCTSExperience
+from alpha_cc.agents.mcts.training_data import TrainingData
 from alpha_cc.db.models.tournament_results import TournamentResult
 from alpha_cc.db.redis_dbs import RedisDBs
 
@@ -16,7 +16,7 @@ class TrainingDB:
     Redis database for training data.
 
     Data categories:
-    - trajectory
+    - training_data
     - model
     - weights
     - tournament
@@ -64,27 +64,26 @@ class TrainingDB:
         self._db.flushdb()
 
     ##
-    # trajectory
-    def trajectory_post(self, trajectory: list[MCTSExperience]) -> None:
-        logger.debug(f"posting {len(trajectory)} experiences")
-        self._db.lpush(self.queue_key, dill.dumps(trajectory))
+    # training_data
+    def training_data_post(self, training_data: TrainingData) -> None:
+        self._db.lpush(self.queue_key, dill.dumps(training_data))
 
-    def trajectory_fetch_all(self) -> list[list[MCTSExperience]]:
-        trajectories = []
-        while trajectory := self.trajectory_fetch(blocking=False):
-            trajectories.append(trajectory)
-        return trajectories
+    def training_data_fetch_all(self) -> list[TrainingData]:
+        training_datas = []
+        while training_data := self.training_data_fetch(blocking=False):
+            training_datas.append(training_data)
+        return training_datas
 
-    def trajectory_fetch(self, blocking: bool = False) -> list[MCTSExperience]:
+    def training_data_fetch(self, blocking: bool = False) -> TrainingData:
         if blocking:
-            _, encoded_experiences = self._db.brpop(self.queue_key, timeout=0)
+            _, encoded_training_data = self._db.brpop(self.queue_key, timeout=0)
         else:
-            encoded_experiences = self._db.rpop(self.queue_key)
-            if encoded_experiences is None:
-                return []
-        traj = dill.loads(encoded_experiences)  # noqa
-        logger.debug(f"fetched {len(traj)} experiences")
-        return traj
+            encoded_training_data = self._db.rpop(self.queue_key)
+
+        if encoded_training_data is None:
+            return TrainingData(trajectory=[], internal_nodes={})
+        training_data = dill.loads(encoded_training_data)  # noqa
+        return training_data
 
     ##
     # model
