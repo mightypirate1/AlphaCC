@@ -4,7 +4,7 @@ from datetime import datetime
 from apscheduler.job import Job
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from alpha_cc.agents import StandaloneMCTSAgent
+from alpha_cc.agents.mcts.standalone_mcts_agent import StandaloneMCTSAgent
 from alpha_cc.agents.mcts.node_store import DBNodeStore
 from alpha_cc.db.games_db import GamesDB
 from alpha_cc.db.models import DBGameState

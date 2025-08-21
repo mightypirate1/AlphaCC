@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 from uuid import uuid4
 
-from alpha_cc.agents import StandaloneMCTSAgent
+from alpha_cc.agents.mcts.standalone_mcts_agent import StandaloneMCTSAgent
 from alpha_cc.agents.mcts.mcts_node_py import MCTSNodePy
 from alpha_cc.agents.mcts.node_store import DBNodeStore
 from alpha_cc.api.game_manager.show_mode_job import ShowModeJob

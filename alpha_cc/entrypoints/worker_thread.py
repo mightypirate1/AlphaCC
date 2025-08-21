@@ -13,8 +13,9 @@ from alpha_cc.config import Environment
 from alpha_cc.db import GamesDB, TrainingDB
 from alpha_cc.engine import Board
 from alpha_cc.logs import init_rootlogger
-from alpha_cc.runtimes import TournamentRuntime, TrainingRunTime
-from alpha_cc.training.param_schedule import ParamSchedule
+from alpha_cc.runtimes.tournament_runtime import TournamentRuntime
+from alpha_cc.runtimes.training_runtime import TrainingRunTime
+from alpha_cc.utils.param_schedule import ParamSchedule
 
 logger = logging.getLogger(__file__)
 

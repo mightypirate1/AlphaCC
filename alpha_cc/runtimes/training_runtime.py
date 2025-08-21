@@ -1,8 +1,8 @@
 import numpy as np
 from tqdm_loggable.auto import tqdm
 
-from alpha_cc.agents import MCTSAgent
-from alpha_cc.agents.mcts import MCTSExperience
+from alpha_cc.agents.mcts.mcts_agent import MCTSAgent
+from alpha_cc.agents.mcts.mcts_experience import MCTSExperience
 from alpha_cc.agents.value_assignment import ValueAssignmentStrategy
 from alpha_cc.engine import Board
 from alpha_cc.state import GameState
