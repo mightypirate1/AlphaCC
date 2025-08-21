@@ -163,9 +163,11 @@ class Trainer:
         def compute_value_loss(
             current_value: torch.Tensor, target_value: torch.Tensor, weight: torch.Tensor, is_internal: torch.Tensor
         ) -> torch.Tensor:
+            mask = (~is_internal).float()
             unweighted_loss = torch.nn.functional.mse_loss(current_value, target_value, reduction="none")
-            unweighted_loss_masked = torch.where(is_internal, 0.0, unweighted_loss)
-            return (unweighted_loss_masked * weight).sum() / weight.sum()
+            weight_masked = weight * mask
+            unweighted_loss_masked = unweighted_loss * mask
+            return (unweighted_loss_masked * weight_masked).sum() / weight_masked.sum().clamp_min(1e-8)
 
         def compute_policy_loss(
             pi_tensor_unsoftmaxed: torch.Tensor, pi_mask: torch.Tensor, target_pi: torch.Tensor, weight: torch.Tensor
