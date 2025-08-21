@@ -1,4 +1,3 @@
-extern crate pyo3;
 pub mod cc;
 
 use pyo3::prelude::*;
