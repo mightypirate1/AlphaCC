@@ -16,9 +16,9 @@ class GameIO(BaseIO):
             game_id=game_id,
             boards=[
                 BoardIO.from_board(
-                    state.board,
+                    board,
                     last_move=last_move,
                 )
-                for state, last_move in zip(db_state.states, last_moves)
+                for board, last_move in zip(db_state.boards, last_moves)
             ],
         )

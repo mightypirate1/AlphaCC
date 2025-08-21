@@ -1,8 +1,8 @@
 import numpy as np
 from tqdm_loggable.auto import tqdm
 
-from alpha_cc.agents import MCTSAgent, StandaloneMCTSAgent
-from alpha_cc.agents.mcts import MCTSExperience
+from alpha_cc.agents.mcts.mcts_agent import MCTSAgent
+from alpha_cc.agents.mcts.mcts_experience import MCTSExperience
 from alpha_cc.agents.value_assignment import ValueAssignmentStrategy
 from alpha_cc.engine import Board
 from alpha_cc.state import GameState
@@ -19,7 +19,7 @@ class TrainingRunTime:
 
     def play_game(
         self,
-        agent: MCTSAgent | StandaloneMCTSAgent,
+        agent: MCTSAgent,
         n_rollouts: int | None = None,
         rollout_depth: int | None = None,
         action_temperature: float = 1.0,

@@ -5,6 +5,7 @@ from alpha_cc.engine.engine_utils import action_indexer
 from alpha_cc.nn.blocks import PolicySoftmax, ResBlock
 from alpha_cc.nn.nets.preprocessing import CoordinateChannels
 from alpha_cc.state import GameState
+from alpha_cc.state.state_tensors import state_tensor
 
 
 class DefaultNet(torch.nn.Module):
@@ -73,7 +74,7 @@ class DefaultNet(torch.nn.Module):
     @torch.no_grad()
     def evaluate_state(self, state: GameState) -> tuple[np.ndarray, np.floating]:
         self.eval()
-        x = state.tensor.unsqueeze(0)
+        x = state_tensor(state).unsqueeze(0)
         x_pi_all, x_value = self(x)
         mask = torch.as_tensor(state.action_mask)
         x_pi = self._policy_softmax(x_pi_all, mask)

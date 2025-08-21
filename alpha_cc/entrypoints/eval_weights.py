@@ -1,6 +1,7 @@
 import click
 
-from alpha_cc.agents import Agent, GreedyAgent, StandaloneMCTSAgent
+from alpha_cc.agents import Agent, GreedyAgent
+from alpha_cc.agents.mcts.standalone_mcts_agent import StandaloneMCTSAgent
 from alpha_cc.engine import Board
 from alpha_cc.nn.nets.default_net import DefaultNet
 from alpha_cc.runtimes.runtime import RunTime, RunTimeConfig

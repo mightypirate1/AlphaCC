@@ -1,6 +1,6 @@
 import time
 
-from alpha_cc.agents import Agent
+from alpha_cc.agents.agent import Agent
 from alpha_cc.engine import Board
 from alpha_cc.runtimes.runtime_config import RunTimeConfig
 

@@ -1,5 +1,4 @@
 from alpha_cc.engine import Board, Move
-from alpha_cc.state import GameState
 
 
 class DBGameState:
@@ -32,26 +31,11 @@ class DBGameState:
         self._resolve_until_index(len(self))
         return self._moves
 
-    @property
-    def states(self) -> list[GameState]:
-        return [GameState(board) for board in self.boards]
-
-    @property
-    def current_game_state(self) -> GameState:
-        return GameState(self.boards[-1])
-
     def __len__(self) -> int:
         return len(self._move_indices) + 1
 
     def add_move(self, move_index: int) -> None:
         self._move_indices.append(move_index)
-
-    def get_state(self, index: int) -> GameState:
-        if index >= len(self):
-            raise IndexError(f"index={index} is out of bounds")
-        self._resolve_until_index(index)
-        board = self._boards[index]
-        return GameState(board)
 
     def _resolve_until_index(self, index: int) -> None:
         if len(self._boards) <= index:

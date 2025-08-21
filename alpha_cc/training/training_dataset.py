@@ -8,6 +8,7 @@ import torch
 from torch.utils.data import Dataset
 
 from alpha_cc.agents.mcts import MCTSExperience
+from alpha_cc.state.state_tensors import state_tensor
 
 
 class TrainingDataset(Dataset):
@@ -36,7 +37,7 @@ class TrainingDataset(Dataset):
         # faster than concatenating
         exp = self._new_experiences[index] if index < n_new else self._experiences[index - n_new]
 
-        x = exp.state.tensor
+        x = state_tensor(exp.state)
         pi_mask = torch.as_tensor(exp.state.action_mask)
         pi_target = self._create_pi_target_tensor(exp)
         value_target = torch.as_tensor(exp.v_target)
