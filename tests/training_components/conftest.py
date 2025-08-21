@@ -3,7 +3,8 @@ from unittest.mock import patch
 import pytest
 from torch.utils.tensorboard import SummaryWriter
 
-from alpha_cc.agents.mcts import MCTSExperience, StandaloneMCTSAgent
+from alpha_cc.agents.mcts import MCTSExperience
+from alpha_cc.agents.mcts.standalone_mcts_agent import StandaloneMCTSAgent
 from alpha_cc.agents.value_assignment import (
     DefaultAssignmentStrategy,
 )
