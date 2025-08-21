@@ -1,31 +1,27 @@
 use core::time::Duration;
 use std::io::{Error, ErrorKind};
+use zmq::SocketType::REP;
+
 use crate::cc::pred_db::PredDBChannel;
 use crate::cc::pred_db::NNPred;
 use crate::cc::board::Board;
 
-const ATTEMPT_PATIENCES: [Duration; 10] = [
-    Duration::from_millis(5),
-    Duration::from_millis(10),
-    Duration::from_millis(15),
-    Duration::from_millis(25),
-    Duration::from_millis(50),
-    Duration::from_millis(100),
-    Duration::from_millis(300),
-    Duration::from_millis(1000),
-    Duration::from_millis(10000),
-    Duration::from_millis(10000),
-];
-
+const INITIAL_PATIENCE: Duration = Duration::from_millis(5);
 const REPOST_THRESHOLD: Duration = Duration::from_millis(100);
+const WARNING_THRESHOLD: Duration = Duration::from_millis(1000);
+const FAIL_THRESHOLD: Duration = Duration::from_millis(10000);
+const BACKOFF_SCALING: f32 = 2.0;
+const PATIENCE_SCALE_UP: f32 = 1.02;
+const PATIENCE_SCALE_DOWN: f32 = 0.99;
 
 pub struct NNRemote {
     pred_db: PredDBChannel,
+    patience: Duration,
 }
 
 impl NNRemote {
     pub fn new(pred_db: PredDBChannel) -> Self {
-        NNRemote { pred_db }
+        NNRemote { pred_db, patience: INITIAL_PATIENCE }
     }
 
     pub fn fetch_pred(&mut self, board: &Board) -> Result<NNPred, Error> {
@@ -45,24 +41,44 @@ impl NNRemote {
                  *   up the network on the tournament channels.
                  */
                 self.pred_db.add_to_pred_queue(board);
-                for patience in ATTEMPT_PATIENCES {
-                    if let Some(nn_pred) = self.pred_db.get_pred(board) {
-                        return Ok(nn_pred);
+                std::thread::sleep(self.patience);
+
+                // if we have the prediction after the first wait, we adjust down the patience
+                if let Some(nn_pred) = self.pred_db.get_pred(board) {
+                    self.patience = self.patience.mul_f32(PATIENCE_SCALE_DOWN);
+                    return Ok(nn_pred);
+                }
+                // if we don't have the prediction, we adjust up the patience...
+                self.patience = self.patience.mul_f32(PATIENCE_SCALE_UP);
+
+                // ...and proceed to retry with exponential backoff
+                let mut total_wait = self.patience;
+                let mut delay = self.patience;
+                while total_wait < FAIL_THRESHOLD {
+                    // wait and count up
+                    std::thread::sleep(delay);
+                    total_wait += delay;
+
+                    // warn/repost as needed
+                    if total_wait >= REPOST_THRESHOLD {
+                        self.pred_db.add_to_pred_queue(board);
                     }
-                    if patience >= REPOST_THRESHOLD {
-                        self.pred_db.request_pred(board);
-                    }
-                    std::thread::sleep(patience);
-                    if patience >= Duration::from_millis(1000) {
+                    if total_wait >= WARNING_THRESHOLD {
                         println!("service[channel: {}] slow or unavailable: retrying...",
                             self.pred_db.get_channel(),
                         );
                     }
+
+                    // check if we have the prediction now
+                    if let Some(nn_pred) = self.pred_db.get_pred(board) {
+                        return Ok(nn_pred);
+                    }
+                    delay = delay.mul_f32(BACKOFF_SCALING);
                 }
                 println!(
-                    "service[channel: {}] not responding in {} attemps",
+                    "service[channel: {}] not responding in {} ms",
                     self.pred_db.get_channel(),
-                    ATTEMPT_PATIENCES.len(),
+                    FAIL_THRESHOLD.as_millis(),
                 );
                 Err(Error::new(
                     ErrorKind::TimedOut,
