@@ -179,6 +179,7 @@ def filter_internal_nodes(
         return {}
 
     n_real = len(training_data.trajectory)
+    real_hashes = {exp.state.hash for exp in training_data.trajectory}
     if n_real == 0:
         return {}
 
@@ -190,7 +191,7 @@ def filter_internal_nodes(
     candidates = [
         (state, node)
         for state, node in training_data.internal_nodes.items()
-        if node.n.sum() >= internal_nodes_min_visits
+        if node.n.sum() >= internal_nodes_min_visits and state.hash not in real_hashes
     ]
     if not candidates:
         return {}
