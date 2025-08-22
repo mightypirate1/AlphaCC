@@ -130,7 +130,7 @@ class Trainer:
                     pbar.update(x.shape[0])
 
             # flatten (concatenate) for histograms
-            pi_logits_raveled = torch.cat(pi_logits_list, dim=0)  # raw logits
+            pi_logprobs_raveled = torch.cat(pi_logprobs, dim=0)  # pred logprobs (legal)
             pi_targets_raveled = torch.cat(pi_targets, dim=0)  # target probs (legal)
             v = torch.cat(vs, dim=0)
 
@@ -140,7 +140,7 @@ class Trainer:
         game_lengths = np.array([len(traj) for traj in trajectories])
         game_ended_early = np.array([traj[-1].game_ended_early for traj in trajectories if traj])
         v_targets = np.array([e.v_target for e in experiences])
-        pi_targets_logits_raveled = pi_targets_raveled.clamp(1e-6).log()
+        pi_targets_logprobs_raveled = pi_targets_raveled.clamp(1e-6).log()
         pi_target_entropy = torch.as_tensor([entropy(pi_target) for pi_target in pi_targets])
         kl_divergences = torch.as_tensor(
             [kl_divergence(pi_target, pi_pred) for pi_target, pi_pred in zip(pi_targets, pi_preds)]
@@ -149,10 +149,10 @@ class Trainer:
             "trainer/pi/pi-target-entropy", pi_target_entropy, global_step=self._global_step
         )
         self._summary_writer.add_histogram(
-            "trainer/pi/pi-pred-logits", pi_logits_raveled, global_step=self._global_step
+            "trainer/pi/pi-pred-logprobs", pi_logprobs_raveled, global_step=self._global_step
         )
         self._summary_writer.add_histogram(
-            "trainer/pi/pi-target-logits", pi_targets_logits_raveled, global_step=self._global_step
+            "trainer/pi/pi-target-logprobs", pi_targets_logprobs_raveled, global_step=self._global_step
         )
         self._summary_writer.add_histogram("trainer/value/v-pred", v, global_step=self._global_step)
         self._summary_writer.add_histogram("trainer/value/v-target", v_targets, global_step=self._global_step)
