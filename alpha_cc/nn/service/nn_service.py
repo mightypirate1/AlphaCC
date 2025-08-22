@@ -113,8 +113,17 @@ class ServedNN:
         for job in self._jobs:
             job.remove()
 
-    def load_weights(self, target_weight_index: int) -> None:
-        if target_weight_index == self._current_weights_index or self._is_loading_weights:
+    def load_weights(self, target_weight_index: int, force: bool = False) -> None:
+        """Load weights for the served NN.
+
+        Parameters
+        ----------
+        target_weight_index: int
+            The weight index to load from the training DB.
+        force: bool
+            If True, load even if target_weight_index == current_weights_index.
+        """
+        if (target_weight_index == self._current_weights_index and not force) or self._is_loading_weights:
             return
 
         self._is_loading_weights = True
@@ -301,7 +310,8 @@ class NNService:
             log_frequency=self._log_frequency,
             device=self._device,
         )
-        served_nn.load_weights(weight_index)
+        # Force initial load so that on restart the restored weights are actually served immediately
+        served_nn.load_weights(weight_index, force=True)
         return served_nn
 
     def _initialize_scheduler(self) -> None:
