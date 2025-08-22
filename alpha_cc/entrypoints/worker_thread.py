@@ -39,6 +39,7 @@ logger = logging.getLogger(__file__)
 @click.option("--gamma", type=float, default=1.0)
 @click.option("--heuristic", is_flag=True, default=False)
 @click.option("--non-terminal-value-weight", type=float, default=0.1)
+@click.option("--mcts-cache-size", type=int, default=300000)
 @click.option("--internal-nodes-fraction", type=str, default="0.0")
 @click.option("--internal-nodes-min-visits", type=str, default="1")
 @click.option("--verbose", is_flag=True, default=False)
@@ -54,6 +55,7 @@ def main(
     gamma: float,
     heuristic: bool,
     non_terminal_value_weight: float,
+    mcts_cache_size: int,
     internal_nodes_fraction: str,
     internal_nodes_min_visits: str,
     verbose: bool,
@@ -63,6 +65,7 @@ def main(
             zmq_url=Environment.zmq_url,
             memcached_host=Environment.memcached_host,
             pred_channel=channel,
+            cache_size=mcts_cache_size,
             n_rollouts=n_rollouts_schedule.as_int(trainer_time),
             rollout_depth=rollout_depth_schedule.as_int(trainer_time),
             rollout_gamma=rollout_gamma,
