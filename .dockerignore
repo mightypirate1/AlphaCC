@@ -16,7 +16,6 @@ webapp/.angular
 # rust
 **/*.rs.bk files *.db
 engine/target
-engine/Cargo.lock
 docker-compose.*.yaml
 
 

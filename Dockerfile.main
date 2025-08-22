@@ -41,9 +41,10 @@ RUN apt-get update                                \
     && apt-get clean                              \
     && rm -rf /var/lib/apt/lists/*
 RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
-# Build engine
 ENV PATH="/root/.cargo/bin:$PATH"
-COPY . $WORKDIR
+COPY engine/pyproject.toml engine/Cargo.toml engine/Cargo.lock ${WORKDIR}/engine/
+RUN bash -c 'cd $WORKDIR/engine && cargo fetch || true'
+COPY engine/src ${WORKDIR}/engine/src
 RUN bash -c '                                   \
     python3 -m pip install maturin[patchelf] && \
     cd $WORKDIR/engine &&                       \
@@ -51,11 +52,12 @@ RUN bash -c '                                   \
 '
 
 
-# Build the python package in the venv
 FROM builder-rs AS builder
+COPY setup.py pyproject.toml setup.cfg ${WORKDIR}/
+COPY alpha_cc ${WORKDIR}/alpha_cc
 RUN pip install .
 
-# Move the venv over to the main image
+
 FROM base-cuda AS main
 ENV PATH="$WORKDIR/.venv/bin:$PATH"
 WORKDIR ${WORKDIR}
