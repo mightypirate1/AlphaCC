@@ -72,37 +72,94 @@ class Trainer:
             self._summary_writer.add_scalar(f"{prefix}/{key}-min", data.min(), global_step=self._global_step)
             self._summary_writer.add_scalar(f"{prefix}/{key}-max", data.max(), global_step=self._global_step)
 
-        def entropy(x: torch.Tensor | np.ndarray) -> torch.Tensor:
-            x = x.reshape(x.shape[0], -1)
-            return -torch.sum(torch.as_tensor(x) * torch.log(torch.as_tensor(x.clip(1e-6))), dim=-1)
+        def entropy(p: torch.Tensor) -> torch.Tensor:
+            return -(p * (p.clamp_min(1e-6).log())).sum(dim=-1)
+
+        def kl_divergence(p: torch.Tensor, q: torch.Tensor) -> torch.Tensor:
+            return torch.sum(p * (torch.log(p.clip(1e-6)) - torch.log(q.clip(1e-6))), dim=-1)
 
         if self._summary_writer is None:
             return
 
         #######
-        ### trajectories
+        ### evaluation
         #####
         trajectories = [data.trajectory for data in training_datas]
         experiences = [exp for traj in trajectories for exp in traj]
+        eval_dataset = TrainingDataset(experiences)
+        with torch.no_grad():
+            self._nn.eval()
+            dataloader = DataLoader(
+                eval_dataset,
+                batch_size=self._batch_size,
+                drop_last=False,
+                pin_memory=True,
+                shuffle=False,
+            )
+            pi_logits_list: list[torch.Tensor] = []  # raw logits (legal moves only)
+            pi_logprobs: list[torch.Tensor] = []  # log probs over legal moves
+            pi_preds: list[torch.Tensor] = []  # probs over legal moves
+            pi_targets: list[torch.Tensor] = []  # target probs over legal moves (masked & re-normalized)
+            vs = []
+            with tqdm(desc="nn-eval/epoch", total=len(eval_dataset)) as pbar:
+                processed = 0
+                for batch in dataloader:
+                    x, pi_mask_batch, pi_target_batch, _, _, _ = (b.to(self._device) for b in batch)
+                    pi_tensor_batch, value_batch = self._nn(x)
+                    vs.append(value_batch.cpu())
+                    # iterate per sample
+                    for pi_tensor_unsoftmaxed, pi_mask, pi_target_full in zip(
+                        pi_tensor_batch, pi_mask_batch, pi_target_batch
+                    ):
+                        # legal indices
+                        legal_idx = torch.nonzero(pi_mask.squeeze(), as_tuple=True)
+                        raw_pi_logits = pi_tensor_unsoftmaxed[legal_idx].ravel()
+                        target_legal = pi_target_full[legal_idx].ravel()
+                        # re-normalize target in case of numerical drift
+                        target_legal = target_legal / target_legal.sum().clamp_min(1e-8)
+
+                        pi_logprob = torch.nn.functional.log_softmax(raw_pi_logits, dim=0)
+                        pi_pred = torch.nn.functional.softmax(raw_pi_logits, dim=0)
+
+                        pi_logits_list.append(raw_pi_logits.cpu())
+                        pi_logprobs.append(pi_logprob.cpu())
+                        pi_preds.append(pi_pred.cpu())
+                        pi_targets.append(target_legal.cpu())
+
+                    processed += x.shape[0]
+                    pbar.update(x.shape[0])
+
+            # flatten (concatenate) for histograms
+            pi_logits_raveled = torch.cat(pi_logits_list, dim=0)  # raw logits
+            pi_targets_raveled = torch.cat(pi_targets, dim=0)  # target probs (legal)
+            v = torch.cat(vs, dim=0)
+
+        #######
+        ### trajectories
+        #####
         game_lengths = np.array([len(traj) for traj in trajectories])
         game_ended_early = np.array([traj[-1].game_ended_early for traj in trajectories if traj])
         v_targets = np.array([e.v_target for e in experiences])
-        pi_targets_logits_flat = np.concatenate(
-            [np.log(e.pi_target.clip(1e-6).ravel()) for traj in trajectories for e in traj]
+        pi_targets_logits_raveled = pi_targets_raveled.clamp(1e-6).log()
+        pi_target_entropy = torch.as_tensor([entropy(pi_target) for pi_target in pi_targets])
+        kl_divergences = torch.as_tensor(
+            [kl_divergence(pi_target, pi_pred) for pi_target, pi_pred in zip(pi_targets, pi_preds)]
         )
-        eval_dataset = TrainingDataset(experiences)
-        pi_logits, v = self._evaluate(eval_dataset)
-        pi_targets = torch.stack([pi_target for _, _, pi_target, _, _, _ in eval_dataset])  # type: ignore
-        pi_target_entropy = entropy(pi_targets)
         self._summary_writer.add_histogram(
-            "trainer/pi-target-entropy", pi_target_entropy, global_step=self._global_step
+            "trainer/pi/pi-target-entropy", pi_target_entropy, global_step=self._global_step
         )
-        self._summary_writer.add_histogram("trainer/pi-pred-logits", pi_logits, global_step=self._global_step)
-        self._summary_writer.add_histogram("trainer/v-pred", v, global_step=self._global_step)
         self._summary_writer.add_histogram(
-            "trainer/pi-target-logits", pi_targets_logits_flat, global_step=self._global_step
+            "trainer/pi/pi-pred-logits", pi_logits_raveled, global_step=self._global_step
         )
-        self._summary_writer.add_histogram("trainer/v-target", v_targets, global_step=self._global_step)
+        self._summary_writer.add_histogram(
+            "trainer/pi/pi-target-logits", pi_targets_logits_raveled, global_step=self._global_step
+        )
+        self._summary_writer.add_histogram("trainer/value/v-pred", v, global_step=self._global_step)
+        self._summary_writer.add_histogram("trainer/value/v-target", v_targets, global_step=self._global_step)
+        self._summary_writer.add_scalar(
+            "trainer/pi/kl-divergence-mean", kl_divergences.mean(), global_step=self._global_step
+        )
+        self._summary_writer.add_histogram("trainer/pi/kl-divergence", kl_divergences, global_step=self._global_step)
         log_aggregates("game-length", game_lengths)
         log_aggregates("pi-target-entropy", pi_target_entropy)
         self._summary_writer.add_scalar(
@@ -110,6 +167,7 @@ class Trainer:
             game_ended_early.mean(),
             global_step=self._global_step,
         )
+
         #######
         ### internal nodes
         #####
@@ -252,29 +310,3 @@ class Trainer:
             self._summary_writer.add_scalar("trainer/policy-loss", total_policy_loss, global_step=self._global_step)
             self._summary_writer.add_scalar("trainer/value-loss", total_value_loss, global_step=self._global_step)
             self._summary_writer.add_scalar("trainer/entropy-loss", total_entropy_loss, global_step=self._global_step)
-
-    @torch.no_grad()
-    def _evaluate(self, dataset: TrainingDataset) -> tuple[torch.Tensor, torch.Tensor]:
-        """
-        returns:
-        - the policy logits (mcts format)
-        - the policy logits (tensor format)
-        - the values
-        """
-        self._nn.eval()
-        dataloader = DataLoader(dataset, batch_size=self._batch_size, drop_last=False, pin_memory=True)
-        pi_logits = []
-        vs = torch.zeros(len(dataset), device=self._device)
-        with tqdm(desc="nn-eval/epoch", total=len(dataset)) as pbar:
-            for batch_idx, data_tuple in enumerate(dataloader):
-                x, pi_mask_batch, _, _, _, _ = (data.to(self._device) for data in data_tuple)
-                pi_tensor_batch, value_batch = self._nn(x)
-                for pi_tensor_unsoftmaxed, pi_mask in zip(pi_tensor_batch, pi_mask_batch):
-                    pi_vec = pi_tensor_unsoftmaxed[*torch.nonzero(pi_mask.squeeze()).T].ravel()
-                    pi_logit = torch.nn.functional.log_softmax(pi_vec, dim=0)
-                    pi_logits.append(pi_logit)
-
-                batch_size = x.shape[0]
-                vs[batch_idx * self._batch_size : batch_idx * self._batch_size + batch_size] = value_batch
-                pbar.update(x.shape[0])
-        return torch.concat(pi_logits, dim=0), torch.as_tensor(vs)
