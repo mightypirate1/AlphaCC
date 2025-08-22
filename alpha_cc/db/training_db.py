@@ -8,6 +8,9 @@ from alpha_cc.agents.mcts.training_data import TrainingData
 from alpha_cc.db.models.tournament_results import TournamentResult
 from alpha_cc.db.redis_dbs import RedisDBs
 
+POLL_TIMEOUT_SEC = 2
+
+
 logger = logging.getLogger(__file__)
 
 
@@ -75,11 +78,15 @@ class TrainingDB:
         return training_datas
 
     def training_data_fetch(self, blocking: bool = False) -> TrainingData:
-        if blocking:
-            _, encoded_training_data = self._db.brpop(self.queue_key, timeout=0)
-        else:
-            encoded_training_data = self._db.rpop(self.queue_key)
+        def blocking_fetch() -> bytes | None:
+            data: bytes | None = None
+            while True:
+                resp = self._db.brpop(self.queue_key, timeout=POLL_TIMEOUT_SEC)
+                if resp is not None:
+                    _, data = resp
+                    return data
 
+        encoded_training_data = blocking_fetch() if blocking else self._db.rpop(self.queue_key)
         if encoded_training_data is None:
             return TrainingData(trajectory=[], internal_nodes={})
         training_data = dill.loads(encoded_training_data)  # noqa

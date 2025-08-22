@@ -1,9 +1,13 @@
 import logging
+import signal
+import sys
+import threading
 import time
 from collections import deque
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event, Lock, Thread
+from typing import Any
 
 import torch
 from apscheduler.job import Job
@@ -18,6 +22,17 @@ from alpha_cc.state.state_tensors import states_tensor
 logger = logging.getLogger(__file__)
 logging.getLogger("apscheduler").setLevel(logging.WARN)
 scheduler = BackgroundScheduler()
+stop_signal = threading.Event()
+
+
+def _signal_handler(signum: int, _: Any) -> None:
+    logger.info(f"Received signal {signum}, shutting down gracefully...")
+    stop_signal.set()
+    sys.exit(0)
+
+
+signal.signal(signal.SIGINT, _signal_handler)
+signal.signal(signal.SIGTERM, _signal_handler)
 
 
 class ServedNN:
@@ -186,7 +201,7 @@ class ServedNN:
         """Start a thread that continuously prefetches board requests."""
 
         def prefetch_worker() -> None:
-            while not self._prefetch_stop.is_set():
+            while not self._prefetch_stop.is_set() and not stop_signal.is_set():
                 with self._prefetch_lock:
                     need_more = len(self._prefetch_boards) < (self._prefetch_boards.maxlen or 1000)
 
@@ -267,7 +282,7 @@ class NNService:
 
     def run(self) -> None:
         logger.info(f"Starting NNService[{self._device}]")
-        while True:
+        while stop_signal is None or not stop_signal.is_set():
             for served_nn in self._served_nns:
                 served_nn.process_requests()
 

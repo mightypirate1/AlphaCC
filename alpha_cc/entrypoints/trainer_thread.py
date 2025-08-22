@@ -137,7 +137,7 @@ def await_samples(db: TrainingDB, n_train_samples: int) -> list[TrainingData]:
     training_datas = []
     n_remaining = n_train_samples
     with tqdm(desc="awaiting samples", total=n_train_samples) as pbar:
-        while n_remaining > 0:
+        while n_remaining > 0 and not shutdown_requested.is_set():
             training_data = db.training_data_fetch(blocking=True)
             training_datas.append(training_data)
             n_remaining -= len(training_data.trajectory)
@@ -258,6 +258,7 @@ def create_and_register_signal_handler(
             replay_buffer=replay_buffer,
             trainer_steps=trainer.get_steps(),
         )
+        Path(save_root(run_id)).mkdir(exist_ok=True, parents=True)
         checkpoint.save(save_path_latest, verbose=True)
         checkpoint.save(save_path_current, verbose=True)
 

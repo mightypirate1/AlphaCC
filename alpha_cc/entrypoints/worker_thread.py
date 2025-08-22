@@ -1,6 +1,9 @@
 import logging
+import signal
+import sys
 import time
 from math import ceil
+from typing import Any
 
 import click
 
@@ -75,6 +78,7 @@ def main(
     internal_nodes_min_visits_schedule = ParamSchedule.from_str(internal_nodes_min_visits)
 
     init_rootlogger(verbose=verbose)
+    create_and_register_signal_handler()
     training_db = TrainingDB(host=Environment.redis_host_main)
     games_db = GamesDB(host=Environment.redis_host_main)
 
@@ -155,3 +159,12 @@ def create_value_assignment_strategy(
     if heuristic:
         return HeuristicAssignmentStrategy(size, gamma)
     return DefaultAssignmentStrategy(gamma, non_terminal_weight=non_terminal_weight)
+
+
+def create_and_register_signal_handler() -> None:
+    def signal_handler(signum: int, _: Any) -> None:
+        logger.info(f"Received signal {signum}, shutting down gracefully...")
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
