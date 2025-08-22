@@ -27,6 +27,7 @@ stop_signal = threading.Event()
 
 def _signal_handler(signum: int, _: Any) -> None:
     logger.info(f"Received signal {signum}, shutting down gracefully...")
+    scheduler.shutdown(wait=False)
     stop_signal.set()
     sys.exit(0)
 
