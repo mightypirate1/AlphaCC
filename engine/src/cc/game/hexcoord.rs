@@ -2,7 +2,7 @@ use std::vec::Vec;
 extern crate pyo3;
 use pyo3::prelude::*;
 
-use crate::cc::game::dtypes;
+use crate::cc::dtypes;
 
 
 

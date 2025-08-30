@@ -1,6 +1,7 @@
 pub mod game;
 pub mod rollouts;
 pub mod pred_db;
+pub mod dtypes;
 
 pub use game::board::Board;
 pub use game::r#move::Move;
