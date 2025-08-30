@@ -3,7 +3,7 @@ use pyo3::prelude::*;
 use std::collections::{HashMap, HashSet};
 use indexmap::IndexSet;
 use crate::cc::{Board, HexCoord, Move};
-use crate::cc::board::MAX_SIZE;
+use crate::cc::game::board::MAX_SIZE;
 
 
 #[pyfunction]

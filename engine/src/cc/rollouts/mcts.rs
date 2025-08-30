@@ -10,8 +10,8 @@ use rand::prelude::*;
 use rand_distr::Dirichlet;
 use lru::LruCache;
 
-use crate::cc::board::Board;
-use crate::cc::moves::find_all_moves;
+use crate::cc::game::board::Board;
+use crate::cc::game::moves::find_all_moves;
 use crate::cc::rollouts::nn_remote::NNRemote;
 use crate::cc::rollouts::mcts_node::MCTSNode;
 use crate::cc::pred_db::{NNPred, PredDBChannel};

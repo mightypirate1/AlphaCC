@@ -3,7 +3,7 @@ use std::io::{Error, ErrorKind};
 
 use crate::cc::pred_db::PredDBChannel;
 use crate::cc::pred_db::NNPred;
-use crate::cc::board::Board;
+use crate::cc::game::board::Board;
 
 const INITIAL_PATIENCE: Duration = Duration::from_millis(5);
 const REPOST_THRESHOLD: Duration = Duration::from_millis(100);

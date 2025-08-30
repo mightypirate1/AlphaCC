@@ -1,4 +1,4 @@
-use crate::cc::hexcoord::HexCoord;
+use crate::cc::game::hexcoord::HexCoord;
 extern crate pyo3;
 use pyo3::prelude::*;
 

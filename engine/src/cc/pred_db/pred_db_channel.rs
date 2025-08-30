@@ -1,8 +1,8 @@
 use std::cell::RefCell;
 use pyo3::prelude::*;
 
-use crate::cc::Board;
 use crate::cc::pred_db::nn_pred::NNPred;
+use crate::cc::game::board::Board;
 
 const ZMQ_HWM: i32 = 10000;
 

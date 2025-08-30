@@ -15,7 +15,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyTuple, PyBytes};
 
 use crate::cc::{BoardInfo, HexCoord, Move};
-use crate::cc::moves::find_all_moves;
+use crate::cc::game::moves::find_all_moves;
 
 pub const MAX_SIZE: usize = 9;
 
