@@ -2,6 +2,7 @@ use std::vec::Vec;
 extern crate pyo3;
 use pyo3::prelude::*;
 
+use crate::cc::game::dtypes;
 
 
 
@@ -9,19 +10,26 @@ use pyo3::prelude::*;
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct HexCoord {
     #[pyo3(get)]
-    pub x: usize,
+    pub x: dtypes::BoardSize,
     #[pyo3(get)]
-    pub y: usize,
-    board_size: usize,
+    pub y: dtypes::BoardSize,
+    board_size: dtypes::BoardSize,
 }
 
 
 impl HexCoord {
-    pub fn create(x: usize, y: usize, board_size: usize) -> HexCoord {
+    pub fn new(x: dtypes::BoardSize, y: dtypes::BoardSize, board_size: dtypes::BoardSize) -> HexCoord {
         if x >= board_size || y >= board_size {
             panic!("coord created out of bounds");
         }
-        HexCoord {x, y, board_size}
+        HexCoord {
+            x,
+            y,
+            board_size,
+        }
+    }
+    pub fn create(x: usize, y: usize, board_size: usize) -> HexCoord {
+        HexCoord::new(x as dtypes::BoardSize, y as dtypes::BoardSize, board_size as dtypes::BoardSize)
     }
 
     pub fn get_all_directions(&self) -> Vec<usize> {
@@ -59,9 +67,14 @@ impl HexCoord {
         }
     }
 
-    fn as_option(x: i32, y: i32, board_size: usize) -> Option<HexCoord> {
+    fn as_option(x: i32, y: i32, board_size: dtypes::BoardSize) -> Option<HexCoord> {
         if (x >= 0 && x < board_size as i32) && (y >= 0 && y < board_size as i32) {
-            return Some(HexCoord{x: x as usize, y: y as usize, board_size});
+            let coord = HexCoord{
+                x: x as dtypes::BoardSize,
+                y: y as dtypes::BoardSize,
+                board_size,
+            };
+            return Some(coord);
         }
         None
     }
@@ -87,11 +100,11 @@ impl HexCoord {
         the game engine will flip boards so that player 1 is always at the top,
         so coordinates need to be flipped accordingly
          */
-        HexCoord::create(
-            self.board_size -1 - self.x,
-            self.board_size -1 - self.y,
-            self.board_size
-        )
+        HexCoord {
+            x: self.board_size -1 - self.x,
+            y: self.board_size -1 - self.y,
+            board_size: self.board_size,
+        }
     }
 
     pub fn __repr__(&self) -> String {

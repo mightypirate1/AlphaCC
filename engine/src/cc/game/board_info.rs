@@ -1,6 +1,7 @@
 extern crate pyo3;
 use pyo3::prelude::*;
 
+use crate::cc::game::dtypes;
 
 #[pyclass(module="alpha_cc_engine")]
 pub struct BoardInfo {
@@ -9,9 +10,9 @@ pub struct BoardInfo {
     #[pyo3(get)]
     pub winner: i8,
     #[pyo3(get)]
-    pub size: usize,
+    pub size: dtypes::BoardSize,
     #[pyo3(get)]
-    pub duration: u16,
+    pub duration: dtypes::GameDuration,
     #[pyo3(get)]
     pub game_over: bool,
     #[pyo3(get)]
