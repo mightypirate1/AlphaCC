@@ -109,7 +109,7 @@ impl MCTS {
         let mut best_u = f32::MIN;
         for i in 0..node.n.len() {
             let prior_weight = c_puct * sum_n.sqrt() / (1.0 + node.n[i] as f32);
-            let u = node.q[i] + prior_weight * node.pi[i];
+            let u = node.get_q(i) + prior_weight * node.get_pi(i);
             if u > best_u {
                 best_u = u;
                 best_action = i;
@@ -130,7 +130,7 @@ impl MCTS {
 
         if dirichlet_weight > 0.0 && pi.len() > 1 {
             let alpha = pi.iter()
-                .map(|x| x * dirichlet_alpha)
+                .map(|x| (x * dirichlet_alpha).max(f32::EPSILON))
                 .collect::<Vec<f32>>();
             match Dirichlet::new(&alpha) {
                 Ok(dirichlet) => {

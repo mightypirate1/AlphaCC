@@ -10,7 +10,7 @@ pub type BoardHash = u64;
 /// Quantized probability in `[0,1]` stored as u16 (Q0.16)
 #[repr(transparent)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::BorrowDecode)]
-pub struct NNQuantizedPi(pub u16);
+pub struct NNQuantizedPi(u16);
 
 impl NNQuantizedPi {
     pub const MIN: f32 = 0.0;
@@ -86,7 +86,7 @@ impl From<NNQuantizedPi> for u16 {
 /// Quantized value in `[-1,1]` stored as i16 (Q1.15)
 #[repr(transparent)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::BorrowDecode)]
-pub struct NNQuantizedValue(pub i16);
+pub struct NNQuantizedValue(i16);
 
 
 impl NNQuantizedValue {
