@@ -15,22 +15,21 @@ use pyo3::prelude::*;
 use pyo3::types::{PyTuple, PyBytes};
 
 use crate::cc::{BoardInfo, HexCoord, Move};
-use crate::cc::moves::find_all_moves;
+use crate::cc::game::moves::find_all_moves;
+use crate::cc::dtypes;
 
 pub const MAX_SIZE: usize = 9;
 
-type BoardMatrix = [[i8; MAX_SIZE]; MAX_SIZE];
-pub type EncBoard = Vec<u8>;
-pub type BoardHash = u64;
+type BoardMatrix = [[dtypes::BoardContent; MAX_SIZE]; MAX_SIZE];
 
 
 #[pyclass(module="alpha_cc_engine")]
 #[derive(Clone, bincode::Encode, bincode::Decode)]
 pub struct Board {
-    size: usize,
-    duration: u16,
-    home_size: usize,
-    home_capacity: usize,
+    size: dtypes::BoardSize,
+    duration: dtypes::GameDuration,
+    home_size: dtypes::BoardSize,
+    home_capacity: dtypes::HomeCapacity,
     matrix: BoardMatrix,
     current_player: i8,
 }
@@ -54,6 +53,7 @@ impl Board {
         if ![3, 5, 7, 9].contains(&size) {
             panic!("supports sizes: 3, 5, 7, 9");
         }
+        let size = size as dtypes::BoardSize;
         Board {
             size,
             duration: 0,
@@ -64,8 +64,12 @@ impl Board {
         }
     }
 
-    pub fn get_size(&self) -> usize {
+    pub fn get_size(&self) -> dtypes::BoardSize {
         self.size
+    }
+
+    pub fn get_content(&self, coord: &HexCoord) -> i8 {
+        self.matrix[coord.x as usize][coord.y as usize]
     }
 
     pub fn coord_is_empty(&self, coord: &HexCoord) -> bool {
@@ -106,10 +110,14 @@ impl Board {
         let mut matrix = self.flipped_matrix();
         let flipped_from_coord = r#move.from_coord.flip();
         let flipped_to_coord = r#move.to_coord.flip();
-        let to_coord_content = matrix[flipped_to_coord.x][flipped_to_coord.y];  
+        let flipped_to_x = flipped_to_coord.x as usize;
+        let flipped_to_y = flipped_to_coord.y as usize;
+        let flipped_from_x = flipped_from_coord.x as usize;
+        let flipped_from_y = flipped_from_coord.y as usize;
+        let to_coord_content = matrix[flipped_to_x][flipped_to_y];  
 
-        matrix[flipped_from_coord.x][flipped_from_coord.y] = to_coord_content;
-        matrix[flipped_to_coord.x][flipped_to_coord.y] = 2;  // 2 is the current player (since the board is flipped)
+        matrix[flipped_from_x][flipped_from_y] = to_coord_content;
+        matrix[flipped_to_x][flipped_to_y] = 2;  // 2 is the current player (since the board is flipped)
         Board {
             size: self.size,
             duration: self.duration + 1,
@@ -120,7 +128,7 @@ impl Board {
         }
     }
 
-    pub fn compute_hash(&self) -> BoardHash {
+    pub fn compute_hash(&self) -> dtypes::BoardHash {
         let mut hasher = DefaultHasher::new();
         self.hash(&mut hasher);
         hasher.finish()
@@ -147,11 +155,13 @@ impl Board {
         for x in (s-hs)..s {
             for y in (s-hs)..s {
                 if Board::xy_start_val(x, y, self.size) == 2 {
-                    if self.matrix[x][y] == 1 {
-                        n_p1_stones_in_p2_home += 1;
-                    }
-                    if self.matrix[x][y] == 0 {
+                    let coord = HexCoord::new(x, y, self.size);
+                    let content = self.get_content(&coord);
+                    if content == 0 {
                         goal_is_full = false;
+                    }
+                    if content == 1 {
+                        n_p1_stones_in_p2_home += 1;
                     }
                 }
             }
@@ -167,11 +177,13 @@ impl Board {
         for x in 0..hs {
             for y in 0..hs {
                 if Board::xy_start_val(x, y, self.size) == 1 {
-                    if self.matrix[x][y] == 2 {
-                        n_p2_stones_in_p1_home += 1;
-                    }
-                    if self.matrix[x][y] == 0 {
+                    let coord = HexCoord::new(x, y, self.size);
+                    let content = self.get_content(&coord);
+                    if content == 0 {
                         goal_is_full = false;
+                    }
+                    if content == 2 {
+                        n_p2_stones_in_p1_home += 1;
                     }
                 }
             }
@@ -196,13 +208,14 @@ impl Board {
         
         for x in 0..self.size {
             for y in 0..self.size {
-                let val = self.matrix[self.size - x - 1][self.size - y - 1];
-                matrix[x][y] = match val {
+                let coord = HexCoord::new(x, y, self.size);
+                let flipped_content = self.get_content(&coord.flip());
+                matrix[x as usize][y as usize] = match flipped_content {
                     0 => 0,
                     1 => 2,
                     2 => 1,
                     _ => {
-                        unreachable!("invalid value on board: {val}")
+                        unreachable!("invalid value on board: {flipped_content}")
                     }
                 };
             } 
@@ -214,43 +227,40 @@ impl Board {
         [[0; MAX_SIZE]; MAX_SIZE]
     }
 
-    fn get_content(&self, coord: &HexCoord) -> i8 {
-        self.matrix[coord.x][coord.y]
-    }
-
     #[allow(clippy::needless_range_loop)]
-    fn initialize_matrix(size: usize) -> BoardMatrix {
+    fn initialize_matrix(size: dtypes::BoardSize) -> BoardMatrix {
         let mut matrix = Board::empty_matrix();
-        for x in 0..MAX_SIZE {
-            for y in 0..MAX_SIZE {
-                matrix[x][y] = Board::xy_start_val(x, y, size);
+        for x in 0..MAX_SIZE.try_into().unwrap() {
+            for y in 0..MAX_SIZE.try_into().unwrap() {
+                matrix[x as usize][y as usize] = Board::xy_start_val(x, y, size);
             }
         }
         matrix
     }
 
-    fn xy_start_val(x: usize, y: usize, size: usize) -> i8 {
+    fn xy_start_val(x: dtypes::BoardSize, y: dtypes::BoardSize, size: dtypes::BoardSize) -> i8 {
         // player 1 home
-        if x + y < Board::home_size(size) {
+        let home_size = Board::home_size(size);
+        if x + y < home_size {
             return 1;
         }
         // player 2 home
-        if x + y >= size + Board::home_size(size) && x < size && y < size {
+        if x + y >= home_size + size && x < size && y < size {
             return 2;
         }
         0
     }
 
-    fn home_size(size: usize) -> usize {
+    fn home_size(size: dtypes::BoardSize) -> dtypes::BoardSize {
         (size - 1) / 2
     }
 
-    fn home_capacity(size: usize) -> usize {
-        let hs = Board::home_size(size);
-        (hs * (hs + 1)) / 2
+    fn home_capacity(size: dtypes::BoardSize) -> dtypes::HomeCapacity {
+        let hs = Board::home_size(size) as usize;
+        ((hs * (hs + 1)) / 2) as dtypes::HomeCapacity
     }
 
-    pub fn serialize_rs(&self) -> EncBoard {
+    pub fn serialize_rs(&self) -> dtypes::EncBoard {
         bincode::encode_to_vec(self, bincode::config::standard())
             .map_err(|e| {
                 pyo3::exceptions::PyValueError::new_err(
@@ -290,7 +300,7 @@ impl Board {
     }
 
     pub fn reset(&self) -> Board {
-        Board::create(self.size)
+        Board::create(self.size as usize)
     }
 
     pub fn get_moves(&self) -> Vec<Move> {
@@ -344,11 +354,11 @@ impl Board {
         ]);
         let matrix = self.get_unflipped_matrix();
         println!();
-        for (i, row) in matrix[0..self.size].iter().enumerate() {
+        for (i, row) in matrix[0..self.size as usize].iter().enumerate() {
             for _ in  0..i {
                 print!(" ");
             }
-            for val in row[0..self.size].iter() {
+            for val in row[0..self.size as usize].iter() {
                 print!("{} ", tokens.get(val).unwrap());
             }
             println!();

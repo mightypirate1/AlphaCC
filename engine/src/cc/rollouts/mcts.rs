@@ -10,8 +10,8 @@ use rand::prelude::*;
 use rand_distr::Dirichlet;
 use lru::LruCache;
 
-use crate::cc::board::Board;
-use crate::cc::moves::find_all_moves;
+use crate::cc::game::board::Board;
+use crate::cc::game::moves::find_all_moves;
 use crate::cc::rollouts::nn_remote::NNRemote;
 use crate::cc::rollouts::mcts_node::MCTSNode;
 use crate::cc::pred_db::{NNPred, PredDBChannel};
@@ -98,7 +98,7 @@ impl MCTS {
             mcts_params.dirichlet_weight,
             mcts_params.dirichlet_alpha,
         );
-        Ok(-nn_pred.value)
+        Ok(-nn_pred.value())
     }
 
     fn find_best_action_for_node(node: &MCTSNode, c_puct_init: &f32, c_puct_base: &f32) -> usize {
@@ -109,7 +109,7 @@ impl MCTS {
         let mut best_u = f32::MIN;
         for i in 0..node.n.len() {
             let prior_weight = c_puct * sum_n.sqrt() / (1.0 + node.n[i] as f32);
-            let u = node.q[i] + prior_weight * node.pi[i];
+            let u = node.get_q(i) + prior_weight * node.get_pi(i);
             if u > best_u {
                 best_u = u;
                 best_action = i;
@@ -125,12 +125,12 @@ impl MCTS {
         dirichlet_weight: f32,
         dirichlet_alpha: f32,
 ) {
-        let mut pi = nn_pred.pi.clone();
-        let v = nn_pred.value;
+        let mut pi = nn_pred.pi();
+        let v = nn_pred.value();
 
-        if dirichlet_weight > 0.0 && nn_pred.pi.len() > 1 {
-            let alpha = nn_pred.pi.iter()
-                .map(|x| x * dirichlet_alpha)
+        if dirichlet_weight > 0.0 && pi.len() > 1 {
+            let alpha = pi.iter()
+                .map(|x| (x * dirichlet_alpha).max(f32::EPSILON))
                 .collect::<Vec<f32>>();
             match Dirichlet::new(&alpha) {
                 Ok(dirichlet) => {

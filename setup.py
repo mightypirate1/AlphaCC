@@ -17,6 +17,7 @@ DEV_REQUIRES = [
     "pytest",
     "ruff",
     "standard-imghdr",
+    #"standard-imwdb",  # local tensorboard needed this after py313 upgrade
 ]
 
 

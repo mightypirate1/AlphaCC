@@ -3,7 +3,7 @@ use pyo3::prelude::*;
 use std::collections::{HashMap, HashSet};
 use indexmap::IndexSet;
 use crate::cc::{Board, HexCoord, Move};
-use crate::cc::board::MAX_SIZE;
+use crate::cc::game::board::MAX_SIZE;
 
 
 #[pyfunction]
@@ -14,7 +14,11 @@ pub fn create_move_mask(moves: Vec<Move>) -> [[[[bool; MAX_SIZE]; MAX_SIZE]; MAX
 
     let mut mask = [[[[false; MAX_SIZE]; MAX_SIZE]; MAX_SIZE]; MAX_SIZE];
     for r#move in moves {
-        mask[r#move.from_coord.x][r#move.from_coord.y][r#move.to_coord.x][r#move.to_coord.y] = true;
+        let from_x = r#move.from_coord.x as usize;
+        let from_y = r#move.from_coord.y as usize;
+        let to_x = r#move.to_coord.x as usize;
+        let to_y = r#move.to_coord.y as usize;
+        mask[from_x][from_y][to_x][to_y] = true;
     }
     mask
 }
@@ -46,8 +50,8 @@ pub fn find_all_moves(board: &Board) -> Vec<Move> {
     
     for x in 0..size {
         for y in 0..size {
-            if board.get_matrix()[x][y] == 1 {
-                from_coord = HexCoord::create(x, y , board.get_size());
+            from_coord = HexCoord::new(x, y , board.get_size());
+            if board.coord_is_player1(&from_coord) {
                 from_coords.insert(from_coord);
                 for to_coord in from_coord.get_all_neighbours(1) {
                     if board.coord_is_empty(&to_coord)

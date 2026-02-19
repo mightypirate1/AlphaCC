@@ -1,13 +1,10 @@
-mod board;
-mod r#move;
-mod hexcoord;
-mod moves;
-mod board_info;
+pub mod game;
 pub mod rollouts;
 pub mod pred_db;
+pub mod dtypes;
 
-pub use board::Board;
-pub use r#move::Move;
-pub use hexcoord::HexCoord;
-pub use board_info::BoardInfo;
-pub use moves::{create_move_mask, create_move_index_map};
+pub use game::board::Board;
+pub use game::r#move::Move;
+pub use game::hexcoord::HexCoord;
+pub use game::board_info::BoardInfo;
+pub use game::moves::{create_move_mask, create_move_index_map};
