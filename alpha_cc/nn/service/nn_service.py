@@ -6,7 +6,7 @@ import time
 from collections import deque
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from threading import Event, Lock, Thread
+from threading import Condition, Event, Thread
 from typing import Any
 
 import torch
@@ -14,8 +14,7 @@ from apscheduler.job import Job
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from alpha_cc.db import TrainingDB
-from alpha_cc.engine import Board, NNPred, PredDBChannel
-from alpha_cc.engine.engine_utils import action_indexer
+from alpha_cc.engine import Board, PredDBChannel, post_preds_from_logits
 from alpha_cc.state import GameState
 from alpha_cc.state.state_tensors import states_tensor
 
@@ -70,7 +69,7 @@ class ServedNN:
         self._prefetch_boards: deque[list[Board]] = deque(maxlen=prefetch_size)
         self._prefetch_states: deque[list[GameState]] = deque(maxlen=prefetch_size)
         self._prefetch_tensors: deque[torch.Tensor] = deque(maxlen=prefetch_size)
-        self._prefetch_lock = Lock()
+        self._prefetch_condition = Condition()
         self._prefetch_stop = Event()
         self._prefetch_thread: Thread | None = None
         self._start_prefetch_thread()
@@ -85,12 +84,13 @@ class ServedNN:
 
     def process_requests(self) -> None:
         batch_available = False
-        with self._prefetch_lock:
+        with self._prefetch_condition:
             batch_available = bool(self._prefetch_boards)
             if batch_available:
                 boards = self._prefetch_boards.popleft()
                 states = self._prefetch_states.popleft()
                 x = self._prefetch_tensors.popleft()
+                self._prefetch_condition.notify()
 
         if not batch_available:  # fall back to direct fetching
             boards = self._pred_db_channel.fetch_requests(self._fetch_batch_size)
@@ -111,9 +111,10 @@ class ServedNN:
                 x_batch_pis, x_batch_vals = self._nn_prediction(x_batch)
 
             # post in a separate thread to avoid blocking GPU
+            batch_boards = boards[i : i + self._inference_batch_size]
             self._post_pool.submit(
                 self._post_predictions,
-                batch_states,
+                batch_boards,
                 x_batch_pis.detach().cpu(),
                 x_batch_vals.detach().cpu(),
             )
@@ -172,24 +173,19 @@ class ServedNN:
         input_tensor = states_tensor(states)
         return input_tensor.to(self._device, non_blocking=True)
 
-    def _post_predictions(self, states: list[GameState], x_pis: torch.Tensor, x_vals: torch.Tensor) -> None:
+    def _post_predictions(self, boards: list[Board], x_pis: torch.Tensor, x_vals: torch.Tensor) -> None:
         """
         Post predictions to the prediction database.
 
-        They are assumed to be on the CPU, and in the same order as the states.
+        They are assumed to be on the CPU, and in the same order as the boards.
         """
-
-        def create_nn_pred(state: GameState, pi_tensor_unsoftmaxed: torch.Tensor, val: torch.Tensor) -> NNPred:
-            pi_unsoftmaxed = pi_tensor_unsoftmaxed[*action_indexer(state)]
-            pi = torch.nn.functional.softmax(pi_unsoftmaxed, dim=0)
-            return NNPred(pi.numpy().tolist(), val.item())
-
-        nn_preds = [
-            create_nn_pred(state, pi_tensor_unsoftmaxed, val)
-            for state, pi_tensor_unsoftmaxed, val in zip(states, x_pis, x_vals)
-        ]
-        boards = [state.board for state in states]
-        self._pred_db_channel.post_preds(boards, nn_preds)
+        post_preds_from_logits(
+            self._pred_db_channel,
+            x_pis.reshape(len(boards), -1).numpy().ravel().tolist(),
+            x_vals.numpy().tolist(),
+            boards,
+            boards[0].info.size,
+        )
 
     def _configure_nn(self, nn: torch.nn.Module) -> torch.nn.Module:
         # TODO: make jit-compilation work
@@ -203,7 +199,7 @@ class ServedNN:
 
         def prefetch_worker() -> None:
             while not self._prefetch_stop.is_set() and not stop_signal.is_set():
-                with self._prefetch_lock:
+                with self._prefetch_condition:
                     need_more = len(self._prefetch_boards) < (self._prefetch_boards.maxlen or 1000)
 
                 if need_more:
@@ -215,7 +211,7 @@ class ServedNN:
                     states = [GameState(board) for board in boards]
                     x = self._prepare_input(states)
 
-                    with self._prefetch_lock:
+                    with self._prefetch_condition:
                         # If the prefetch queue is empty or the last batch is full, add as new batch.
                         # Otherwise, append to the last batch. This tries to keep batches gpu-sized.
                         if (
@@ -230,7 +226,8 @@ class ServedNN:
                             self._prefetch_states[-1].extend(states)
                             self._prefetch_tensors[-1] = torch.cat((self._prefetch_tensors[-1], x), dim=0)
                 else:
-                    time.sleep(0.0001)
+                    with self._prefetch_condition:
+                        self._prefetch_condition.wait(timeout=0.1)
             logger.info(f"[Channel-{self._pred_db_channel.channel}]: Prefetch thread stopped")
 
         self._prefetch_thread = Thread(target=prefetch_worker, daemon=True)
@@ -243,7 +240,7 @@ class ServedNN:
 
     def _log_stats(self) -> None:
         prefetch_usage = 0
-        with self._prefetch_lock:
+        with self._prefetch_condition:
             prefetch_usage = len(self._prefetch_boards)
         logger.info(
             f"[Channel-{self._pred_db_channel.channel}]: Processed"

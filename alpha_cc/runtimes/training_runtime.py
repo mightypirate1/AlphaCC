@@ -64,6 +64,7 @@ class TrainingRunTime:
         training_data = TrainingData(
             trajectory=self._value_assignment_strategy(trajectory, final_board=board),
             internal_nodes={GameState(board): nodepy for board, nodepy in agent.internal_nodes.items()},
+            worker_stats=agent.get_worker_stats(),
         )
         agent.on_game_end()
         return training_data

@@ -1,8 +1,10 @@
 use std::cell::RefCell;
 use pyo3::prelude::*;
 
+use crate::cc::pred_db::memcached_binary::MemcachedBinaryClient;
 use crate::cc::pred_db::nn_pred::NNPred;
 use crate::cc::game::board::Board;
+use crate::cc::game::moves::find_all_moves;
 
 const ZMQ_HWM: i32 = 10000;
 
@@ -26,18 +28,16 @@ thread_local! {
 #[pyclass(module="alpha_cc_engine")]
 pub struct PredDBChannel {
     zmq_url: String,
-    memcached_client: memcache::Client,
+    memcached_client: MemcachedBinaryClient,
     channel: usize,
 }
 
 
 impl PredDBChannel {
     pub fn new(zmq_url: &str, memcached_host: &str, channel: usize) -> Self {
-        let memcached_url = format!("memcache://{host}:{port}?binary=true&tcp_nodelay=true", host=memcached_host, port=11211);
-        let memcached_client = memcache::Client::connect(memcached_url)
-            .expect("Failed to connect to memcached");
-        
-        PredDBChannel { 
+        let memcached_client = MemcachedBinaryClient::new(memcached_host, 11211);
+
+        PredDBChannel {
             zmq_url: zmq_url.to_string(),
             memcached_client,
             channel,
@@ -54,7 +54,7 @@ impl PredDBChannel {
     }
 
     pub fn pop_boards_from_queue(&self, count: usize) -> Vec<Board> {
-        let mut boards = Vec::with_capacity(count);    
+        let mut boards = Vec::with_capacity(count);
         self.with_pull_socket(|socket| {
             for _ in 0..count {
                 match socket.recv_bytes(zmq::DONTWAIT) {
@@ -76,33 +76,30 @@ impl PredDBChannel {
 
     pub fn set_pred(&mut self, board: &Board, nn_pred: &NNPred) {
         let key = self.pred_key(board);
-        self.memcached_client.set(&key, nn_pred.serialize().as_slice(), 0)
-            .expect("Failed to set prediction in Memcached");
+        self.memcached_client.set(key.as_bytes(), &nn_pred.serialize());
     }
 
     pub fn set_preds(&mut self, boards: &[Board], nn_preds: &[NNPred]) {
-        for (board, nn_pred) in boards.iter().zip(nn_preds.iter()) {
-            self.set_pred(board, nn_pred);
-        }
+        let keys: Vec<String> = boards.iter().map(|b| self.pred_key(b)).collect();
+        let values: Vec<Vec<u8>> = nn_preds.iter().map(|p| p.serialize()).collect();
+        let kvs: Vec<(&[u8], &[u8])> = keys.iter().zip(values.iter())
+            .map(|(k, v)| (k.as_bytes(), v.as_slice()))
+            .collect();
+        self.memcached_client.set_multi(&kvs);
     }
 
     pub fn get_pred(&mut self, board: &Board) -> Option<NNPred> {
         let key = self.pred_key(board);
-        if let Ok(value) = self.memcached_client.get::<Vec<u8>>(&key) {
-            if let Some(encoded) = value {
-                return Some(NNPred::deserialize(&encoded));
-            }
-        } else {
-            panic!("Failed to get prediction from Memcached for key: {}", key);
-        }
-        None
+        self.memcached_client
+            .get(key.as_bytes())
+            .map(|data: Vec<u8>| NNPred::deserialize(&data))
     }
 
     fn with_push_socket<F, R>(&self, f: F) -> R where F: FnOnce(&zmq::Socket) -> R {
         THREAD_SOCKETS_PUSH.with(|sockets_array| {
             let socket_cell = &sockets_array[self.channel];
             let mut socket_opt = socket_cell.borrow_mut();
-            
+
             if socket_opt.is_none() {
                 let socket = ZMQ_CONTEXT.socket(zmq::PUSH).expect("Failed to create socket");
                 socket.set_sndhwm(ZMQ_HWM).expect("Failed to set HWM");
@@ -111,7 +108,7 @@ impl PredDBChannel {
                     .unwrap_or_else(|_| panic!("Failed to connect to ZMQ server on port {}", port));
                 *socket_opt = Some(socket);
             }
-            
+
             f(socket_opt.as_ref().unwrap())
         })
     }
@@ -126,10 +123,10 @@ impl PredDBChannel {
             let port = 5555 + self.channel;
             socket.bind(&format!("tcp://0.0.0.0:{}", port))
                 .unwrap_or_else(|_| panic!("Failed to bind ZMQ socket on port {}", port));
-                
+
             *socket_guard = Some(socket);
         }
-        
+
         f(socket_guard.as_ref().unwrap())
     }
 
@@ -154,8 +151,9 @@ impl PredDBChannel {
         self.get_pred(board).is_some()
     }
 
-    pub fn ping(& mut self) -> bool {
-        self.memcached_client.set("ping", "pong", 0).is_ok()
+    pub fn ping(&mut self) -> bool {
+        self.memcached_client.set(b"ping", b"pong");
+        true
     }
 
     pub fn fetch_requests(&mut self, count: usize) -> Vec<Board> {
@@ -175,7 +173,50 @@ impl PredDBChannel {
     }
 
     pub fn flush_preds(&mut self) {
-        self.memcached_client.flush()
-            .expect("Failed to flush Memcached");
+        self.memcached_client.flush_all();
     }
+}
+
+fn softmax(logits: &[f32]) -> Vec<f32> {
+    let max = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let exps: Vec<f32> = logits.iter().map(|&x| (x - max).exp()).collect();
+    let sum: f32 = exps.iter().sum();
+    exps.iter().map(|&e| e / sum).collect()
+}
+
+#[pyfunction]
+pub fn post_preds_from_logits(
+    pred_db: &mut PredDBChannel,
+    logits_flat: Vec<f32>,
+    values_flat: Vec<f32>,
+    boards: Vec<Board>,
+    board_size: usize,
+) -> PyResult<()> {
+    let s = board_size;
+    let stride = s * s * s * s;
+    let mut all_boards = Vec::with_capacity(boards.len());
+    let mut all_preds = Vec::with_capacity(boards.len());
+
+    for (i, board) in boards.iter().enumerate() {
+        let logits_slice = &logits_flat[i * stride..(i + 1) * stride];
+        let moves = find_all_moves(board);
+
+        let move_logits: Vec<f32> = moves.iter().map(|m| {
+            let fx = m.from_coord.x as usize;
+            let fy = m.from_coord.y as usize;
+            let tx = m.to_coord.x as usize;
+            let ty = m.to_coord.y as usize;
+            logits_slice[fx * s * s * s + fy * s * s + tx * s + ty]
+        }).collect();
+
+        let pi = softmax(&move_logits);
+        let value = values_flat[i];
+        let nn_pred = NNPred::new(pi, value);
+
+        all_boards.push(board.clone());
+        all_preds.push(nn_pred);
+    }
+
+    pred_db.set_preds(&all_boards, &all_preds);
+    Ok(())
 }

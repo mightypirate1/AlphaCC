@@ -5,6 +5,15 @@ Typehints and docs for the game engine
 
 def create_move_mask(moves: list[Move]) -> list[list[list[list[bool]]]]: ...
 def create_move_index_map(moves: list[Move]) -> dict[int, tuple[HexCoord, HexCoord]]: ...
+def post_preds_from_logits(
+    pred_db: PredDBChannel,
+    logits_flat: list[float],
+    values_flat: list[float],
+    boards: list[Board],
+    board_size: int,
+) -> None:
+    """Post predictions from raw logits, doing softmax and NNPred construction in Rust."""
+    ...
 
 class Board:
     def __init__(self, size: int) -> None:
@@ -52,6 +61,32 @@ class BoardInfo:
 
     def __init__(self, size: int) -> None: ...
 
+class FetchStats:
+    """Per-game fetch statistics from the MCTS worker's NN prediction loop."""
+
+    @property
+    def resolved_at_attempt(self) -> list[int]:
+        """Count of fetches resolved at each attempt (0 = cache hit, 1 = first patience, 2+ = backoff)."""
+        ...
+
+    @property
+    def attempt_total_wait_us(self) -> list[int]:
+        """Sum of elapsed time (microseconds) for fetches resolved at each attempt."""
+        ...
+
+    @property
+    def timeouts(self) -> int: ...
+    @property
+    def total_gets(self) -> int: ...
+    @property
+    def total_misses(self) -> int: ...
+    @property
+    def total_fetch_time_us(self) -> int: ...
+    @property
+    def total_fetches(self) -> int: ...
+    @property
+    def current_patience_us(self) -> int: ...
+
 class HexCoord:
     x: int
     y: int
@@ -72,6 +107,8 @@ class MCTSNode:
     def pi(self) -> list[float]: ...
     @property
     def v(self) -> float: ...
+    @property
+    def moves(self) -> list[Move]: ...
 
 class MCTS:
     def __init__(
@@ -90,11 +127,15 @@ class MCTS:
     def get_node(self, board: Board) -> MCTSNode | None: ...
     def get_nodes(self) -> dict[Board, MCTSNode]: ...
     def run(self, board: Board, rollout_depth: int) -> float: ...
+    def get_fetch_stats(self) -> FetchStats:
+        """Read and reset fetch statistics. Returns a snapshot of all counters since last call."""
+        ...
 
 class NNPred:
-    pi: list[float]
-    value: float
-
+    @property
+    def pi(self) -> list[float]: ...
+    @property
+    def value(self) -> float: ...
     def __init__(self, pi: list[float], value: float) -> None: ...
 
 class PredDBChannel:

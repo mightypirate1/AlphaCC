@@ -12,7 +12,7 @@ use lru::LruCache;
 
 use crate::cc::game::board::Board;
 use crate::cc::game::moves::find_all_moves;
-use crate::cc::rollouts::nn_remote::NNRemote;
+use crate::cc::rollouts::nn_remote::{NNRemote, FetchStats};
 use crate::cc::rollouts::mcts_node::MCTSNode;
 use crate::cc::pred_db::{NNPred, PredDBChannel};
 
@@ -201,5 +201,9 @@ impl MCTS {
 
     pub fn clear_nodes(&mut self) {
         self.nodes.clear();
+    }
+
+    pub fn get_fetch_stats(&mut self) -> FetchStats {
+        self.nn_remote.get_fetch_stats()
     }
 }

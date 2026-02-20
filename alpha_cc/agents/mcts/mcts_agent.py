@@ -2,6 +2,7 @@ import numpy as np
 
 from alpha_cc.agents.agent import Agent
 from alpha_cc.agents.mcts.mcts_node_py import MCTSNodePy
+from alpha_cc.agents.mcts.worker_stats import WorkerStats
 from alpha_cc.engine import MCTS, Board
 
 
@@ -36,6 +37,9 @@ class MCTSAgent(Agent):
             c_puct_init,
             c_puct_base,
         )
+
+    def get_worker_stats(self) -> WorkerStats:
+        return WorkerStats.from_fetch_stats(self._mcts.get_fetch_stats())
 
     @property
     def internal_nodes(self) -> dict[Board, MCTSNodePy]:
