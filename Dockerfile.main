@@ -1,4 +1,29 @@
-# I found no cuda image with python 3.13, so we make one by hand
+# Build free-threaded Python 3.13t from source
+FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04 AS python-builder
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential curl ca-certificates \
+        libffi-dev libssl-dev zlib1g-dev libbz2-dev \
+        libreadline-dev libsqlite3-dev liblzma-dev \
+    && rm -rf /var/lib/apt/lists/*
+ARG PYTHON_VERSION=3.13.12
+RUN curl -fSL "https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz" -o python.tgz \
+    && tar xzf python.tgz \
+    && cd "Python-${PYTHON_VERSION}" \
+    && ./configure \
+        --disable-gil \
+        --prefix=/opt/python3.13t \
+        --enable-shared \
+        --with-ensurepip=install \
+        LDFLAGS="-Wl,-rpath,/opt/python3.13t/lib" \
+    && make -j"$(nproc)" \
+    && make install \
+    && cd / && rm -rf "Python-${PYTHON_VERSION}" python.tgz
+RUN ln -sf python3.13t /opt/python3.13t/bin/python3 \
+    && ln -sf python3   /opt/python3.13t/bin/python  \
+    && ln -sf pip3      /opt/python3.13t/bin/pip
+
+
+# Base CUDA image with Python 3.13t
 FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04 AS base-cuda
 ENV PYTHONUNBUFFERED=1               \
     PYTHONDONTWRITEBYTECODE=1        \
@@ -6,21 +31,10 @@ ENV PYTHONUNBUFFERED=1               \
     PIP_DISABLE_PIP_VERSION_CHECK=on \
     PIP_DEFAULT_TIMEOUT=100          \
     WORKDIR=/code
-RUN apt-get update && apt-get install -y                       \
-        software-properties-common                             \
-        curl                                                   \
-    && add-apt-repository ppa:deadsnakes/ppa                   \
-    && apt-get update                                          \
-    && apt-get install -y                                      \
-        python3.13                                             \
-        python3.13-venv                                        \
-        python3.13-dev                                         \
-    && apt remove -y python3.12                                \
-    && apt-get autoremove -y                                   \
-    && apt-get clean                                           \
-    && rm -rf /var/lib/apt/lists/*                             \
-    && ln -s /usr/bin/python3.13 /usr/bin/python3              \
-    && curl -sS https://bootstrap.pypa.io/get-pip.py | python3 \
+COPY --from=python-builder /opt/python3.13t /opt/python3.13t
+ENV PATH="/opt/python3.13t/bin:$PATH"
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && apt-get clean && rm -rf /var/lib/apt/lists/* \
     && mkdir -p ${WORKDIR}
 WORKDIR ${WORKDIR}
 
@@ -32,30 +46,36 @@ ENV PATH="$WORKDIR/.venv/bin:$PATH"
 RUN pip install torch --index-url https://pypi.org/simple --extra-index-url https://download.pytorch.org/whl/cu128
 
 
-# Builds the rust engine and adds to the venv
-FROM base-torch AS builder-rs
-RUN mkdir -p ${WORKDIR}/engine
+# Install build tools + Python deps (rebuilds only when setup.py/setup.cfg change)
+FROM base-torch AS python-deps
 RUN apt-get update                                \
     && apt-get install -y --no-install-recommends \
-        clang libssl-dev make pkg-config gcc      \
+        clang libssl-dev make pkg-config gcc g++   \
     && apt-get clean                              \
     && rm -rf /var/lib/apt/lists/*
+COPY setup.py pyproject.toml setup.cfg ${WORKDIR}/
+RUN mkdir -p alpha_cc \
+    && echo '__version__ = "0.0.0"' > alpha_cc/_version.py \
+    && touch alpha_cc/__init__.py \
+    && pip install . \
+    && pip uninstall -y alpha-cc
+
+
+# Builds the rust engine (rebuilds only when engine/ changes)
+FROM python-deps AS builder-rs
 RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
 ENV PATH="/root/.cargo/bin:$PATH"
+RUN mkdir -p ${WORKDIR}/engine
 COPY engine/pyproject.toml engine/Cargo.toml engine/Cargo.lock ${WORKDIR}/engine/
 RUN bash -c 'cd $WORKDIR/engine && cargo fetch || true'
 COPY engine/src ${WORKDIR}/engine/src
-RUN bash -c '                                   \
-    python3 -m pip install maturin[patchelf] && \
-    cd $WORKDIR/engine &&                       \
-    maturin develop --release                   \
-'
+RUN bash -c 'cd $WORKDIR/engine && maturin develop --release'
 
 
+# Installs the Python package (rebuilds only when alpha_cc/ changes)
 FROM builder-rs AS builder
-COPY setup.py pyproject.toml setup.cfg ${WORKDIR}/
 COPY alpha_cc ${WORKDIR}/alpha_cc
-RUN pip install .
+RUN pip install --no-deps .
 
 
 FROM base-cuda AS main
