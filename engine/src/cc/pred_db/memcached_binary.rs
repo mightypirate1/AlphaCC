@@ -78,11 +78,15 @@ impl MemcachedBinaryClient {
         self.stream.flush().unwrap();
 
         let (_, status, body_len) = self.read_response_header();
-        if status == 0x0001 {
-            // Key not found
-            return None;
-        }
         if status != 0 {
+            // Drain body (e.g. "Not found" error message) to keep stream aligned
+            if body_len > 0 {
+                let mut body = vec![0u8; body_len];
+                self.stream.get_mut().read_exact(&mut body).unwrap();
+            }
+            if status == 0x0001 {
+                return None;
+            }
             panic!("memcached GET error: status=0x{:04x}", status);
         }
         if body_len == 0 {
