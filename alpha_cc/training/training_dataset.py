@@ -149,7 +149,7 @@ class TrainingDataset(Dataset):
         experiences = (
             self._new_experiences
             if not drop_internal_nodes
-            else [exp for exp in self._new_experiences if exp.v_target is not None]
+            else [exp for exp in self._new_experiences if not exp.is_internal_node]
         )
         self._experiences.extendleft(experiences)
         self._new_experiences.clear()
