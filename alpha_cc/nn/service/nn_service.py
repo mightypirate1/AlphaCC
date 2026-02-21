@@ -14,9 +14,7 @@ from apscheduler.job import Job
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from alpha_cc.db import TrainingDB
-from alpha_cc.engine import Board, PredDBChannel, post_preds_from_logits
-from alpha_cc.state import GameState
-from alpha_cc.state.state_tensors import states_tensor
+from alpha_cc.engine import Board, PredDBChannel, boards_to_state_tensor, post_preds_from_logits
 
 logger = logging.getLogger(__file__)
 logging.getLogger("apscheduler").setLevel(logging.WARN)
@@ -67,7 +65,6 @@ class ServedNN:
         self._is_loading_weights = False
         pred_db_channel.flush_preds()
         self._prefetch_boards: deque[list[Board]] = deque(maxlen=prefetch_size)
-        self._prefetch_states: deque[list[GameState]] = deque(maxlen=prefetch_size)
         self._prefetch_tensors: deque[torch.Tensor] = deque(maxlen=prefetch_size)
         self._prefetch_condition = Condition()
         self._prefetch_stop = Event()
@@ -88,7 +85,6 @@ class ServedNN:
             batch_available = bool(self._prefetch_boards)
             if batch_available:
                 boards = self._prefetch_boards.popleft()
-                states = self._prefetch_states.popleft()
                 x = self._prefetch_tensors.popleft()
                 self._prefetch_condition.notify()
 
@@ -96,15 +92,13 @@ class ServedNN:
             boards = self._pred_db_channel.fetch_requests(self._fetch_batch_size)
             if not boards:
                 return
-            states = [GameState(board) for board in boards]
-            x = self._prepare_input(states)
+            x = self._prepare_input(boards)
 
         # batch it up, in case we have a LOT of requests
-        for i in range(0, len(states), self._inference_batch_size):
-            batch_states = states[i : i + self._inference_batch_size]
+        for i in range(0, len(boards), self._inference_batch_size):
             x_batch = x[i : i + self._inference_batch_size]
 
-            if len(batch_states) == 0:
+            if x_batch.shape[0] == 0:
                 continue
 
             with torch.no_grad(), torch.cuda.amp.autocast(enabled=self._device == "cuda"):
@@ -119,7 +113,7 @@ class ServedNN:
                 x_batch_vals.detach().cpu(),
             )
 
-        self._n_preds += len(states)
+        self._n_preds += len(boards)
         self._n_batches += 1
 
     def deactivate(self) -> None:
@@ -169,9 +163,10 @@ class ServedNN:
 
         Thread(target=background_loading).start()
 
-    def _prepare_input(self, states: list[GameState]) -> torch.Tensor:
-        input_tensor = states_tensor(states)
-        return input_tensor.to(self._device, non_blocking=True)
+    def _prepare_input(self, boards: list[Board]) -> torch.Tensor:
+        arr = boards_to_state_tensor(boards, boards[0].info.size)
+        x = torch.from_numpy(arr)
+        return x.pin_memory().to(self._device, non_blocking=True)
 
     def _post_predictions(self, boards: list[Board], x_pis: torch.Tensor, x_vals: torch.Tensor) -> None:
         """
@@ -208,8 +203,7 @@ class ServedNN:
                         time.sleep(0.0001)
                         continue
 
-                    states = [GameState(board) for board in boards]
-                    x = self._prepare_input(states)
+                    x = self._prepare_input(boards)
 
                     with self._prefetch_condition:
                         # If the prefetch queue is empty or the last batch is full, add as new batch.
@@ -219,11 +213,9 @@ class ServedNN:
                             or len(self._prefetch_boards[-1]) + len(boards) > self._inference_batch_size
                         ):
                             self._prefetch_boards.append(boards)
-                            self._prefetch_states.append(states)
                             self._prefetch_tensors.append(x)
                         else:
                             self._prefetch_boards[-1].extend(boards)
-                            self._prefetch_states[-1].extend(states)
                             self._prefetch_tensors[-1] = torch.cat((self._prefetch_tensors[-1], x), dim=0)
                 else:
                     with self._prefetch_condition:

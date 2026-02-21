@@ -8,6 +8,7 @@ from alpha_cc_engine import (
     Move,
     NNPred,
     PredDBChannel,
+    boards_to_state_tensor,
     create_move_index_map,
     create_move_mask,
     post_preds_from_logits,

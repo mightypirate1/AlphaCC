@@ -7,6 +7,13 @@ import numpy
 
 def create_move_mask(moves: list[Move]) -> list[list[list[list[bool]]]]: ...
 def create_move_index_map(moves: list[Move]) -> dict[int, tuple[HexCoord, HexCoord]]: ...
+def boards_to_state_tensor(
+    boards: list[Board],
+    board_size: int,
+) -> numpy.ndarray:
+    """Convert boards to state tensor with shape (batch, 2, size, size) as float32."""
+    ...
+
 def preds_from_logits(
     logits_flat: numpy.ndarray,
     values_flat: numpy.ndarray,

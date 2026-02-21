@@ -2,9 +2,10 @@ import numpy as np
 import pytest
 import torch
 
-from alpha_cc.engine import preds_from_logits
+from alpha_cc.engine import boards_to_state_tensor, preds_from_logits
 from alpha_cc.engine.engine_utils import action_indexer
 from alpha_cc.state import GameState
+from alpha_cc.state.state_tensors import states_tensor
 
 from .common import get_random_board_state
 
@@ -104,3 +105,18 @@ def test_preds_from_logits_batched(size: int, batch_size: int) -> None:
         # Q0.16: 7.6e-6 per element, N moves worst case
         np.testing.assert_allclose(sum(pred.pi), 1.0, atol=n_moves * 8e-6)
         np.testing.assert_allclose(pred.value, values[i].item(), atol=2e-5)  # Q1.15: 1.5e-5
+
+
+@pytest.mark.parametrize("size", [3, 5, 7, 9])
+def test_boards_to_state_tensor(size: int) -> None:
+    """Verify Rust boards_to_state_tensor matches Python states_tensor."""
+    boards = [get_random_board_state(size) for _ in range(16)]
+    states = [GameState(board) for board in boards]
+
+    # Python reference
+    py_tensor = states_tensor(states)
+
+    # Rust path
+    rust_tensor = torch.from_numpy(boards_to_state_tensor(boards, size))
+
+    torch.testing.assert_close(rust_tensor, py_tensor)

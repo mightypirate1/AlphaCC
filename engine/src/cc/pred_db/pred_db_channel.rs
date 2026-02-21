@@ -225,6 +225,36 @@ pub fn post_preds_from_logits<'py>(
     Ok(())
 }
 
+#[pyfunction]
+pub fn boards_to_state_tensor<'py>(
+    py: Python<'py>,
+    boards: Vec<Board>,
+    board_size: usize,
+) -> Bound<'py, numpy::PyArray4<f32>> {
+    let s = board_size;
+    let batch = boards.len();
+    let mut data = vec![0.0f32; batch * 2 * s * s];
+
+    for (i, board) in boards.iter().enumerate() {
+        let matrix = board.get_matrix();
+        let base = i * 2 * s * s;
+        for x in 0..s {
+            for y in 0..s {
+                let val = matrix[x][y];
+                let idx = x * s + y;
+                if val == 1 {
+                    data[base + idx] = 1.0;
+                } else if val == 2 {
+                    data[base + s * s + idx] = 1.0;
+                }
+            }
+        }
+    }
+
+    let arr = numpy::ndarray::Array4::<f32>::from_shape_vec([batch, 2, s, s], data).unwrap();
+    numpy::IntoPyArray::into_pyarray(arr, py)
+}
+
 fn softmax(logits: &[f32]) -> Vec<f32> {
     let max = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
     let exps: Vec<f32> = logits.iter().map(|&x| (x - max).exp()).collect();
