@@ -9,7 +9,7 @@ pub type BoardHash = u64;
 // rollouts and nn
 /// Quantized probability in `[0,1]` stored as u16 (Q0.16)
 #[repr(transparent)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::BorrowDecode)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, bitcode::Encode, bitcode::Decode)]
 pub struct NNQuantizedPi(u16);
 
 impl NNQuantizedPi {
@@ -85,7 +85,7 @@ impl From<NNQuantizedPi> for u16 {
 
 /// Quantized value in `[-1,1]` stored as i16 (Q1.15)
 #[repr(transparent)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::BorrowDecode)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, bitcode::Encode, bitcode::Decode)]
 pub struct NNQuantizedValue(i16);
 
 
@@ -142,7 +142,7 @@ impl From<NNQuantizedValue> for i16 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::{rngs::StdRng, Rng, SeedableRng};
+    use rand::{rngs::StdRng, SeedableRng, RngExt};
 
     #[test]
     fn pi_roundtrip_fixed_points() {
@@ -178,7 +178,7 @@ mod tests {
     fn random_pi_error_bound() {
         let mut rng = StdRng::seed_from_u64(123);
         for _ in 0..10_000 {
-            let x = rng.gen::<f32>();
+            let x = rng.random::<f32>();
             let r = NNQuantizedPi::from(x).dequantize();
             assert!((x - r).abs() <= NNQuantizedPi::max_abs_error() + 1e-6);
         }
@@ -188,7 +188,7 @@ mod tests {
     fn random_value_error_bound() {
         let mut rng = StdRng::seed_from_u64(456);
         for _ in 0..10_000 {
-            let x = rng.gen_range(-1.0..=1.0);
+            let x = rng.random_range(-1.0..=1.0);
             let r = NNQuantizedValue::from(x).dequantize();
             assert!((x - r).abs() <= NNQuantizedValue::max_abs_error() + 1e-6);
         }
@@ -196,11 +196,10 @@ mod tests {
 
     #[test]
     fn serialization_roundtrip() {
-        use bincode::config::standard;
         let pis: Vec<f32> = (0..100).map(|i| (i as f32) / 99.0).collect();
         let quant = NNQuantizedPi::quantize_vec(&pis);
-        let encoded = bincode::encode_to_vec(&quant, standard()).unwrap();
-        let (decoded, _len): (Vec<NNQuantizedPi>, usize) = bincode::borrow_decode_from_slice(&encoded, standard()).unwrap();
+        let encoded = bitcode::encode(&quant);
+        let decoded: Vec<NNQuantizedPi> = bitcode::decode(&encoded).unwrap();
         for (a,b) in quant.iter().zip(decoded.iter()) {
             assert_eq!(a.raw(), b.raw());
         }

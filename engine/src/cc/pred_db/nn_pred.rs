@@ -1,11 +1,10 @@
-use bincode::{self, config::standard};
 extern crate pyo3;
 use pyo3::prelude::*;
 
 use crate::cc::dtypes::{self, NNQuantizedPi, NNQuantizedValue};
 
-#[pyclass(module="alpha_cc_engine")]
-#[derive(Clone, bincode::Encode, bincode::BorrowDecode)]
+#[pyclass(module="alpha_cc_engine", from_py_object)]
+#[derive(Clone, bitcode::Encode, bitcode::Decode)]
 pub struct NNPred {
     quant_pi: Vec<dtypes::NNQuantizedPi>,
     quant_value: dtypes::NNQuantizedValue,
@@ -21,18 +20,14 @@ impl NNPred {
     }
 
     pub fn serialize(&self) -> Vec<u8> {
-        bincode::encode_to_vec(self, standard())
-            .unwrap_or_else(|e| {
-                panic!("Failed to serialize: {:?}", e);
-            })
+        bitcode::encode(self)
     }
 
     pub fn deserialize(data: &[u8]) -> NNPred {
-        bincode::borrow_decode_from_slice(data, standard())
+        bitcode::decode(data)
             .unwrap_or_else(|e| {
                 panic!("Failed to deserialize: {:?}", e);
             })
-            .0
     }
 }
 

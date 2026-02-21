@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use pyo3::prelude::*;
 use rand::prelude::*;
-use rand_distr::Dirichlet;
+use rand_distr::multi::Dirichlet;
 use lru::LruCache;
 
 use crate::cc::game::board::Board;
@@ -41,7 +41,7 @@ impl MCTS {
         cache_size: usize,
         mcts_params: MCTSParams,
     ) -> Self {
-        MCTS { 
+        MCTS {
             nn_remote,
             nodes: LruCache::new(NonZeroUsize::new(cache_size).unwrap()),
             mcts_params,
@@ -59,13 +59,13 @@ impl MCTS {
         if info.game_over {
             return Ok(-info.reward);
         }
-        
+
         // if we've seen this node before, we keep rolling
         if let Some(node) = nodes.get(&board) {
             if remaining_depth == 0 {
                 return Ok(-node.rollout_value());
             }
-    
+
             // prepare continued rollout
             let a = MCTS::find_best_action_for_node(
                 node,
@@ -73,7 +73,7 @@ impl MCTS {
                 &mcts_params.c_puct_base,
             );
             let s_prime = board.apply(&node.moves[a]);
-            
+
             // continue rollout
             let v = MCTS::rollout(
                 s_prime,
@@ -83,7 +83,7 @@ impl MCTS {
                 mcts_params,
             )?;
             let gamma_v = mcts_params.gamma * v;
-            
+
             // backprop rollout update
             nodes.get_mut(&board).unwrap().update_on_visit(a, gamma_v);
             return Ok(-gamma_v);
@@ -134,7 +134,7 @@ impl MCTS {
                 .collect::<Vec<f32>>();
             match Dirichlet::new(&alpha) {
                 Ok(dirichlet) => {
-                    let noise = dirichlet.sample(&mut rand::thread_rng());
+                    let noise = dirichlet.sample(&mut rand::rng());
                     pi = pi.iter()
                         .zip(noise.iter())
                         .map(|(p, n)| p * (1.0 - dirichlet_weight) + n * dirichlet_weight)

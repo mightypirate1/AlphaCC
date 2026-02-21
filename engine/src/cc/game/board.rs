@@ -23,8 +23,8 @@ pub const MAX_SIZE: usize = 9;
 type BoardMatrix = [[dtypes::BoardContent; MAX_SIZE]; MAX_SIZE];
 
 
-#[pyclass(module="alpha_cc_engine")]
-#[derive(Clone, bincode::Encode, bincode::Decode)]
+#[pyclass(module="alpha_cc_engine", from_py_object)]
+#[derive(Clone, bitcode::Encode, bitcode::Decode)]
 pub struct Board {
     size: dtypes::BoardSize,
     duration: dtypes::GameDuration,
@@ -261,19 +261,14 @@ impl Board {
     }
 
     pub fn serialize_rs(&self) -> dtypes::EncBoard {
-        bincode::encode_to_vec(self, bincode::config::standard())
-            .map_err(|e| {
-                pyo3::exceptions::PyValueError::new_err(
-                    format!("Failed to serialize board state: {}", e)
-                )
-            }).unwrap()
+        bitcode::encode(self)
     }
-    
+
     pub fn deserialize_rs(data: &[u8]) -> Board {
-        bincode::decode_from_slice(data, bincode::config::standard())
+        bitcode::decode(data)
             .unwrap_or_else(|e| {
                 panic!("Failed to deserialize board state: {}", e)
-            }).0
+            })
     }
 }
 
@@ -367,7 +362,7 @@ impl Board {
         println!("current player: {} ({})", tokens.get(&self.current_player).unwrap(), self.current_player);
     }
 
-    pub fn __setstate__(&mut self, py: Python, state: PyObject) -> PyResult<()> {
+    pub fn __setstate__(&mut self, py: Python, state: Py<PyAny>) -> PyResult<()> {
         let py_bytes = state.extract::<Bound<'_, PyBytes>>(py)?;
         let bytes = py_bytes.as_bytes();
         let board = Board::deserialize_rs(bytes);
@@ -380,8 +375,8 @@ impl Board {
         Ok(())
     }
 
-    pub fn __getstate__(&self, py: Python) -> PyResult<PyObject> {
-        Ok(PyBytes::new(py, &self.serialize_rs()).into())
+    pub fn __getstate__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        Ok(PyBytes::new(py, &self.serialize_rs()))
     }
 
     pub fn __hash__(&self) -> u64 {

@@ -6,7 +6,7 @@ use crate::cc::Move;
 use crate::cc::dtypes::{NNQuantizedPi, NNQuantizedValue};
 
 
-#[pyclass(module="alpha_cc_engine")]
+#[pyclass(module="alpha_cc_engine", from_py_object)]
 #[derive(Clone)]
 pub struct MCTSNode {
     #[pyo3(get)]

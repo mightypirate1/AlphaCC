@@ -6,7 +6,7 @@ use crate::cc::dtypes;
 
 
 
-#[pyclass(module="alpha_cc_engine")]
+#[pyclass(module="alpha_cc_engine", from_py_object)]
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct HexCoord {
     #[pyo3(get)]

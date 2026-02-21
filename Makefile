@@ -80,6 +80,7 @@ reformat:
 
 test: ## run tests quickly with the default Python
 	@pytest
+	@bash -c "cd engine && cargo test"
 
 venv:
 	@$(PYTHON3) -m venv .venv --prompt alpha-cc
