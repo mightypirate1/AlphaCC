@@ -181,8 +181,8 @@ class ServedNN:
         """
         post_preds_from_logits(
             self._pred_db_channel,
-            x_pis.reshape(len(boards), -1).numpy().ravel().tolist(),
-            x_vals.numpy().tolist(),
+            x_pis.numpy().ravel(),
+            x_vals.numpy().ravel(),
             boards,
             boards[0].info.size,
         )

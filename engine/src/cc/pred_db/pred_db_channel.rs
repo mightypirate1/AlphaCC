@@ -177,28 +177,23 @@ impl PredDBChannel {
     }
 }
 
-fn softmax(logits: &[f32]) -> Vec<f32> {
-    let max = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-    let exps: Vec<f32> = logits.iter().map(|&x| (x - max).exp()).collect();
-    let sum: f32 = exps.iter().sum();
-    exps.iter().map(|&e| e / sum).collect()
-}
-
 #[pyfunction]
-pub fn post_preds_from_logits(
-    pred_db: &mut PredDBChannel,
-    logits_flat: Vec<f32>,
-    values_flat: Vec<f32>,
+pub fn preds_from_logits<'py>(
+    logits_flat: numpy::PyReadonlyArray1<'py, f32>,
+    values_flat: numpy::PyReadonlyArray1<'py, f32>,
     boards: Vec<Board>,
     board_size: usize,
-) -> PyResult<()> {
+) -> PyResult<Vec<NNPred>> {
+    let logits = logits_flat.as_slice()
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("logits not contiguous: {e}")))?;
+    let values = values_flat.as_slice()
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("values not contiguous: {e}")))?;
     let s = board_size;
     let stride = s * s * s * s;
-    let mut all_boards = Vec::with_capacity(boards.len());
-    let mut all_preds = Vec::with_capacity(boards.len());
+    let mut preds = Vec::with_capacity(boards.len());
 
     for (i, board) in boards.iter().enumerate() {
-        let logits_slice = &logits_flat[i * stride..(i + 1) * stride];
+        let logits_slice = &logits[i * stride..(i + 1) * stride];
         let moves = find_all_moves(board);
 
         let move_logits: Vec<f32> = moves.iter().map(|m| {
@@ -210,13 +205,29 @@ pub fn post_preds_from_logits(
         }).collect();
 
         let pi = softmax(&move_logits);
-        let value = values_flat[i];
-        let nn_pred = NNPred::new(pi, value);
-
-        all_boards.push(board.clone());
-        all_preds.push(nn_pred);
+        let value = values[i];
+        preds.push(NNPred::new(pi, value));
     }
 
-    pred_db.set_preds(&all_boards, &all_preds);
+    Ok(preds)
+}
+
+#[pyfunction]
+pub fn post_preds_from_logits<'py>(
+    pred_db: &mut PredDBChannel,
+    logits_flat: numpy::PyReadonlyArray1<'py, f32>,
+    values_flat: numpy::PyReadonlyArray1<'py, f32>,
+    boards: Vec<Board>,
+    board_size: usize,
+) -> PyResult<()> {
+    let preds = preds_from_logits(logits_flat, values_flat, boards.clone(), board_size)?;
+    pred_db.set_preds(&boards, &preds);
     Ok(())
+}
+
+fn softmax(logits: &[f32]) -> Vec<f32> {
+    let max = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let exps: Vec<f32> = logits.iter().map(|&x| (x - max).exp()).collect();
+    let sum: f32 = exps.iter().sum();
+    exps.iter().map(|&e| e / sum).collect()
 }

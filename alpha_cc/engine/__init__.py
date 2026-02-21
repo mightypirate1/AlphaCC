@@ -11,4 +11,5 @@ from alpha_cc_engine import (
     create_move_index_map,
     create_move_mask,
     post_preds_from_logits,
+    preds_from_logits,
 )

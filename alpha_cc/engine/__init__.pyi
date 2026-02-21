@@ -3,16 +3,30 @@ Typehints and docs for the game engine
 
 """
 
+import numpy
+
 def create_move_mask(moves: list[Move]) -> list[list[list[list[bool]]]]: ...
 def create_move_index_map(moves: list[Move]) -> dict[int, tuple[HexCoord, HexCoord]]: ...
+def preds_from_logits(
+    logits_flat: numpy.ndarray,
+    values_flat: numpy.ndarray,
+    boards: list[Board],
+    board_size: int,
+) -> list[NNPred]:
+    """Compute NNPreds from raw logits (softmax over legal moves).
+
+    Arrays are read zero-copy from numpy buffers. Both must be contiguous float32.
+    """
+    ...
+
 def post_preds_from_logits(
     pred_db: PredDBChannel,
-    logits_flat: list[float],
-    values_flat: list[float],
+    logits_flat: numpy.ndarray,
+    values_flat: numpy.ndarray,
     boards: list[Board],
     board_size: int,
 ) -> None:
-    """Post predictions from raw logits, doing softmax and NNPred construction in Rust."""
+    """Like preds_from_logits, but writes results directly to memcached."""
     ...
 
 class Board:
