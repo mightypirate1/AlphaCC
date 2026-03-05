@@ -2,14 +2,11 @@ import logging
 import signal
 import sys
 import time
-from math import ceil
 from typing import Any
 
 import click
 
 from alpha_cc.agents.mcts.mcts_agent import MCTSAgent
-from alpha_cc.agents.mcts.mcts_node_py import MCTSNodePy
-from alpha_cc.agents.mcts.training_data import TrainingData
 from alpha_cc.agents.value_assignment import (
     DefaultAssignmentStrategy,
     HeuristicAssignmentStrategy,
@@ -21,7 +18,6 @@ from alpha_cc.engine import Board
 from alpha_cc.logs import init_rootlogger
 from alpha_cc.runtimes.tournament_runtime import TournamentRuntime
 from alpha_cc.runtimes.training_runtime import TrainingRunTime
-from alpha_cc.state.game_state import GameState
 from alpha_cc.utils.param_schedule import ParamSchedule
 
 logger = logging.getLogger(__file__)
@@ -63,7 +59,6 @@ def main(
     def create_model(channel: int, trainer_time: int) -> MCTSAgent:
         return MCTSAgent(
             zmq_url=Environment.zmq_url,
-            memcached_host=Environment.memcached_host,
             pred_channel=channel,
             cache_size=mcts_cache_size,
             n_rollouts=n_rollouts_schedule.as_int(trainer_time),
@@ -104,56 +99,17 @@ def main(
                     player_2: create_model(player_2, trainer_time),
                 }
             )
+        internal_nodes_fraction_val = internal_nodes_fraction_schedule.as_float(trainer_time)
         training_data = training_runtime.play_game(
             agent=create_model(0, trainer_time),
             max_game_length=max_game_length_schedule.as_int(trainer_time),
             action_temperature=action_temperature_schedule.as_float(trainer_time),
             argmax_delay=argmax_delay_schedule.as_int(trainer_time),
-        )
-        training_data.internal_nodes = filter_internal_nodes(
-            training_data,
-            internal_nodes_fraction=internal_nodes_fraction_schedule.as_float(trainer_time),
+            internal_nodes_fraction=internal_nodes_fraction_val if internal_nodes_fraction_val > 0.0 else None,
             internal_nodes_min_visits=internal_nodes_min_visits_schedule.as_int(trainer_time),
+            cache_size=mcts_cache_size,
         )
         training_db.training_data_post(training_data)
-
-
-def filter_internal_nodes(
-    training_data: TrainingData, internal_nodes_fraction: float, internal_nodes_min_visits: int
-) -> dict[GameState, MCTSNodePy]:
-    """
-    Select up to ceil(fraction * n_real) internal nodes whose visit counts
-    are >= internal_nodes_min_visits. If fewer qualify, return them all.
-    Guarantees we never exceed the target (ties are truncated).
-    """
-    if internal_nodes_fraction <= 0.0:
-        return {}
-
-    n_real = len(training_data.trajectory)
-    real_hashes = {exp.state.hash for exp in training_data.trajectory}
-    if n_real == 0:
-        return {}
-
-    target = ceil(n_real * internal_nodes_fraction)
-    if target <= 0:
-        return {}
-
-    # Filter by min visits first
-    candidates = [
-        (state, node)
-        for state, node in training_data.internal_nodes.items()
-        if node.n.sum() >= internal_nodes_min_visits and state.hash not in real_hashes
-    ]
-    if not candidates:
-        return {}
-
-    if len(candidates) <= target:
-        return dict(candidates)
-
-    # Sort descending by visit count and take the top `target`
-    candidates.sort(key=lambda sn: sn[1].n.sum(), reverse=True)
-    top = candidates[:target]
-    return dict(top)
 
 
 def create_value_assignment_strategy(

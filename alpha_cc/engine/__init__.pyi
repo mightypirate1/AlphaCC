@@ -7,11 +7,13 @@ import numpy
 
 def create_move_mask(moves: list[Move]) -> list[list[list[list[bool]]]]: ...
 def create_move_index_map(moves: list[Move]) -> dict[int, tuple[HexCoord, HexCoord]]: ...
-def boards_to_state_tensor(
-    boards: list[Board],
-    board_size: int,
-) -> numpy.ndarray:
-    """Convert boards to state tensor with shape (batch, 2, size, size) as float32."""
+def build_inference_request(
+    board: Board,
+) -> tuple[numpy.ndarray, list[tuple[int, int, int, int]]]:
+    """Build an InferenceRequest from a Board and return its fields.
+
+    Returns (tensor_data as ndarray (2, size, size), move_coords).
+    """
     ...
 
 def preds_from_logits(
@@ -26,14 +28,31 @@ def preds_from_logits(
     """
     ...
 
-def post_preds_from_logits(
-    pred_db: PredDBChannel,
+def fetch_and_build_tensor(
+    channel: int,
+    max_count: int,
+    board_size: int,
+) -> tuple[InferenceBatch, numpy.ndarray] | None:
+    """Fetch inference requests from ZMQ ROUTER, build batch tensor.
+
+    Drains the response queue first (sends pending responses to workers),
+    then receives new requests.
+
+    Returns None if no requests available. Otherwise returns
+    (InferenceBatch, ndarray with shape (batch, 2, size, size)).
+    """
+    ...
+
+def enqueue_responses(
     logits_flat: numpy.ndarray,
     values_flat: numpy.ndarray,
-    boards: list[Board],
-    board_size: int,
+    batch: InferenceBatch,
 ) -> None:
-    """Like preds_from_logits, but writes results directly to memcached."""
+    """Enqueue inference responses for sending back to workers.
+
+    Computes softmax over legal moves and pushes responses to the response queue.
+    Responses are drained and sent by the prefetch thread via fetch_and_build_tensor.
+    """
     ...
 
 class Board:
@@ -86,27 +105,9 @@ class FetchStats:
     """Per-game fetch statistics from the MCTS worker's NN prediction loop."""
 
     @property
-    def resolved_at_attempt(self) -> list[int]:
-        """Count of fetches resolved at each attempt (0 = cache hit, 1 = first patience, 2+ = backoff)."""
-        ...
-
-    @property
-    def attempt_total_wait_us(self) -> list[int]:
-        """Sum of elapsed time (microseconds) for fetches resolved at each attempt."""
-        ...
-
-    @property
-    def timeouts(self) -> int: ...
-    @property
-    def total_gets(self) -> int: ...
-    @property
-    def total_misses(self) -> int: ...
-    @property
     def total_fetch_time_us(self) -> int: ...
     @property
     def total_fetches(self) -> int: ...
-    @property
-    def current_patience_us(self) -> int: ...
 
 class HexCoord:
     x: int
@@ -114,6 +115,18 @@ class HexCoord:
 
     def get_all_neighbors(self, distance: int) -> list[HexCoord]: ...
     def flip(self) -> HexCoord: ...
+
+class InferenceBatch:
+    """Opaque batch handle holding identities and move coords for routing responses."""
+
+    def __len__(self) -> int: ...
+    def slice(self, start: int, end: int) -> InferenceBatch:
+        """Return a sub-batch from start to end."""
+        ...
+
+    def extend(self, other: InferenceBatch) -> None:
+        """Append another batch's data into this one."""
+        ...
 
 class Move:
     from_coord: HexCoord
@@ -135,7 +148,6 @@ class MCTS:
     def __init__(
         self,
         keydb_url: str,
-        memcached_url: str,
         channel: int,
         cache_size: int,
         rollout_gamma: float,
@@ -148,6 +160,19 @@ class MCTS:
     def get_node(self, board: Board) -> MCTSNode | None: ...
     def get_nodes(self) -> dict[Board, MCTSNode]: ...
     def run(self, board: Board, rollout_depth: int) -> float: ...
+    def run_rollouts(
+        self,
+        board: Board,
+        n_rollouts: int,
+        rollout_depth: int,
+        temperature: float = 1.0,
+    ) -> tuple[numpy.ndarray, float]:
+        """Run n_rollouts rollouts and return (pi, mean_value).
+
+        pi is the temperature-weighted visit count distribution.
+        """
+        ...
+
     def get_fetch_stats(self) -> FetchStats:
         """Read and reset fetch statistics. Returns a snapshot of all counters since last call."""
         ...
@@ -160,28 +185,6 @@ class NNPred:
     def __init__(self, pi: list[float], value: float) -> None: ...
 
 class PredDBChannel:
-    def __init__(self, keydb_url: str, memcached_url: str, channel: int) -> None: ...
+    def __init__(self, zmq_url: str, channel: int) -> None: ...
     @property
     def channel(self) -> int: ...
-    def ping(self) -> bool:
-        """Tests if channel is connected correctly"""
-
-    def get_channel(self) -> int:
-        """Get the channel number"""
-
-    def has_pred(self, board: Board) -> bool:
-        """Check if a prediction is available for the given board"""
-
-    def fetch_requests(self, count: int) -> list[Board]:
-        """Pop pred requests from the channel"""
-
-    def request_pred(self, board: Board) -> None:
-        """Request a prediction for the given board"""
-
-    def post_pred(self, board: Board, nn_pred: NNPred) -> None:
-        """Post a prediction for the given board"""
-
-    def post_preds(self, boards: list[Board], nn_preds: list[NNPred]) -> None:
-        """Post a list of predictions for the given boards"""
-
-    def flush_preds(self) -> None: ...

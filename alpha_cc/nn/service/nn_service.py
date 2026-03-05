@@ -14,7 +14,11 @@ from apscheduler.job import Job
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from alpha_cc.db import TrainingDB
-from alpha_cc.engine import Board, PredDBChannel, boards_to_state_tensor, post_preds_from_logits
+from alpha_cc.engine import (
+    InferenceBatch,
+    enqueue_responses,
+    fetch_and_build_tensor,
+)
 
 logger = logging.getLogger(__file__)
 logging.getLogger("apscheduler").setLevel(logging.WARN)
@@ -36,91 +40,141 @@ signal.signal(signal.SIGTERM, _signal_handler)
 class ServedNN:
     def __init__(
         self,
-        pred_db_channel: PredDBChannel,
+        channel: int,
         training_db: TrainingDB,
         nn_creator: Callable[[], torch.nn.Module],
         nn: torch.nn.Module,
         current_weights_index: int,
+        board_size: int = 9,
         inference_batch_size: int = 512,
-        fetch_batch_size: int = 2048,
         num_post_workers: int = 2,
         prefetch_size: int = 5,
         log_frequency: int = 60,
         device: str = "cpu",
     ) -> None:
-        self._pred_db_channel = pred_db_channel
+        self._channel = channel
         self._training_db = training_db
         self._nn_creator = nn_creator
         self._current_weights_index = current_weights_index
+        self._board_size = board_size
         self._inference_batch_size = inference_batch_size
-        self._fetch_batch_size = fetch_batch_size
         self._log_frequency = log_frequency
         self._device = torch.device(device)
         self._n_preds = 0
         self._n_batches = 0
+        self._time_wait_s = 0.0
+        self._time_inference_s = 0.0
+        self._time_post_s = 0.0
+        self._time_prefetch_s = 0.0
         self._nn_prediction = self._configure_nn(nn)  # served nn
         self._nn_loading = self._configure_nn(nn)  # used for loading weights
         self._jobs = self._initialize_scheduler()
         self._post_pool = ThreadPoolExecutor(max_workers=num_post_workers)
         self._is_loading_weights = False
-        pred_db_channel.flush_preds()
-        self._prefetch_boards: deque[list[Board]] = deque(maxlen=prefetch_size)
+        self._inference_buffer = torch.empty(
+            inference_batch_size, 2, board_size, board_size, device=self._device
+        )
+        self._prefetch_batches: deque[InferenceBatch] = deque(maxlen=prefetch_size)
         self._prefetch_tensors: deque[torch.Tensor] = deque(maxlen=prefetch_size)
         self._prefetch_condition = Condition()
         self._prefetch_stop = Event()
-        self._prefetch_thread: Thread | None = None
+        self._prefetch_threads: list[Thread] = []
         self._start_prefetch_thread()
 
     @property
     def channel(self) -> int:
-        return self._pred_db_channel.channel
+        return self._channel
 
     @property
     def current_weights_index(self) -> int:
         return self._current_weights_index
 
     def process_requests(self) -> None:
-        batch_available = False
+        t0 = time.monotonic()
+
+        # Wait for at least one batch, then drain all available
         with self._prefetch_condition:
-            batch_available = bool(self._prefetch_boards)
-            if batch_available:
-                boards = self._prefetch_boards.popleft()
-                x = self._prefetch_tensors.popleft()
-                self._prefetch_condition.notify()
+            while not self._prefetch_batches:
+                if self._prefetch_stop.is_set() or stop_signal.is_set():
+                    return
+                self._prefetch_condition.wait(timeout=0.1)
+            batches: list[InferenceBatch] = []
+            tensors: list[torch.Tensor] = []
+            while self._prefetch_batches:
+                batches.append(self._prefetch_batches.popleft())
+                tensors.append(self._prefetch_tensors.popleft())
+            self._prefetch_condition.notify_all()
 
-        if not batch_available:  # fall back to direct fetching
-            boards = self._pred_db_channel.fetch_requests(self._fetch_batch_size)
-            if not boards:
-                return
-            x = self._prepare_input(boards)
+        t1 = time.monotonic()
 
-        # batch it up, in case we have a LOT of requests
-        for i in range(0, len(boards), self._inference_batch_size):
-            x_batch = x[i : i + self._inference_batch_size]
+        # Merge tensors into pre-allocated buffer for GPU efficiency, but keep
+        # original batches intact — each batch carries its own slot for response routing.
+        n_items = sum(len(b) for b in batches)
+        buf_pos = 0
+        src_idx = 0
+        src_off = 0
 
-            if x_batch.shape[0] == 0:
-                continue
+        while src_idx < len(tensors) or buf_pos > 0:
+            # Fill buffer up to inference_batch_size
+            while buf_pos < self._inference_batch_size and src_idx < len(tensors):
+                src = tensors[src_idx]
+                avail = src.shape[0] - src_off
+                space = self._inference_batch_size - buf_pos
+                n = min(avail, space)
+                self._inference_buffer[buf_pos : buf_pos + n].copy_(src[src_off : src_off + n])
+                buf_pos += n
+                src_off += n
+                if src_off >= src.shape[0]:
+                    src_idx += 1
+                    src_off = 0
 
-            with torch.no_grad(), torch.cuda.amp.autocast(enabled=self._device == "cuda"):
-                x_batch_pis, x_batch_vals = self._nn_prediction(x_batch)
+            if buf_pos == 0:
+                break
 
-            # post in a separate thread to avoid blocking GPU
-            batch_boards = boards[i : i + self._inference_batch_size]
-            self._post_pool.submit(
-                self._post_predictions,
-                batch_boards,
-                x_batch_pis.detach().cpu(),
-                x_batch_vals.detach().cpu(),
-            )
+            with torch.no_grad(), torch.amp.autocast("cuda", enabled=self._device.type == "cuda"):
+                x_batch_pis, x_batch_vals = self._nn_prediction(self._inference_buffer[:buf_pos])
 
-        self._n_preds += len(boards)
+            # Split output back to original batches for correct per-slot routing
+            out_off = 0
+            while batches and out_off < buf_pos:
+                batch = batches[0]
+                batch_len = len(batch)
+                take = min(batch_len, buf_pos - out_off)
+                if take == batch_len:
+                    # Whole batch fits in this inference chunk
+                    batches.pop(0)
+                    sub_batch = batch
+                else:
+                    # Batch is split across inference chunks — post the part that fits,
+                    # keep the remainder for the next chunk
+                    sub_batch = batch.slice(0, take)
+                    batches[0] = batch.slice(take, batch_len)
+
+                self._post_pool.submit(
+                    self._post_predictions,
+                    sub_batch,
+                    x_batch_pis[out_off : out_off + take].detach().cpu(),
+                    x_batch_vals[out_off : out_off + take].detach().cpu(),
+                )
+                out_off += take
+
+            buf_pos = 0
+
+        t2 = time.monotonic()
+
+        self._time_wait_s += t1 - t0
+        self._time_inference_s += t2 - t1
+        self._n_preds += n_items
         self._n_batches += 1
 
     def deactivate(self) -> None:
         self._prefetch_stop.set()
-        if self._prefetch_thread and self._prefetch_thread.is_alive():
-            self._prefetch_thread.join(timeout=1.0)
-            self._prefetch_thread = None
+        with self._prefetch_condition:
+            self._prefetch_condition.notify_all()
+        for t in self._prefetch_threads:
+            if t.is_alive():
+                t.join(timeout=1.0)
+        self._prefetch_threads.clear()
         for job in self._jobs:
             job.remove()
 
@@ -149,9 +203,8 @@ class ServedNN:
                 self._nn_prediction = self._nn_loading
                 self._nn_loading = old_model
 
-                self._pred_db_channel.flush_preds()
                 logger.info(
-                    f"[Channel-{self._pred_db_channel.channel}]:"
+                    f"[Channel-{self._channel}]:"
                     f" updated weights {self._current_weights_index}->{target_weight_index}"
                 )
                 self._current_weights_index = target_weight_index
@@ -163,24 +216,18 @@ class ServedNN:
 
         Thread(target=background_loading).start()
 
-    def _prepare_input(self, boards: list[Board]) -> torch.Tensor:
-        arr = boards_to_state_tensor(boards, boards[0].info.size)
-        x = torch.from_numpy(arr)
-        return x.pin_memory().to(self._device, non_blocking=True)
-
-    def _post_predictions(self, boards: list[Board], x_pis: torch.Tensor, x_vals: torch.Tensor) -> None:
-        """
-        Post predictions to the prediction database.
-
-        They are assumed to be on the CPU, and in the same order as the boards.
-        """
-        post_preds_from_logits(
-            self._pred_db_channel,
-            x_pis.numpy().ravel(),
-            x_vals.numpy().ravel(),
-            boards,
-            boards[0].info.size,
-        )
+    def _post_predictions(self, batch: InferenceBatch, x_pis: torch.Tensor, x_vals: torch.Tensor) -> None:
+        try:
+            t0 = time.monotonic()
+            enqueue_responses(
+                x_pis.float().numpy().ravel(),
+                x_vals.float().numpy().ravel(),
+                batch,
+            )
+            self._time_post_s += time.monotonic() - t0
+        except Exception:
+            logger.exception("_post_predictions failed — shutting down")
+            stop_signal.set()
 
     def _configure_nn(self, nn: torch.nn.Module) -> torch.nn.Module:
         # TODO: make jit-compilation work
@@ -193,38 +240,44 @@ class ServedNN:
         """Start a thread that continuously prefetches board requests."""
 
         def prefetch_worker() -> None:
-            while not self._prefetch_stop.is_set() and not stop_signal.is_set():
-                with self._prefetch_condition:
-                    need_more = len(self._prefetch_boards) < (self._prefetch_boards.maxlen or 1000)
+            try:
+                while not self._prefetch_stop.is_set() and not stop_signal.is_set():
+                    # Wait if queue is full
+                    with self._prefetch_condition:
+                        while len(self._prefetch_batches) >= (self._prefetch_batches.maxlen or 1000):
+                            if self._prefetch_stop.is_set() or stop_signal.is_set():
+                                break
+                            self._prefetch_condition.wait(timeout=0.1)
 
-                if need_more:
-                    boards = self._pred_db_channel.fetch_requests(self._fetch_batch_size)
-                    if not boards:
+                    if self._prefetch_stop.is_set() or stop_signal.is_set():
+                        break
+
+                    t0 = time.monotonic()
+                    result = fetch_and_build_tensor(
+                        self._channel,
+                        self._inference_batch_size,
+                        self._board_size,
+                    )
+                    if result is None:
                         time.sleep(0.0001)
                         continue
 
-                    x = self._prepare_input(boards)
+                    batch, arr = result
+                    x = torch.from_numpy(arr).pin_memory().to(self._device, non_blocking=True)
+                    self._time_prefetch_s += time.monotonic() - t0
 
                     with self._prefetch_condition:
-                        # If the prefetch queue is empty or the last batch is full, add as new batch.
-                        # Otherwise, append to the last batch. This tries to keep batches gpu-sized.
-                        if (
-                            not self._prefetch_boards
-                            or len(self._prefetch_boards[-1]) + len(boards) > self._inference_batch_size
-                        ):
-                            self._prefetch_boards.append(boards)
-                            self._prefetch_tensors.append(x)
-                        else:
-                            self._prefetch_boards[-1].extend(boards)
-                            self._prefetch_tensors[-1] = torch.cat((self._prefetch_tensors[-1], x), dim=0)
-                else:
-                    with self._prefetch_condition:
-                        self._prefetch_condition.wait(timeout=0.1)
-            logger.info(f"[Channel-{self._pred_db_channel.channel}]: Prefetch thread stopped")
+                        self._prefetch_batches.append(batch)
+                        self._prefetch_tensors.append(x)
+                        self._prefetch_condition.notify()  # wake main thread
+            except Exception:
+                logger.exception(f"[Channel-{self._channel}]: Prefetch thread crashed — shutting down")
+                stop_signal.set()
 
-        self._prefetch_thread = Thread(target=prefetch_worker, daemon=True)
-        self._prefetch_thread.start()
-        logger.info(f"[Channel-{self._pred_db_channel.channel}]: Started prefetch thread")
+        thread = Thread(target=prefetch_worker, daemon=True)
+        thread.start()
+        self._prefetch_threads.append(thread)
+        logger.info(f"[Channel-{self._channel}]: Started prefetch thread")
 
     def _initialize_scheduler(self) -> list[Job]:
         stats_job = scheduler.add_job(self._log_stats, "interval", seconds=self._log_frequency)
@@ -233,22 +286,31 @@ class ServedNN:
     def _log_stats(self) -> None:
         prefetch_usage = 0
         with self._prefetch_condition:
-            prefetch_usage = len(self._prefetch_boards)
+            prefetch_usage = len(self._prefetch_batches)
+
         logger.info(
-            f"[Channel-{self._pred_db_channel.channel}]: Processed"
+            f"[Channel-{self._channel}]: Processed"
             f" {self._n_preds} predictions in {self._n_batches} batches"
-            f" (Prefetch: {prefetch_usage}/{self._prefetch_boards.maxlen})"
+            f" (Prefetch: {prefetch_usage}/{self._prefetch_batches.maxlen})"
+            f" | wait={self._time_wait_s:.2f}s"
+            f" infer={self._time_inference_s:.2f}s"
+            f" post={self._time_post_s:.2f}s"
+            f" prefetch={self._time_prefetch_s:.2f}s"
         )
+
         self._n_preds = 0
         self._n_batches = 0
+        self._time_wait_s = 0.0
+        self._time_inference_s = 0.0
+        self._time_post_s = 0.0
+        self._time_prefetch_s = 0.0
 
 
 class NNService:
     def __init__(
         self,
         nn_creator: Callable[[], torch.nn.Module],
-        zmq_url: str,
-        memcached_host: str,
+        board_size: int = 9,
         redis_host_main: str = "localhost",
         log_frequency: int = 60,
         reload_frequency: int = 1,
@@ -257,8 +319,7 @@ class NNService:
         gpu: bool = False,
     ) -> None:
         self._nn_creator = nn_creator
-        self._zmq_url = zmq_url
-        self._memcached_host = memcached_host
+        self._board_size = board_size
         self._log_frequency = log_frequency
         self._reload_frequency = reload_frequency
         self._infecence_batch_size = infecence_batch_size
@@ -302,14 +363,14 @@ class NNService:
         return any(snn.channel == channel for snn in self._served_nns)
 
     def _create_served_nn(self, channel: int, weight_index: int) -> ServedNN:
-        pred_db_channel = PredDBChannel(self._zmq_url, self._memcached_host, channel)
         nn = self._nn_creator()
         served_nn = ServedNN(
-            pred_db_channel,
+            channel,
             self._training_db,
             self._nn_creator,
             nn,
             weight_index,
+            board_size=self._board_size,
             inference_batch_size=self._infecence_batch_size,
             num_post_workers=self._num_post_workers,
             log_frequency=self._log_frequency,

@@ -124,7 +124,7 @@ impl MCTS {
         nn_pred: &NNPred,
         dirichlet_weight: f32,
         dirichlet_alpha: f32,
-) {
+    ) {
         let mut pi = nn_pred.pi();
         let v = nn_pred.value();
 
@@ -147,8 +147,8 @@ impl MCTS {
         }
 
         let moves = find_all_moves(&board);
-        let node= MCTSNode::new_leaf(pi, v, moves);
-        nodes.put(board,node);
+        let node = MCTSNode::new_leaf(pi, v, moves);
+        nodes.put(board, node);
     }
 }
 
@@ -157,9 +157,9 @@ impl MCTS {
 impl MCTS {
     #[allow(clippy::too_many_arguments)]
     #[new]
+    #[pyo3(signature = (keydb_host, channel, cache_size, gamma, dirichlet_weight, dirichlet_alpha, c_puct_init, c_puct_base))]
     fn create(
         keydb_host: String,
-        memcached_host: String,
         channel: usize,
         cache_size: usize,
         gamma: f32,
@@ -169,7 +169,7 @@ impl MCTS {
         c_puct_base: f32,
     ) -> MCTS {
         MCTS::new(
-            NNRemote::new(PredDBChannel::new(&keydb_host, &memcached_host, channel)),
+            NNRemote::new(PredDBChannel::new(&keydb_host, channel)),
             cache_size,
             MCTSParams {
                 gamma,
@@ -191,12 +191,66 @@ impl MCTS {
         )
     }
 
+    /// Run n_rollouts rollouts and return (pi, mean_value).
+    /// pi is the temperature-weighted visit count distribution.
+    /// This replaces the Python loop over self.run() with a single Rust call.
+    #[pyo3(signature = (board, n_rollouts, rollout_depth, temperature=1.0))]
+    pub fn run_rollouts<'py>(
+        &mut self,
+        py: Python<'py>,
+        board: &Board,
+        n_rollouts: usize,
+        rollout_depth: usize,
+        temperature: f32,
+    ) -> Result<(Bound<'py, numpy::PyArray1<f32>>, f32), Error> {
+        let mut value_sum = 0.0f64;
+        for _ in 0..n_rollouts {
+            let v = MCTS::rollout(
+                board.clone(),
+                &mut self.nn_remote,
+                &mut self.nodes,
+                rollout_depth,
+                &self.mcts_params,
+            )?;
+            value_sum += (-v) as f64;
+        }
+        let mean_value = (value_sum / n_rollouts as f64) as f32;
+
+        // Build pi from visit counts
+        let pi = if let Some(node) = self.nodes.get(board) {
+            let mut weights: Vec<f32> = node.n.iter().map(|&n| n as f32).collect();
+            if temperature != 1.0 {
+                let inv_temp = 1.0 / temperature;
+                for w in weights.iter_mut() {
+                    *w = w.powf(inv_temp);
+                }
+            }
+            let sum: f32 = weights.iter().sum();
+            if sum > 0.0 {
+                weights.iter().map(|&w| w / sum).collect()
+            } else {
+                let n_moves = weights.len();
+                vec![1.0 / n_moves as f32; n_moves]
+            }
+        } else {
+            // No node found — uniform over legal moves
+            let n_moves = find_all_moves(board).len();
+            vec![1.0 / n_moves as f32; n_moves]
+        };
+
+        let pi_arr = numpy::IntoPyArray::into_pyarray(
+            numpy::ndarray::Array1::from_vec(pi), py,
+        );
+        Ok((pi_arr, mean_value))
+    }
+
     pub fn get_node(&mut self, board: &Board) -> Option<MCTSNode> {
         self.nodes.get(board).cloned()
     }
 
+    /// Return all nodes in the live cache.
     pub fn get_nodes(&self) -> HashMap<Board, MCTSNode> {
-        self.nodes.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+        self.nodes.iter().map(|(b, n)| (b.clone(), n.clone())).collect()
     }
 
     pub fn clear_nodes(&mut self) {

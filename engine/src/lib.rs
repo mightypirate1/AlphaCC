@@ -4,7 +4,7 @@ use pyo3::prelude::*;
 use crate::cc::{Board, BoardInfo, HexCoord, Move};
 use crate::cc::{create_move_mask, create_move_index_map};
 use crate::cc::rollouts::{MCTS, MCTSNode, FetchStats};
-use crate::cc::pred_db::{NNPred, PredDBChannel, preds_from_logits, post_preds_from_logits, boards_to_state_tensor};
+use crate::cc::pred_db::{NNPred, PredDBChannel, InferenceBatch, preds_from_logits, enqueue_responses, build_inference_request, fetch_and_build_tensor};
 
 /// A Python module implemented in Rust.
 #[pymodule]
@@ -20,9 +20,11 @@ fn alpha_cc(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<MCTSNode>()?;
     m.add_class::<PredDBChannel>()?;
     m.add_class::<NNPred>()?;
+    m.add_class::<InferenceBatch>()?;
     m.add_function(wrap_pyfunction!(preds_from_logits, m)?)?;
-    m.add_function(wrap_pyfunction!(post_preds_from_logits, m)?)?;
-    m.add_function(wrap_pyfunction!(boards_to_state_tensor, m)?)?;
+    m.add_function(wrap_pyfunction!(enqueue_responses, m)?)?;
+    m.add_function(wrap_pyfunction!(build_inference_request, m)?)?;
+    m.add_function(wrap_pyfunction!(fetch_and_build_tensor, m)?)?;
     m.add_class::<FetchStats>()?;
     Ok(())
 }

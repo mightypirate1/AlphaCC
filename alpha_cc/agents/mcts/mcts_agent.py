@@ -10,7 +10,6 @@ class MCTSAgent(Agent):
     def __init__(
         self,
         zmq_url: str,
-        memcached_host: str,
         pred_channel: int = 0,
         cache_size: int = 300000,
         n_rollouts: int = 100,
@@ -28,7 +27,6 @@ class MCTSAgent(Agent):
         self._steps_left_to_argmax = argmax_delay or np.inf
         self._mcts = MCTS(
             zmq_url,
-            memcached_host,
             pred_channel,
             cache_size,
             rollout_gamma,
@@ -71,16 +69,4 @@ class MCTSAgent(Agent):
     ) -> tuple[np.ndarray, float]:
         n_rollouts = n_rollouts if n_rollouts is not None else self._n_rollouts
         rollout_depth = rollout_depth if rollout_depth is not None else self._rollout_depth
-        value = np.array([-self._mcts.run(board, rollout_depth) for _ in range(n_rollouts)]).mean()
-        pi = self._rollout_policy(board, temperature)
-        return pi, value
-
-    def _rollout_policy(self, board: Board, temperature: float = 1.0) -> np.ndarray:
-        node = self._mcts.get_node(board)
-
-        # in case we did not do any rollouts yet, we default to uniform
-        weighted_counts = np.ones(len(board.get_moves())) if node is None else np.array(node.n)
-        if temperature != 1.0:  # save some flops
-            weighted_counts = weighted_counts ** (1 / temperature)
-        pi = weighted_counts / weighted_counts.sum()
-        return pi
+        return self._mcts.run_rollouts(board, n_rollouts, rollout_depth, temperature)

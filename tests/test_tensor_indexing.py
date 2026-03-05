@@ -2,10 +2,10 @@ import numpy as np
 import pytest
 import torch
 
-from alpha_cc.engine import boards_to_state_tensor, preds_from_logits
+from alpha_cc.engine import build_inference_request, preds_from_logits
 from alpha_cc.engine.engine_utils import action_indexer
 from alpha_cc.state import GameState
-from alpha_cc.state.state_tensors import states_tensor
+from alpha_cc.state.state_tensors import state_tensor
 
 from .common import get_random_board_state
 
@@ -108,15 +108,25 @@ def test_preds_from_logits_batched(size: int, batch_size: int) -> None:
 
 
 @pytest.mark.parametrize("size", [3, 5, 7, 9])
-def test_boards_to_state_tensor(size: int) -> None:
-    """Verify Rust boards_to_state_tensor matches Python states_tensor."""
+def test_build_inference_request(size: int) -> None:
+    """Verify Rust build_inference_request produces correct tensor and move coords."""
     boards = [get_random_board_state(size) for _ in range(16)]
-    states = [GameState(board) for board in boards]
 
-    # Python reference
-    py_tensor = states_tensor(states)
+    for board in boards:
+        tensor, move_coords = build_inference_request(board)
 
-    # Rust path
-    rust_tensor = torch.from_numpy(boards_to_state_tensor(boards, size))
+        # Tensor matches Python reference
+        state = GameState(board)
+        py_tensor = state_tensor(state)
+        torch.testing.assert_close(torch.from_numpy(tensor), py_tensor)
 
-    torch.testing.assert_close(rust_tensor, py_tensor)
+        # Move coords match board.get_moves()
+        moves = board.get_moves()
+        assert len(move_coords) == len(moves)
+        for (fx, fy, tx, ty), move in zip(move_coords, moves):
+            assert (fx, fy, tx, ty) == (
+                move.from_coord.x,
+                move.from_coord.y,
+                move.to_coord.x,
+                move.to_coord.y,
+            )

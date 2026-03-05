@@ -34,8 +34,7 @@ def main(
 
     nn_service = NNService(
         nn_creator=lambda: DefaultNet(size),
-        zmq_url=Environment.zmq_url,
-        memcached_host=Environment.memcached_host,
+        board_size=size,
         redis_host_main=Environment.redis_host_main,
         reload_frequency=reload_frequency,
         log_frequency=log_frequency,

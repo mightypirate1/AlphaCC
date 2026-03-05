@@ -176,9 +176,10 @@ class Trainer:
         n_internal_nodes = sum(len(nodes) for nodes in internal_nodes)
         visit_counts = np.array([np.sum(node.n) for nodes in internal_nodes for node in nodes.values()])
         frac_internal_nodes = n_internal_nodes / max(1, len(experiences) + n_internal_nodes)
-        self._summary_writer.add_histogram(
-            "trainer/internal-nodes/visit-counts", visit_counts, global_step=self._global_step
-        )
+        if visit_counts.size > 0:
+            self._summary_writer.add_histogram(
+                "trainer/internal-nodes/visit-counts", visit_counts, global_step=self._global_step
+            )
         self._summary_writer.add_scalar(
             "trainer/internal-nodes/frac-internal-nodes", frac_internal_nodes, global_step=self._global_step
         )
@@ -193,53 +194,15 @@ class Trainer:
     def _report_worker_stats(self, stats_list: list[WorkerStats]) -> None:
         if self._summary_writer is None:
             return
-        # aggregate across all games in the batch
         total_fetches = sum(s.total_fetches for s in stats_list)
-        total_gets = sum(s.total_gets for s in stats_list)
-        total_misses = sum(s.total_misses for s in stats_list)
-        total_timeouts = sum(s.timeouts for s in stats_list)
         total_fetch_time_us = sum(s.total_fetch_time_us for s in stats_list)
 
-        # per-attempt aggregation (sum counts and wait times across games)
-        max_len = max(len(s.resolved_at_attempt) for s in stats_list)
-        agg_counts = [0] * max_len
-        agg_wait_us = [0] * max_len
-        for s in stats_list:
-            for k, (count, wait) in enumerate(zip(s.resolved_at_attempt, s.attempt_total_wait_us)):
-                agg_counts[k] += count
-                agg_wait_us[k] += wait
-
-        # latency histogram: x = actual wait (ms), weighted by count per attempt
-        samples = []
-        for count, total_us in zip(agg_counts, agg_wait_us):
-            if count > 0:
-                avg_ms = (total_us / count) / 1000.0
-                samples.extend([avg_ms] * count)
-        if samples:
-            self._summary_writer.add_histogram(
-                "worker/fetch-latency-ms", np.array(samples), global_step=self._global_step
-            )
-
-        # scalar metrics
         if total_fetches > 0:
-            cache_hits = agg_counts[0] if agg_counts else 0
-            self._summary_writer.add_scalar(
-                "worker/cache-hit-rate", cache_hits / total_fetches, global_step=self._global_step
-            )
             self._summary_writer.add_scalar(
                 "worker/mean-fetch-latency-ms",
                 (total_fetch_time_us / total_fetches) / 1000.0,
                 global_step=self._global_step,
             )
-        if total_gets > 0:
-            self._summary_writer.add_scalar(
-                "worker/memcached-miss-rate", total_misses / total_gets, global_step=self._global_step
-            )
-        self._summary_writer.add_scalar("worker/timeouts", total_timeouts, global_step=self._global_step)
-
-        # patience: average across games
-        mean_patience_us = np.mean([s.current_patience_us for s in stats_list])
-        self._summary_writer.add_scalar("worker/patience-ms", mean_patience_us / 1000.0, global_step=self._global_step)
 
     def _update_nn(self, dataset: TrainingDataset, train_size: int) -> None:
         def train_epoch(dataloader: DataLoader) -> tuple[float, float, float]:
