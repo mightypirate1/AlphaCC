@@ -71,9 +71,7 @@ class ServedNN:
         self._jobs = self._initialize_scheduler()
         self._post_pool = ThreadPoolExecutor(max_workers=num_post_workers)
         self._is_loading_weights = False
-        self._inference_buffer = torch.empty(
-            inference_batch_size, 2, board_size, board_size, device=self._device
-        )
+        self._inference_buffer = torch.empty(inference_batch_size, 2, board_size, board_size, device=self._device)
         self._prefetch_batches: deque[InferenceBatch] = deque(maxlen=prefetch_size)
         self._prefetch_tensors: deque[torch.Tensor] = deque(maxlen=prefetch_size)
         self._prefetch_condition = Condition()
