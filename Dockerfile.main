@@ -1,29 +1,29 @@
-# Build free-threaded Python 3.13t from source
+# Build free-threaded Python 3.14t from source
 FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04 AS python-builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential curl ca-certificates \
         libffi-dev libssl-dev zlib1g-dev libbz2-dev \
         libreadline-dev libsqlite3-dev liblzma-dev \
     && rm -rf /var/lib/apt/lists/*
-ARG PYTHON_VERSION=3.13.12
+ARG PYTHON_VERSION=3.14.3
 RUN curl -fSL "https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz" -o python.tgz \
     && tar xzf python.tgz \
     && cd "Python-${PYTHON_VERSION}" \
     && ./configure \
         --disable-gil \
-        --prefix=/opt/python3.13t \
+        --prefix=/opt/python3.14t \
         --enable-shared \
         --with-ensurepip=install \
-        LDFLAGS="-Wl,-rpath,/opt/python3.13t/lib" \
+        LDFLAGS="-Wl,-rpath,/opt/python3.14t/lib" \
     && make -j"$(nproc)" \
     && make install \
     && cd / && rm -rf "Python-${PYTHON_VERSION}" python.tgz
-RUN ln -sf python3.13t /opt/python3.13t/bin/python3 \
-    && ln -sf python3   /opt/python3.13t/bin/python  \
-    && ln -sf pip3      /opt/python3.13t/bin/pip
+RUN ln -sf python3.14t /opt/python3.14t/bin/python3 \
+    && ln -sf python3   /opt/python3.14t/bin/python  \
+    && ln -sf pip3      /opt/python3.14t/bin/pip
 
 
-# Base CUDA image with Python 3.13t
+# Base CUDA image with Python 3.14t
 FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04 AS base-cuda
 ENV PYTHONUNBUFFERED=1               \
     PYTHONDONTWRITEBYTECODE=1        \
@@ -31,8 +31,8 @@ ENV PYTHONUNBUFFERED=1               \
     PIP_DISABLE_PIP_VERSION_CHECK=on \
     PIP_DEFAULT_TIMEOUT=100          \
     WORKDIR=/code
-COPY --from=python-builder /opt/python3.13t /opt/python3.13t
-ENV PATH="/opt/python3.13t/bin:$PATH"
+COPY --from=python-builder /opt/python3.14t /opt/python3.14t
+ENV PATH="/opt/python3.14t/bin:$PATH"
 RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && apt-get clean && rm -rf /var/lib/apt/lists/* \
     && mkdir -p ${WORKDIR}

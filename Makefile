@@ -1,4 +1,4 @@
-PYTHON3 = python3.13
+PYTHON3 = python3.14t
 
 clean: clean-build clean-pyc clean-cache clean-venv clean-webapp clean-engine  ## remove all build, test, coverage and Python artifacts
 
@@ -41,6 +41,7 @@ develop: clean venv
 		uv pip install -e ".[all]" \
 			--index-url https://pypi.org/simple \
 			--extra-index-url https://download.pytorch.org/whl/cu128 \
+			--index-strategy unsafe-best-match \
     "
 
 install: develop build-engine install-webapp
