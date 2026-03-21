@@ -50,7 +50,7 @@ build-engine:
 	@bash -c " \
 		source .venv/bin/activate && \
 		cd engine && \
-		maturin develop --release \
+		maturin develop --release --features extension-module \
 	"
 
 install-webapp:

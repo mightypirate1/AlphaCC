@@ -58,7 +58,7 @@ def main(
 ) -> None:
     def create_model(channel: int, trainer_time: int) -> MCTSAgent:
         return MCTSAgent(
-            zmq_url=Environment.zmq_url,
+            nn_service_addr=Environment.nn_service_addr,
             pred_channel=channel,
             cache_size=mcts_cache_size,
             n_rollouts=n_rollouts_schedule.as_int(trainer_time),

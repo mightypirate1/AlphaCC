@@ -1,4 +1,4 @@
-# Build free-threaded Python 3.14t from source
+# Build free-threaded Python 3.14t from source (for workers)
 FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04 AS python-builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential curl ca-certificates \
@@ -23,7 +23,31 @@ RUN ln -sf python3.14t /opt/python3.14t/bin/python3 \
     && ln -sf pip3      /opt/python3.14t/bin/pip
 
 
-# Base CUDA image with Python 3.14t
+# Build Python 3.13 from source (for nn-service — torch.compile reduce-overhead needs GIL)
+FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04 AS python-builder-313
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential curl ca-certificates \
+        libffi-dev libssl-dev zlib1g-dev libbz2-dev \
+        libreadline-dev libsqlite3-dev liblzma-dev \
+    && rm -rf /var/lib/apt/lists/*
+ARG PYTHON313_VERSION=3.13.5
+RUN curl -fSL "https://www.python.org/ftp/python/${PYTHON313_VERSION}/Python-${PYTHON313_VERSION}.tgz" -o python.tgz \
+    && tar xzf python.tgz \
+    && cd "Python-${PYTHON313_VERSION}" \
+    && ./configure \
+        --prefix=/opt/python313 \
+        --enable-shared \
+        --with-ensurepip=install \
+        LDFLAGS="-Wl,-rpath,/opt/python313/lib" \
+    && make -j"$(nproc)" \
+    && make install \
+    && cd / && rm -rf "Python-${PYTHON313_VERSION}" python.tgz
+RUN ln -sf python3 /opt/python313/bin/python \
+    && ln -sf pip3   /opt/python313/bin/pip
+
+
+# ── Worker build chain (Python 3.14t) ──
+
 FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04 AS base-cuda
 ENV PYTHONUNBUFFERED=1               \
     PYTHONDONTWRITEBYTECODE=1        \
@@ -38,19 +62,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && mkdir -p ${WORKDIR}
 WORKDIR ${WORKDIR}
 
-
-# Creates the venv and adds torch compiled with cuda 12.8
 FROM base-cuda AS base-torch
 RUN python3 -m venv .venv --prompt alpha-cc
 ENV PATH="$WORKDIR/.venv/bin:$PATH"
 RUN pip install torch --index-url https://pypi.org/simple --extra-index-url https://download.pytorch.org/whl/cu128
 
-
-# Install build tools + Python deps (rebuilds only when setup.py/setup.cfg change)
 FROM base-torch AS python-deps
 RUN apt-get update                                \
     && apt-get install -y --no-install-recommends \
-        clang libssl-dev make pkg-config gcc g++   \
+        clang libssl-dev make pkg-config gcc g++ protobuf-compiler \
     && apt-get clean                              \
     && rm -rf /var/lib/apt/lists/*
 COPY setup.py pyproject.toml setup.cfg ${WORKDIR}/
@@ -60,26 +80,83 @@ RUN mkdir -p alpha_cc \
     && pip install . \
     && pip uninstall -y alpha-cc
 
-
-# Builds the rust engine (rebuilds only when engine/ changes)
 FROM python-deps AS builder-rs
 RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
 ENV PATH="/root/.cargo/bin:$PATH"
+ENV LIBTORCH_USE_PYTORCH=1
 RUN mkdir -p ${WORKDIR}/engine
 COPY engine/pyproject.toml engine/Cargo.toml engine/Cargo.lock ${WORKDIR}/engine/
 RUN bash -c 'cd $WORKDIR/engine && cargo fetch || true'
 COPY engine/src ${WORKDIR}/engine/src
-RUN bash -c 'cd $WORKDIR/engine && maturin develop --release'
+COPY engine/build.rs ${WORKDIR}/engine/build.rs
+COPY engine/proto ${WORKDIR}/engine/proto
+RUN bash -c 'cd $WORKDIR/engine && maturin develop --release --features extension-module'
 
-
-# Installs the Python package (rebuilds only when alpha_cc/ changes)
 FROM builder-rs AS builder
 COPY alpha_cc ${WORKDIR}/alpha_cc
 RUN pip install --no-deps .
-
 
 FROM base-cuda AS main
 ENV PATH="$WORKDIR/.venv/bin:$PATH"
 WORKDIR ${WORKDIR}
 COPY --from=builder /code/.venv /code/.venv
 CMD ["bash"]
+
+
+# ── nn-service build chain (Python 3.13) ──
+
+FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04 AS base-cuda-313
+ENV PYTHONUNBUFFERED=1               \
+    PYTHONDONTWRITEBYTECODE=1        \
+    PIP_NO_CACHE_DIR=off             \
+    PIP_DISABLE_PIP_VERSION_CHECK=on \
+    PIP_DEFAULT_TIMEOUT=100          \
+    WORKDIR=/code
+COPY --from=python-builder-313 /opt/python313 /opt/python313
+ENV PATH="/opt/python313/bin:$PATH"
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && apt-get clean && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p ${WORKDIR}
+WORKDIR ${WORKDIR}
+
+FROM base-cuda-313 AS base-torch-313
+RUN python3 -m venv .venv --prompt alpha-cc
+ENV PATH="$WORKDIR/.venv/bin:$PATH"
+RUN pip install torch --index-url https://pypi.org/simple --extra-index-url https://download.pytorch.org/whl/cu128
+
+FROM base-torch-313 AS python-deps-313
+RUN apt-get update                                \
+    && apt-get install -y --no-install-recommends \
+        clang libssl-dev make pkg-config gcc g++ protobuf-compiler \
+    && apt-get clean                              \
+    && rm -rf /var/lib/apt/lists/*
+COPY setup.py pyproject.toml setup.cfg ${WORKDIR}/
+RUN mkdir -p alpha_cc \
+    && echo '__version__ = "0.0.0"' > alpha_cc/_version.py \
+    && touch alpha_cc/__init__.py \
+    && pip install . \
+    && pip uninstall -y alpha-cc
+
+FROM python-deps-313 AS builder-rs-313
+RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
+ENV PATH="/root/.cargo/bin:$PATH"
+RUN mkdir -p ${WORKDIR}/engine
+COPY engine/pyproject.toml engine/Cargo.toml engine/Cargo.lock ${WORKDIR}/engine/
+RUN bash -c 'cd $WORKDIR/engine && cargo fetch || true'
+COPY engine/src ${WORKDIR}/engine/src
+COPY engine/build.rs ${WORKDIR}/engine/build.rs
+COPY engine/proto ${WORKDIR}/engine/proto
+ENV LIBTORCH_USE_PYTORCH=1
+RUN bash -c 'cd $WORKDIR/engine && maturin develop --release --features extension-module'
+RUN bash -c 'cd $WORKDIR/engine && cargo build --release --bin nn-service'
+
+FROM builder-rs-313 AS builder-nn-service
+COPY alpha_cc ${WORKDIR}/alpha_cc
+RUN pip install --no-deps .
+
+# nn-service runner: Python 3.13, both backends available via --backend tch|pytorch
+FROM builder-nn-service AS nn-service
+COPY --from=builder-rs-313 /code/engine/target/release/nn-service /app/nn-service
+# libtorch .so files live inside the PyTorch wheel in the venv
+ENV LD_LIBRARY_PATH="/opt/python313/lib:/code/.venv/lib/python3.13/lib-dynload:/code/.venv/lib/python3.13/site-packages/torch/lib:${LD_LIBRARY_PATH}"
+CMD ["/app/nn-service", "server"]

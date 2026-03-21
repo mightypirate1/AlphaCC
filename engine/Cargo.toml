@@ -1,15 +1,14 @@
 [package]
 name = "alpha-cc-engine"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
 name = "alpha_cc_engine"
 crate-type = ["cdylib", "lib"]
 
 [dependencies]
-pyo3 = { version = "0.28.2", features = ["extension-module"] }
+pyo3 = { version = "0.28.2", features = ["auto-initialize"] }
 numpy = "0.28"
 bitcode = "0.6"
 indexmap = "2.13.0"
@@ -17,5 +16,27 @@ redis = "1.0.4"
 rand_distr = "0.6.0"
 rand = "0.10.0"
 lru = "0.16.3"
-zmq = "0.10.0"
-lazy_static = "1.5.0"
+# From nn-service
+tonic = "0.14.5"
+prost = "0.14.3"
+tonic-prost = "0.14.5"
+tokio = { version = "1", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["net"] }
+futures = "0.3"
+tch = "0.23.0"
+bytemuck = { version = "1.25.0", features = ["derive"] }
+libc = "0.2"
+clap = { version = "4.5.60", features = ["derive"] }
+arc-swap = "1.8.2"
+anyhow = "1.0.102"
+
+[features]
+default = []
+extension-module = ["pyo3/extension-module"]
+
+[[bin]]
+name = "nn-service"
+path = "src/bin/nn_service/main.rs"
+
+[build-dependencies]
+tonic-prost-build = "0.14.5"

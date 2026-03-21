@@ -1,0 +1,22 @@
+syntax = "proto3";
+package predict;
+
+service PredictionService {
+  // Bidirectional stream: workers send board states, server returns predictions.
+  // One persistent stream per worker — no per-request overhead.
+  rpc Predict(stream PredictRequest) returns (stream PredictResponse);
+}
+
+message PredictRequest {
+  uint64 request_id = 1;
+  bytes state_tensor = 2;
+  bytes moves = 3;
+  uint32 model_id = 4;
+}
+
+message PredictResponse {
+  uint64 request_id = 1;
+  // Workers have to compute their own softmax.
+  bytes pi_logits = 2;
+  float value = 3;
+}

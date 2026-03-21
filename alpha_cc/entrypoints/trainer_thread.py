@@ -68,7 +68,7 @@ def main(
     summary_writer = create_summary_writer(run_id)
     device = "cuda" if gpu and torch.cuda.is_available() else "cpu"
 
-    db = TrainingDB(host=Environment.redis_host_main)
+    db = TrainingDB(host=Environment.redis_host_main, game_size=size)
     tournament_runtime = TournamentRuntime(size, db)
     trainer = Trainer(
         size,
@@ -89,6 +89,9 @@ def main(
     )
     if existing_checkpoint is None:
         db.flush_db()  # safe fresh start
+        # Re-publish initial weights after flush so the nn-service can load them
+        curr_index = db.weights_publish_latest(trainer.nn.state_dict())
+        champion_index = curr_index
         replay_buffer = TrainingDataset(max_size=replay_buffer_size)
     else:
         replay_buffer = existing_checkpoint.replay_buffer

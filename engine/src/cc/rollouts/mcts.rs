@@ -12,14 +12,13 @@ use lru::LruCache;
 
 use crate::cc::game::board::Board;
 use crate::cc::game::moves::find_all_moves;
-use crate::cc::rollouts::nn_remote::{NNRemote, FetchStats};
+use crate::cc::predictions::{NNPred, PredictionClient, FetchStats};
 use crate::cc::rollouts::mcts_node::MCTSNode;
-use crate::cc::pred_db::{NNPred, PredDBChannel};
 
 
 #[pyclass(module="alpha_cc_engine")]
 pub struct MCTS {
-    nn_remote: NNRemote,
+    client: PredictionClient,
     nodes: LruCache<Board, MCTSNode>,
     mcts_params: MCTSParams,
 }
@@ -37,12 +36,12 @@ pub struct MCTSParams {
 
 impl MCTS {
     pub fn new(
-        nn_remote: NNRemote,
+        client: PredictionClient,
         cache_size: usize,
         mcts_params: MCTSParams,
     ) -> Self {
         MCTS {
-            nn_remote,
+            client,
             nodes: LruCache::new(NonZeroUsize::new(cache_size).unwrap()),
             mcts_params,
         }
@@ -50,7 +49,7 @@ impl MCTS {
 
     fn rollout(
         board: Board,
-        nn_remote: &mut NNRemote,
+        client: &mut PredictionClient,
         nodes: &mut LruCache<Board, MCTSNode>,
         remaining_depth: usize,
         mcts_params: &MCTSParams,
@@ -77,7 +76,7 @@ impl MCTS {
             // continue rollout
             let v = MCTS::rollout(
                 s_prime,
-                nn_remote,
+                client,
                 nodes,
                 remaining_depth - 1,
                 mcts_params,
@@ -90,7 +89,7 @@ impl MCTS {
         }
 
 
-        let nn_pred = nn_remote.fetch_pred(&board)?;
+        let nn_pred = client.fetch_pred(&board)?;
         MCTS::add_as_new_node(
             nodes,
             board,
@@ -157,10 +156,10 @@ impl MCTS {
 impl MCTS {
     #[allow(clippy::too_many_arguments)]
     #[new]
-    #[pyo3(signature = (keydb_host, channel, cache_size, gamma, dirichlet_weight, dirichlet_alpha, c_puct_init, c_puct_base))]
+    #[pyo3(signature = (nn_service_addr, channel, cache_size, gamma, dirichlet_weight, dirichlet_alpha, c_puct_init, c_puct_base))]
     fn create(
-        keydb_host: String,
-        channel: usize,
+        nn_service_addr: String,
+        channel: u32,
         cache_size: usize,
         gamma: f32,
         dirichlet_weight: f32,
@@ -169,7 +168,7 @@ impl MCTS {
         c_puct_base: f32,
     ) -> MCTS {
         MCTS::new(
-            NNRemote::new(PredDBChannel::new(&keydb_host, channel)),
+            PredictionClient::new(&nn_service_addr, channel),
             cache_size,
             MCTSParams {
                 gamma,
@@ -184,7 +183,7 @@ impl MCTS {
     pub fn run(&mut self, board: &Board, rollout_depth: usize) -> Result<f32, Error> {
         MCTS::rollout(
             board.clone(),
-            &mut self.nn_remote,
+            &mut self.client,
             &mut self.nodes,
             rollout_depth,
             &self.mcts_params,
@@ -193,7 +192,6 @@ impl MCTS {
 
     /// Run n_rollouts rollouts and return (pi, mean_value).
     /// pi is the temperature-weighted visit count distribution.
-    /// This replaces the Python loop over self.run() with a single Rust call.
     #[pyo3(signature = (board, n_rollouts, rollout_depth, temperature=1.0))]
     pub fn run_rollouts<'py>(
         &mut self,
@@ -207,7 +205,7 @@ impl MCTS {
         for _ in 0..n_rollouts {
             let v = MCTS::rollout(
                 board.clone(),
-                &mut self.nn_remote,
+                &mut self.client,
                 &mut self.nodes,
                 rollout_depth,
                 &self.mcts_params,
@@ -258,6 +256,6 @@ impl MCTS {
     }
 
     pub fn get_fetch_stats(&mut self) -> FetchStats {
-        self.nn_remote.get_fetch_stats()
+        self.client.get_fetch_stats()
     }
 }

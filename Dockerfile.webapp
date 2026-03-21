@@ -36,7 +36,7 @@ COPY . $WORKDIR
 RUN bash -c '                     \
     uv pip install pip maturin && \
     cd $WORKDIR/engine &&         \
-    maturin develop --release     \
+    maturin develop --release --features extension-module     \
 '
 
 FROM builder-rs AS builder-backend

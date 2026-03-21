@@ -28,33 +28,6 @@ def preds_from_logits(
     """
     ...
 
-def fetch_and_build_tensor(
-    channel: int,
-    max_count: int,
-    board_size: int,
-) -> tuple[InferenceBatch, numpy.ndarray] | None:
-    """Fetch inference requests from ZMQ ROUTER, build batch tensor.
-
-    Drains the response queue first (sends pending responses to workers),
-    then receives new requests.
-
-    Returns None if no requests available. Otherwise returns
-    (InferenceBatch, ndarray with shape (batch, 2, size, size)).
-    """
-    ...
-
-def enqueue_responses(
-    logits_flat: numpy.ndarray,
-    values_flat: numpy.ndarray,
-    batch: InferenceBatch,
-) -> None:
-    """Enqueue inference responses for sending back to workers.
-
-    Computes softmax over legal moves and pushes responses to the response queue.
-    Responses are drained and sent by the prefetch thread via fetch_and_build_tensor.
-    """
-    ...
-
 class Board:
     def __init__(self, size: int) -> None:
         """Board with side length `size`"""
@@ -116,18 +89,6 @@ class HexCoord:
     def get_all_neighbors(self, distance: int) -> list[HexCoord]: ...
     def flip(self) -> HexCoord: ...
 
-class InferenceBatch:
-    """Opaque batch handle holding identities and move coords for routing responses."""
-
-    def __len__(self) -> int: ...
-    def slice(self, start: int, end: int) -> InferenceBatch:
-        """Return a sub-batch from start to end."""
-        ...
-
-    def extend(self, other: InferenceBatch) -> None:
-        """Append another batch's data into this one."""
-        ...
-
 class Move:
     from_coord: HexCoord
     to_coord: HexCoord
@@ -147,10 +108,10 @@ class MCTSNode:
 class MCTS:
     def __init__(
         self,
-        keydb_url: str,
+        nn_service_addr: str,
         channel: int,
         cache_size: int,
-        rollout_gamma: float,
+        gamma: float,
         dirichlet_weight: float,
         dirichlet_alpha: float,
         c_puct_init: float,
@@ -184,7 +145,8 @@ class NNPred:
     def value(self) -> float: ...
     def __init__(self, pi: list[float], value: float) -> None: ...
 
-class PredDBChannel:
-    def __init__(self, zmq_url: str, channel: int) -> None: ...
-    @property
-    def channel(self) -> int: ...
+class TrainingDBRs:
+    def __init__(self, host: str = "localhost") -> None: ...
+    def jit_weights_publish(self, index: int, payload: bytes, set_latest: bool) -> None:
+        """Publish JIT-traced model bytes at a specific weight index."""
+        ...

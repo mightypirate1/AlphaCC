@@ -1,6 +1,6 @@
 pub mod game;
 pub mod rollouts;
-pub mod pred_db;
+pub mod predictions;
 pub mod dtypes;
 
 pub use game::board::Board;

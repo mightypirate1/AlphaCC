@@ -32,6 +32,16 @@ Dev requirements:
 - python3.12 (with venv and pip)
 - npm ([nvm](https://www.linode.com/docs/guides/how-to-install-use-node-version-manager-nvm/#install-nvm) is nice; get node >=22.0.0)
 
+### Run the nn-service standalone (you probably don't have to)
+
+Due to linking to torch, you need to set some env vars before running/building, e.g.:
+```
+# with the venv activated
+export LIBTORCH_USE_PYTORCH=1
+export LD_LIBRARY_PATH=$(python -c "import torch; print(torch.__path__[0])")/lib
+cargo run --bin nn-service
+```
+
 ## Now what can I do with it?
 
 ### Play against pre-trained bots:
