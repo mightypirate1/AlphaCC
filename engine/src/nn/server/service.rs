@@ -8,12 +8,13 @@ use crate::nn::proto::{PredictRequest, PredictResponse};
 use crate::nn::server::types::PendingPrediction;
 
 
-pub struct NNService {
+pub struct NNService<F: Fn(u32) -> bool + Clone + Send + Sync + 'static> {
     pub submit_tx: mpsc::Sender<PendingPrediction>,
+    pub model_id_ready: F,
 }
 
 #[tonic::async_trait]
-impl PredictionService for NNService {
+impl<F: Fn(u32) -> bool + Clone + Send + Sync + 'static> PredictionService for NNService<F> {
     type PredictStream = ReceiverStream<Result<PredictResponse, Status>>;
 
     async fn predict(
@@ -22,6 +23,7 @@ impl PredictionService for NNService {
     ) -> Result<Response<Self::PredictStream>, Status> {
         let mut inbound = request.into_inner();
         let submit_tx = self.submit_tx.clone();
+        let model_id_ready = self.model_id_ready.clone();
 
         // Per-worker outbound channel.
         let (out_tx, out_rx) = mpsc::channel(64);
@@ -33,6 +35,11 @@ impl PredictionService for NNService {
                     Ok(r) => r,
                     Err(_) => break, // Stream error, worker probably disconnected.
                 };
+
+                // Hold request until the requested model is loaded.
+                while !model_id_ready(req.model_id) {
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
 
                 let (reply_tx, reply_rx) = oneshot::channel();
 

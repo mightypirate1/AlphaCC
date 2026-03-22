@@ -1,15 +1,12 @@
-import io
 import logging
 from typing import Any
 
 import dill
 import redis
-import torch
 
 from alpha_cc.agents.mcts.training_data import TrainingData
 from alpha_cc.db.models.tournament_results import TournamentResult
 from alpha_cc.db.redis_dbs import RedisDBs
-from alpha_cc.engine import TrainingDBRs
 
 POLL_TIMEOUT_SEC = 2
 
@@ -28,10 +25,11 @@ class TrainingDB:
     - tournament
     """
 
-    def __init__(self, host: str = "localhost", game_size: int | None = None) -> None:
+    def __init__(
+        self,
+        host: str = "localhost",
+    ) -> None:
         self._db = redis.Redis(host=host, db=RedisDBs.TRAINING.value)
-        self._game_size = game_size
-        self._training_db_rs = TrainingDBRs(host=host) if game_size is not None else None
 
     @property
     def queue_key(self) -> str:
@@ -113,46 +111,19 @@ class TrainingDB:
 
     ##
     # weights
-    def weights_publish_latest(self, state_dict: dict[str, Any]) -> int:
-        current_index = int(self._db.incr(self.latest_weights_index_key))  # type: ignore
-        self.weights_publish(state_dict, current_index, set_latest=True)
-        return current_index
+    def weights_incr_weights_index(self) -> int:
+        return int(self._db.incr(self.latest_weights_index_key))  # type: ignore
 
-    def weights_publish(self, state_dict: dict[str, Any], index: int, set_latest: bool = False) -> None:
-        payload = dill.dumps(state_dict)
+    def weights_publish(self, payload: bytes, index: int, set_latest: bool = False) -> None:
         self._db.set(self.weight_key(index), payload)
         if set_latest:
             self._db.set(self.latest_weights_index_key, index)
             self._db.set(self.latest_weights_key, payload)
-        self._publish_jit_weights(state_dict, index, set_latest)
         logger.debug(f"published weights {index}")
 
-    def _publish_jit_weights(self, state_dict: dict[str, Any], index: int, set_latest: bool) -> None:
-        if self._training_db_rs is None or self._game_size is None:
-            return
-        from alpha_cc.nn.nets.default_net import DefaultNet
-        model = DefaultNet(self._game_size)
-        model.load_state_dict(state_dict)
-        model.eval()
-        dummy = torch.zeros(1, 2, self._game_size, self._game_size)
-        traced = torch.jit.trace(model, dummy)
-        buf = io.BytesIO()
-        torch.jit.save(traced, buf)
-        self._training_db_rs.jit_weights_publish(index, buf.getvalue(), set_latest)
-        logger.debug(f"published JIT weights {index}")
-
-    def weights_fetch_latest_with_index(self) -> tuple[int, dict[str, Any]]:
-        return self.weights_fetch_latest_index(), self.weights_fetch_latest()
-
-    def weights_fetch_latest(self) -> dict[str, Any]:
-        logger.debug("fetching latest weights")
-        encoded_weights = self._db.get(self.latest_weights_key)
-        return dill.loads(encoded_weights)  # noqa
-
-    def weights_fetch(self, index: int | str) -> dict[str, Any]:
+    def weights_fetch(self, index: int | str) -> bytes:
         logger.debug(f"fetching weights {index}")
-        encoded_weights = self._db.get(self.weight_key(index))
-        return dill.loads(encoded_weights)  # noqa
+        return self._db.get(self.weight_key(index))  # type: ignore
 
     def weights_fetch_latest_index(self) -> int:
         response = self._db.get(self.latest_weights_index_key)

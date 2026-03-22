@@ -1,6 +1,7 @@
 pub mod pytorch;
 pub mod respond;
 pub mod torchrs;
+pub mod onnx;
 
 use std::collections::HashMap;
 use std::sync::Arc;

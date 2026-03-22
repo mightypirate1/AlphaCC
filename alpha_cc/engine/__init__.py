@@ -7,7 +7,6 @@ from alpha_cc_engine import (
     MCTSNode,
     Move,
     NNPred,
-    TrainingDBRs,
     build_inference_request,
     create_move_index_map,
     create_move_mask,

@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Condition, Event, Thread
 from typing import Any
 
+import dill
 import torch
 from apscheduler.job import Job
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -194,7 +195,8 @@ class ServedNN:
         def background_loading() -> None:
             try:
                 # get weights from the training db into the loading nn
-                weights = self._training_db.weights_fetch(target_weight_index)
+                payload = self._training_db.weights_fetch(target_weight_index)
+                weights = dill.loads(payload)  # noqa
                 self._nn_loading.load_state_dict(weights)
                 # swap the loading nn with the prediction nn
                 old_model = self._nn_prediction

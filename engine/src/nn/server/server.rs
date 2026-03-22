@@ -50,7 +50,13 @@ impl<B: Backend> PredictServer<B> {
         tokio::spawn(stages::run_decoder(self.backend.clone(), decoder_rx, responder_tx));
         tokio::spawn(stages::run_responder(self.backend.clone(), responder_rx));
 
-        let svc = NNService { submit_tx };
+        let backend_for_svc = self.backend.clone();
+        let svc = NNService {
+            submit_tx,
+            model_id_ready: move |model_id: u32| {
+                backend_for_svc.model_store().load(model_id as usize).is_some()
+            },
+        };
 
         println!("PredictServer listening on {addr} (device: {:?})", self.config.device);
 

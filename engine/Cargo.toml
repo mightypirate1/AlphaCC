@@ -12,7 +12,7 @@ pyo3 = { version = "0.28.2", features = ["auto-initialize"] }
 numpy = "0.28"
 bitcode = "0.6"
 indexmap = "2.13.0"
-redis = "1.0.4"
+redis = "1.1.0"
 rand_distr = "0.6.0"
 rand = "0.10.0"
 lru = "0.16.3"
@@ -26,9 +26,10 @@ futures = "0.3"
 tch = "0.23.0"
 bytemuck = { version = "1.25.0", features = ["derive"] }
 libc = "0.2"
-clap = { version = "4.5.60", features = ["derive"] }
-arc-swap = "1.8.2"
+clap = { version = "4.6.0", features = ["derive"] }
+arc-swap = "1.9.0"
 anyhow = "1.0.102"
+ort = { version = "2.0.0-rc.12", features = ["load-dynamic", "cuda", "tensorrt"] }
 
 [features]
 default = []

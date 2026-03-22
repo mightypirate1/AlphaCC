@@ -30,10 +30,14 @@ impl Backend for TchBackend {
         if self.verbose {
             println!("Inference model_id={model_id} batch_size={}", input.size()[0]);
         }
-        let guard = self.models.load(model_id as usize);
-        match guard.as_ref() {
-            Some(vm) => inference::nn_inference(&vm.model, input),
-            None => inference::fake_inference(input, self.game_size, self.device),
+        loop {
+            let guard = self.models.load(model_id as usize);
+            if let Some(vm) = guard.as_ref().as_ref() {
+                return inference::nn_inference(&vm.model, input);
+            }
+            drop(guard);
+            eprintln!("model_id={model_id} not loaded yet, waiting...");
+            std::thread::sleep(std::time::Duration::from_secs(1));
         }
     }
 
