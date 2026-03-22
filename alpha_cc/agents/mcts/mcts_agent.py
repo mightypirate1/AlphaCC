@@ -11,7 +11,6 @@ class MCTSAgent(Agent):
         self,
         nn_service_addr: str,
         pred_channel: int = 0,
-        cache_size: int = 300000,
         n_rollouts: int = 100,
         rollout_depth: int = 500,
         rollout_gamma: float = 1.0,
@@ -20,6 +19,7 @@ class MCTSAgent(Agent):
         c_puct_init: float = 2.0,
         c_puct_base: float = 10000.0,
         argmax_delay: int | None = None,
+        n_threads: int = 1,
     ) -> None:
         self._n_rollouts = n_rollouts
         self._rollout_depth = rollout_depth
@@ -28,12 +28,12 @@ class MCTSAgent(Agent):
         self._mcts = MCTS(
             nn_service_addr,
             pred_channel,
-            cache_size,
             rollout_gamma,
             dirichlet_weight,
             dirichlet_alpha,
             c_puct_init,
             c_puct_base,
+            n_threads,
         )
 
     def get_worker_stats(self) -> WorkerStats:
@@ -59,6 +59,14 @@ class MCTSAgent(Agent):
         if training and self._steps_left_to_argmax > 0:
             action_index = np.random.choice(len(pi), p=pi)
         return action_index
+
+    def advance_root(self, action: int) -> Board:
+        """Advance the tree root to the child reached by `action`.
+        Prunes sibling subtrees. Returns the board at the new root."""
+        board = self._mcts.advance_root(action)
+        if board is None:
+            raise ValueError(f"advance_root({action}) failed — child not in tree")
+        return board
 
     def run_rollouts(
         self,

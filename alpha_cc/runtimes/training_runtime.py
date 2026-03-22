@@ -31,7 +31,6 @@ class TrainingRunTime:
         argmax_delay: int | None = None,
         internal_nodes_fraction: float | None = None,
         internal_nodes_min_visits: int = 1,
-        cache_size: int = 300000,
     ) -> TrainingData:
         board = self._board.reset()
         max_game_duration = np.inf if max_game_length is None else max_game_length
@@ -39,7 +38,7 @@ class TrainingRunTime:
         agent.on_game_start()
 
         effective_n_rollouts = n_rollouts if n_rollouts is not None else agent._n_rollouts
-        snapshot_interval = max(1, cache_size // effective_n_rollouts) if internal_nodes_fraction else 0
+        snapshot_interval = 1 if internal_nodes_fraction else 0
 
         trajectory: list[MCTSExperience] = []
         internal_nodes: dict[GameState, MCTSNodePy] = {}
@@ -64,6 +63,7 @@ class TrainingRunTime:
                 )
                 trajectory.append(experience)
 
+                # Sample internal nodes BEFORE advance_root prunes the tree
                 if snapshot_interval and len(trajectory) % snapshot_interval == 0:
                     internal_nodes.update(
                         _sample_internal_nodes(
@@ -79,8 +79,7 @@ class TrainingRunTime:
                 if (time_to_argmax := time_to_argmax - 1) >= 0:
                     a = np.random.choice(len(pi), p=pi)
 
-                moves = board.get_moves()
-                board = board.apply(moves[a])
+                board = agent.advance_root(a)
                 pbar.update(1)
         training_data = TrainingData(
             trajectory=self._value_assignment_strategy(trajectory, final_board=board),

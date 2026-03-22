@@ -1,5 +1,4 @@
 import logging
-from typing import Any
 
 import dill
 import redis
@@ -84,7 +83,7 @@ class TrainingDB:
         def blocking_fetch() -> bytes | None:
             data: bytes | None = None
             while True:
-                resp = self._db.brpop(self.queue_key, timeout=POLL_TIMEOUT_SEC)  # type: ignore
+                resp = self._db.brpop(self.queue_key, timeout=POLL_TIMEOUT_SEC)
                 if resp is not None:
                     _, data = resp  # type: ignore
                     return data

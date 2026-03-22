@@ -2,12 +2,19 @@ pub mod cc;
 pub mod db;
 pub mod nn;
 
+#[cfg(feature = "extension-module")]
 use pyo3::prelude::*;
+#[cfg(feature = "extension-module")]
 use crate::cc::{Board, BoardInfo, HexCoord, Move};
+#[cfg(feature = "extension-module")]
 use crate::cc::{create_move_mask, create_move_index_map};
+#[cfg(feature = "extension-module")]
 use crate::cc::rollouts::{MCTS, MCTSNode, FetchStats};
+#[cfg(feature = "extension-module")]
 use crate::cc::predictions::{NNPred, preds_from_logits, build_inference_request};
+
 /// A Python module implemented in Rust.
+#[cfg(feature = "extension-module")]
 #[pymodule]
 #[pyo3(name = "alpha_cc_engine")]
 fn alpha_cc(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {

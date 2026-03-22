@@ -1,8 +1,6 @@
 use std::io::Error;
 use std::time::Instant;
 
-use pyo3::prelude::*;
-
 use crate::cc::game::board::Board;
 use crate::cc::predictions::nn_pred::NNPred;
 use crate::nn::client::PredictClient;
@@ -32,11 +30,9 @@ impl FetchStatsAccumulator {
     }
 }
 
-#[pyclass(module="alpha_cc_engine")]
+#[cfg_attr(feature = "extension-module", pyo3::prelude::pyclass(module="alpha_cc_engine", get_all))]
 pub struct FetchStats {
-    #[pyo3(get)]
     pub total_fetch_time_us: u64,
-    #[pyo3(get)]
     pub total_fetches: u32,
 }
 

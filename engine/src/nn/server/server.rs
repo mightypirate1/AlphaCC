@@ -58,7 +58,7 @@ impl<B: Backend> PredictServer<B> {
             },
         };
 
-        println!("PredictServer listening on {addr} (device: {:?})", self.config.device);
+        println!("PredictServer listening on {addr}");
 
         tonic::transport::Server::builder()
             .add_service(PredictionServiceServer::new(svc))

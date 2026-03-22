@@ -4,7 +4,6 @@ use std::time::Duration;
 pub struct ServerConfig {
     pub port: u16,
     pub game_size: usize,
-    pub device: tch::Device,
     pub batcher: BatcherConfig,
     pub pipeline: PipelineConfig,
 }
@@ -31,12 +30,4 @@ pub struct BatcherConfig {
     /// Buffer size for the internal channel that all streams feed into.
     /// Should be >= max concurrent in-flight requests across all workers.
     pub channel_buffer: usize,
-}
-
-pub fn detect_device() -> tch::Device {
-    if tch::Cuda::is_available() {
-        tch::Device::Cuda(0)
-    } else {
-        tch::Device::Cpu
-    }
 }

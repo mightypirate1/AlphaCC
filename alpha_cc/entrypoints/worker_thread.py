@@ -35,9 +35,9 @@ logger = logging.getLogger(__file__)
 @click.option("--gamma", type=float, default=1.0)
 @click.option("--heuristic", is_flag=True, default=False)
 @click.option("--non-terminal-value-weight", type=float, default=0.1)
-@click.option("--mcts-cache-size", type=int, default=300000)
 @click.option("--internal-nodes-fraction", type=str, default="0.0")
 @click.option("--internal-nodes-min-visits", type=str, default="1")
+@click.option("--n-threads", type=int, default=1)
 @click.option("--verbose", is_flag=True, default=False)
 def main(
     size: int,
@@ -51,20 +51,20 @@ def main(
     gamma: float,
     heuristic: bool,
     non_terminal_value_weight: float,
-    mcts_cache_size: int,
     internal_nodes_fraction: str,
     internal_nodes_min_visits: str,
+    n_threads: int,
     verbose: bool,
 ) -> None:
     def create_model(channel: int, trainer_time: int) -> MCTSAgent:
         return MCTSAgent(
             nn_service_addr=Environment.nn_service_addr,
             pred_channel=channel,
-            cache_size=mcts_cache_size,
             n_rollouts=n_rollouts_schedule.as_int(trainer_time),
             rollout_depth=rollout_depth_schedule.as_int(trainer_time),
             rollout_gamma=rollout_gamma,
             dirichlet_weight=dirichlet_noise_weight,
+            n_threads=n_threads,
         )
 
     max_game_length_schedule = ParamSchedule.from_str(max_game_length or "inf")
@@ -107,7 +107,6 @@ def main(
             argmax_delay=argmax_delay_schedule.as_int(trainer_time),
             internal_nodes_fraction=internal_nodes_fraction_val if internal_nodes_fraction_val > 0.0 else None,
             internal_nodes_min_visits=internal_nodes_min_visits_schedule.as_int(trainer_time),
-            cache_size=mcts_cache_size,
         )
         training_db.training_data_post(training_data)
 

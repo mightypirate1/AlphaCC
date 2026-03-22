@@ -1,5 +1,6 @@
 pub mod mcts;
 pub mod mcts_node;
+pub mod tree;
 
 pub use crate::cc::rollouts::mcts::MCTS;
 pub use crate::cc::rollouts::mcts_node::MCTSNode;

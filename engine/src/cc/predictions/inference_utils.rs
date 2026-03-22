@@ -1,9 +1,14 @@
+#[cfg(feature = "extension-module")]
 use pyo3::prelude::*;
 
+#[cfg(feature = "extension-module")]
 use crate::cc::predictions::nn_pred::NNPred;
+#[cfg(feature = "extension-module")]
 use crate::cc::game::board::Board;
+#[cfg(feature = "extension-module")]
 use crate::cc::game::moves::find_all_moves;
 
+#[cfg(feature = "extension-module")]
 #[pyfunction]
 pub fn preds_from_logits<'py>(
     logits_flat: numpy::PyReadonlyArray1<'py, f32>,
@@ -39,10 +44,12 @@ pub fn preds_from_logits<'py>(
     Ok(preds)
 }
 
+#[cfg(feature = "extension-module")]
 type MoveCoords = Vec<(u8, u8, u8, u8)>;
 
 /// Expose board encoding for testing.
 /// Returns (tensor_data as numpy (2, s, s), move_coords).
+#[cfg(feature = "extension-module")]
 #[pyfunction]
 #[allow(clippy::type_complexity)]
 pub fn build_inference_request<'py>(

@@ -1,11 +1,17 @@
+#[cfg(feature = "extension-module")]
 extern crate pyo3;
+#[cfg(feature = "extension-module")]
 use pyo3::prelude::*;
-use std::collections::{HashMap, HashSet};
+#[cfg(feature = "extension-module")]
+use std::collections::HashMap;
+use std::collections::HashSet;
 use indexmap::IndexSet;
 use crate::cc::{Board, HexCoord, Move};
+#[cfg(feature = "extension-module")]
 use crate::cc::game::board::MAX_SIZE;
 
 
+#[cfg(feature = "extension-module")]
 #[pyfunction]
 pub fn create_move_mask(moves: Vec<Move>) -> [[[[bool; MAX_SIZE]; MAX_SIZE]; MAX_SIZE]; MAX_SIZE] {
     /*
@@ -22,6 +28,7 @@ pub fn create_move_mask(moves: Vec<Move>) -> [[[[bool; MAX_SIZE]; MAX_SIZE]; MAX
     }
     mask
 }
+#[cfg(feature = "extension-module")]
 #[pyfunction]
 pub fn create_move_index_map(moves: Vec<Move>) -> HashMap<usize, (HexCoord, HexCoord)> {
     let mut move_index_map:HashMap<usize, (HexCoord, HexCoord)> = HashMap::new();

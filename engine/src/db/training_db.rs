@@ -6,7 +6,6 @@ use redis::Commands;
 
 use crate::nn::reloads::ModelSource;
 
-const WEIGHTS_LATEST_KEY: &str = "weights-latest";
 const WEIGHTS_KEY_PREFIX: &str = "weights";
 
 /// Pure-Rust Redis client for the training database.

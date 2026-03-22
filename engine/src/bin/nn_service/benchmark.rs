@@ -1,14 +1,14 @@
 use std::time::Instant;
 
 use alpha_cc_engine::nn::backends::{Backend, VersionedModel};
-use super::BackendChoice;
+use alpha_cc_engine::nn::backends::onnx::{OnnxBackend, OnnxSession};
 
 type CudaDeviceSyncFn = unsafe extern "C" fn() -> i32;
 
 fn load_cuda_device_sync() -> CudaDeviceSyncFn {
     unsafe {
         let handle = libc::dlopen(b"libcudart.so.12\0".as_ptr().cast(), libc::RTLD_NOW | libc::RTLD_GLOBAL);
-        assert!(!handle.is_null(), "failed to dlopen libcudart.so");
+        assert!(!handle.is_null(), "failed to dlopen libcudart.so.12");
         let sym = libc::dlsym(handle, b"cudaDeviceSynchronize\0".as_ptr().cast());
         assert!(!sym.is_null(), "failed to dlsym cudaDeviceSynchronize");
         std::mem::transmute(sym)
@@ -109,7 +109,6 @@ fn bench_pipeline<B: Backend>(
 
 pub fn run_benchmarks(
     nn_path: &str,
-    backend_choice: BackendChoice,
     game_size: usize,
     warmup: usize,
     iters: usize,
@@ -121,38 +120,13 @@ pub fn run_benchmarks(
     println!("Warmup: {warmup}, Iterations: {iters}");
     println!();
 
-    let results = match backend_choice {
-        BackendChoice::Tch => {
-            use tch::CModule;
-            let device = if tch::Cuda::is_available() { tch::Device::Cuda(0) } else { tch::Device::Cpu };
-            println!("=== tch-rs (CModule JIT) === device={device:?}");
-            let model = CModule::load_on_device(nn_path, device)
-                .unwrap_or_else(|e| panic!("failed to load model: {e}"));
-            let backend = alpha_cc_engine::nn::backends::torchrs::TchBackend::new(
-                vec![VersionedModel { model, version: 0 }], game_size_i64, device, false, 1,
-            );
-            bench_pipeline(&backend, game_size, &batch_sizes, warmup, iters)
-        }
-        BackendChoice::Onnx => {
-            use alpha_cc_engine::nn::backends::onnx::{OnnxBackend, OnnxSession};
-            println!("=== ONNX (ort + CUDA EP) ===");
-            let model = OnnxBackend::load_session_from_file(nn_path)
-                .unwrap_or_else(|e| panic!("failed to load ONNX model: {e}"));
-            let backend = OnnxBackend::new(
-                vec![VersionedModel { model, version: 0 }], game_size_i64, false, 1,
-            );
-            bench_pipeline(&backend, game_size, &batch_sizes, warmup, iters)
-        }
-        BackendChoice::Pytorch => {
-            use alpha_cc_engine::nn::backends::pytorch::PyTorchBackend;
-            println!("=== pyo3 (eager DefaultNet) ===");
-            let model = PyTorchBackend::setup_model_from_path(nn_path, game_size_i64, None);
-            let backend = PyTorchBackend::new(
-                vec![VersionedModel { model, version: 0 }], game_size_i64, false, 1,
-            );
-            bench_pipeline(&backend, game_size, &batch_sizes, warmup, iters)
-        }
-    };
+    println!("=== ONNX (ort + TensorRT/CUDA EP) ===");
+    let model = OnnxBackend::load_session_from_file(nn_path)
+        .unwrap_or_else(|e| panic!("failed to load ONNX model: {e}"));
+    let backend = OnnxBackend::new(
+        vec![VersionedModel { model, version: 0 }], game_size_i64, false, 1,
+    );
+    let results = bench_pipeline(&backend, game_size, &batch_sizes, warmup, iters);
 
     println!();
     println!("=== Throughput summary (samples/s) ===");

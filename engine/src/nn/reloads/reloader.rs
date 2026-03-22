@@ -16,7 +16,6 @@ pub fn spawn_reloader<B: Backend>(
     poll_interval: Duration,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
-        pyo3::Python::attach(|_py| {});
 
         loop {
             thread::sleep(poll_interval);

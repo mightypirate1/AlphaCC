@@ -10,8 +10,12 @@ and less bug prone
 
 use std::collections::{HashMap, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
+
+#[cfg(feature = "extension-module")]
 extern crate pyo3;
+#[cfg(feature = "extension-module")]
 use pyo3::prelude::*;
+#[cfg(feature = "extension-module")]
 use pyo3::types::{PyTuple, PyBytes};
 
 use crate::cc::{BoardInfo, HexCoord, Move};
@@ -23,7 +27,7 @@ pub const MAX_SIZE: usize = 9;
 type BoardMatrix = [[dtypes::BoardContent; MAX_SIZE]; MAX_SIZE];
 
 
-#[pyclass(module="alpha_cc_engine", from_py_object)]
+#[cfg_attr(feature = "extension-module", pyo3::prelude::pyclass(module="alpha_cc_engine", from_py_object))]
 #[derive(Clone, bitcode::Encode, bitcode::Decode)]
 pub struct Board {
     size: dtypes::BoardSize,
@@ -273,27 +277,10 @@ impl Board {
 }
 
 
-#[pymethods]
+/// Methods used from both Rust and Python.
+/// When the `extension-module` feature is active, pyo3 exposes them to Python.
+#[cfg_attr(feature = "extension-module", pyo3::prelude::pymethods)]
 impl Board {
-    #[new]
-    #[pyo3(signature = (*py_args))]
-    fn new(py_args: &Bound<'_, PyTuple>) -> Self {
-        // complicated constructor to allow pickling (allows call to __new__ with empty args)
-        match py_args.len() {
-            1 => {
-                if let Ok(size) = py_args.get_item(0).unwrap().extract::<usize>() {
-                    return Board::create(size)
-                }
-                panic!("expected a single int as input");
-            },
-            0 => {
-                Board::create(9)
-            },
-            _ => {unreachable!()}
-        }
-    
-    }
-
     pub fn reset(&self) -> Board {
         Board::create(self.size as usize)
     }
@@ -310,14 +297,14 @@ impl Board {
         next_states
     }
 
-    pub fn get_matrix(&self) -> BoardMatrix {        
+    pub fn get_matrix(&self) -> BoardMatrix {
         self.matrix
     }
 
     pub fn apply(&self, r#move: &Move) -> Board {
         self.apply_move(r#move)
     }
-    
+
     pub fn get_unflipped_matrix(&self) -> BoardMatrix {
         /*
         unflips the matrix if needed to make it intelligable for humans
@@ -326,19 +313,6 @@ impl Board {
             return self.matrix
         }
         self.flipped_matrix()
-    }
-    
-    #[getter]
-    pub fn get_info(&self) -> BoardInfo {
-        let (reward, winner) = self.compute_reward_and_winner();
-        BoardInfo {
-            current_player: self.current_player,
-            winner,
-            reward,
-            size: self.size,
-            duration: self.duration,
-            game_over: winner > 0,
-        }
     }
 
     pub fn render(&self) {
@@ -360,6 +334,50 @@ impl Board {
         }
         println!();
         println!("current player: {} ({})", tokens.get(&self.current_player).unwrap(), self.current_player);
+    }
+
+}
+
+impl Board {
+    pub fn get_info(&self) -> BoardInfo {
+        let (reward, winner) = self.compute_reward_and_winner();
+        BoardInfo {
+            current_player: self.current_player,
+            winner,
+            reward,
+            size: self.size,
+            duration: self.duration,
+            game_over: winner > 0,
+        }
+    }
+}
+
+
+#[cfg(feature = "extension-module")]
+#[pymethods]
+impl Board {
+    #[getter]
+    pub fn info(&self) -> BoardInfo {
+        self.get_info()
+    }
+
+    #[new]
+    #[pyo3(signature = (*py_args))]
+    fn new(py_args: &Bound<'_, PyTuple>) -> Self {
+        // complicated constructor to allow pickling (allows call to __new__ with empty args)
+        match py_args.len() {
+            1 => {
+                if let Ok(size) = py_args.get_item(0).unwrap().extract::<usize>() {
+                    return Board::create(size)
+                }
+                panic!("expected a single int as input");
+            },
+            0 => {
+                Board::create(9)
+            },
+            _ => {unreachable!()}
+        }
+
     }
 
     pub fn __setstate__(&mut self, py: Python, state: Py<PyAny>) -> PyResult<()> {

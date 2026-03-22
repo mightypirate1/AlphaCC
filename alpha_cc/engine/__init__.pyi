@@ -110,12 +110,12 @@ class MCTS:
         self,
         nn_service_addr: str,
         channel: int,
-        cache_size: int,
         gamma: float,
         dirichlet_weight: float,
         dirichlet_alpha: float,
         c_puct_init: float,
         c_puct_base: float,
+        n_threads: int = 1,
     ) -> None: ...
     def clear_nodes(self) -> None: ...
     def get_node(self, board: Board) -> MCTSNode | None: ...
@@ -128,10 +128,15 @@ class MCTS:
         rollout_depth: int,
         temperature: float = 1.0,
     ) -> tuple[numpy.ndarray, float]:
-        """Run n_rollouts rollouts and return (pi, mean_value).
+        """Run n_rollouts rollouts in parallel and return (pi, mean_value).
 
         pi is the temperature-weighted visit count distribution.
         """
+        ...
+
+    def advance_root(self, action: int) -> Board | None:
+        """Advance the tree root to the child reached by `action`.
+        Prunes sibling subtrees. Returns the board at the new root."""
         ...
 
     def get_fetch_stats(self) -> FetchStats:
@@ -144,4 +149,3 @@ class NNPred:
     @property
     def value(self) -> float: ...
     def __init__(self, pi: list[float], value: float) -> None: ...
-

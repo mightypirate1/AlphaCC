@@ -1,8 +1,6 @@
 mod reloader;
-pub mod training_db;
 
 pub use reloader::spawn_reloader;
-pub use training_db::TrainingDBSource;
 
 use std::collections::HashMap;
 use anyhow::Result;

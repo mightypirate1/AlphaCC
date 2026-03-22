@@ -1,68 +1,45 @@
-# Build free-threaded Python 3.14t from source (for workers)
+# Build Python 3.13 from source (for trainer + workers)
 FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04 AS python-builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential curl ca-certificates \
         libffi-dev libssl-dev zlib1g-dev libbz2-dev \
         libreadline-dev libsqlite3-dev liblzma-dev \
     && rm -rf /var/lib/apt/lists/*
-ARG PYTHON_VERSION=3.14.3
+ARG PYTHON_VERSION=3.13.5
 RUN curl -fSL "https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz" -o python.tgz \
     && tar xzf python.tgz \
     && cd "Python-${PYTHON_VERSION}" \
     && ./configure \
-        --disable-gil \
-        --prefix=/opt/python3.14t \
+        --prefix=/opt/python3 \
         --enable-shared \
         --with-ensurepip=install \
-        LDFLAGS="-Wl,-rpath,/opt/python3.14t/lib" \
+        LDFLAGS="-Wl,-rpath,/opt/python3/lib" \
     && make -j"$(nproc)" \
     && make install \
     && cd / && rm -rf "Python-${PYTHON_VERSION}" python.tgz
-RUN ln -sf python3.14t /opt/python3.14t/bin/python3 \
-    && ln -sf python3   /opt/python3.14t/bin/python  \
-    && ln -sf pip3      /opt/python3.14t/bin/pip
+RUN ln -sf python3 /opt/python3/bin/python \
+    && ln -sf pip3   /opt/python3/bin/pip
 
 
-# Build Python 3.13 from source (for nn-service — torch.compile reduce-overhead needs GIL)
-FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04 AS python-builder-313
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential curl ca-certificates \
-        libffi-dev libssl-dev zlib1g-dev libbz2-dev \
-        libreadline-dev libsqlite3-dev liblzma-dev \
-    && rm -rf /var/lib/apt/lists/*
-ARG PYTHON313_VERSION=3.13.5
-RUN curl -fSL "https://www.python.org/ftp/python/${PYTHON313_VERSION}/Python-${PYTHON313_VERSION}.tgz" -o python.tgz \
-    && tar xzf python.tgz \
-    && cd "Python-${PYTHON313_VERSION}" \
-    && ./configure \
-        --prefix=/opt/python313 \
-        --enable-shared \
-        --with-ensurepip=install \
-        LDFLAGS="-Wl,-rpath,/opt/python313/lib" \
-    && make -j"$(nproc)" \
-    && make install \
-    && cd / && rm -rf "Python-${PYTHON313_VERSION}" python.tgz
-RUN ln -sf python3 /opt/python313/bin/python \
-    && ln -sf pip3   /opt/python313/bin/pip
+# ══════════════════════════════════════════════════════════════════════
+# Trainer / worker build chain (Python 3.13 + PyTorch + Rust extension)
+# ══════════════════════════════════════════════════════════════════════
 
-
-# ── Worker build chain (Python 3.14t) ──
-
-FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04 AS base-cuda
+FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04 AS base-main
 ENV PYTHONUNBUFFERED=1               \
     PYTHONDONTWRITEBYTECODE=1        \
     PIP_NO_CACHE_DIR=off             \
     PIP_DISABLE_PIP_VERSION_CHECK=on \
     PIP_DEFAULT_TIMEOUT=100          \
     WORKDIR=/code
-COPY --from=python-builder /opt/python3.14t /opt/python3.14t
-ENV PATH="/opt/python3.14t/bin:$PATH"
+COPY --from=python-builder /opt/python3 /opt/python3
+ENV PATH="/opt/python3/bin:$PATH"
 RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && apt-get clean && rm -rf /var/lib/apt/lists/* \
     && mkdir -p ${WORKDIR}
 WORKDIR ${WORKDIR}
 
-FROM base-cuda AS base-torch
+FROM base-main AS base-torch
 RUN python3 -m venv .venv --prompt alpha-cc
 ENV PATH="$WORKDIR/.venv/bin:$PATH"
 RUN pip install torch --index-url https://pypi.org/simple --extra-index-url https://download.pytorch.org/whl/cu128
@@ -70,7 +47,7 @@ RUN pip install torch --index-url https://pypi.org/simple --extra-index-url http
 FROM base-torch AS python-deps
 RUN apt-get update                                \
     && apt-get install -y --no-install-recommends \
-        clang libssl-dev make pkg-config gcc g++ protobuf-compiler \
+        clang libssl-dev make pkg-config gcc g++ protobuf-compiler git \
     && apt-get clean                              \
     && rm -rf /var/lib/apt/lists/*
 COPY setup.py pyproject.toml setup.cfg ${WORKDIR}/
@@ -78,9 +55,10 @@ RUN mkdir -p alpha_cc \
     && echo '__version__ = "0.0.0"' > alpha_cc/_version.py \
     && touch alpha_cc/__init__.py \
     && pip install . \
+    && pip install onnxscript \
     && pip uninstall -y alpha-cc
 
-FROM python-deps AS builder-rs
+FROM python-deps AS builder-main
 RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
 ENV PATH="/root/.cargo/bin:$PATH"
 ENV LIBTORCH_USE_PYTORCH=1
@@ -91,72 +69,51 @@ COPY engine/src ${WORKDIR}/engine/src
 COPY engine/build.rs ${WORKDIR}/engine/build.rs
 COPY engine/proto ${WORKDIR}/engine/proto
 RUN bash -c 'cd $WORKDIR/engine && maturin develop --release --features extension-module'
-
-FROM builder-rs AS builder
 COPY alpha_cc ${WORKDIR}/alpha_cc
 RUN pip install --no-deps .
 
-FROM base-cuda AS main
+# Trainer / worker runtime
+FROM base-main AS main
 ENV PATH="$WORKDIR/.venv/bin:$PATH"
 WORKDIR ${WORKDIR}
-COPY --from=builder /code/.venv /code/.venv
+COPY --from=builder-main /code/.venv /code/.venv
 CMD ["bash"]
 
 
-# ── nn-service build chain (Python 3.13) ──
+# ══════════════════════════════════════════════════════════════════════
+# nn-service build chain (pure Rust, no Python, no libtorch)
+# ══════════════════════════════════════════════════════════════════════
 
-FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04 AS base-cuda-313
-ENV PYTHONUNBUFFERED=1               \
-    PYTHONDONTWRITEBYTECODE=1        \
-    PIP_NO_CACHE_DIR=off             \
-    PIP_DISABLE_PIP_VERSION_CHECK=on \
-    PIP_DEFAULT_TIMEOUT=100          \
-    WORKDIR=/code
-COPY --from=python-builder-313 /opt/python313 /opt/python313
-ENV PATH="/opt/python313/bin:$PATH"
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
-    && apt-get clean && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p ${WORKDIR}
-WORKDIR ${WORKDIR}
+FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04 AS base-nnservice
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl build-essential pkg-config libssl-dev protobuf-compiler \
+        libnvinfer10 libnvinfer-plugin10 libnvonnxparsers10 \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-FROM base-cuda-313 AS base-torch-313
-RUN python3 -m venv .venv --prompt alpha-cc
-ENV PATH="$WORKDIR/.venv/bin:$PATH"
-RUN pip install torch --index-url https://pypi.org/simple --extra-index-url https://download.pytorch.org/whl/cu128
-
-FROM base-torch-313 AS python-deps-313
-RUN apt-get update                                \
-    && apt-get install -y --no-install-recommends \
-        clang libssl-dev make pkg-config gcc g++ protobuf-compiler \
-    && apt-get clean                              \
-    && rm -rf /var/lib/apt/lists/*
-COPY setup.py pyproject.toml setup.cfg ${WORKDIR}/
-RUN mkdir -p alpha_cc \
-    && echo '__version__ = "0.0.0"' > alpha_cc/_version.py \
-    && touch alpha_cc/__init__.py \
-    && pip install . \
-    && pip uninstall -y alpha-cc
-
-FROM python-deps-313 AS builder-rs-313
+FROM base-nnservice AS builder-nnservice
 RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
 ENV PATH="/root/.cargo/bin:$PATH"
-RUN mkdir -p ${WORKDIR}/engine
-COPY engine/pyproject.toml engine/Cargo.toml engine/Cargo.lock ${WORKDIR}/engine/
-RUN bash -c 'cd $WORKDIR/engine && cargo fetch || true'
-COPY engine/src ${WORKDIR}/engine/src
-COPY engine/build.rs ${WORKDIR}/engine/build.rs
-COPY engine/proto ${WORKDIR}/engine/proto
-ENV LIBTORCH_USE_PYTORCH=1
-RUN bash -c 'cd $WORKDIR/engine && maturin develop --release --features extension-module'
-RUN bash -c 'cd $WORKDIR/engine && cargo build --release --bin nn-service'
+WORKDIR /code/engine
+COPY engine/Cargo.toml engine/Cargo.lock ./
+RUN cargo fetch || true
+COPY engine/src ./src
+COPY engine/build.rs ./build.rs
+COPY engine/proto ./proto
+RUN cargo build --release --bin nn-service
 
-FROM builder-rs-313 AS builder-nn-service
-COPY alpha_cc ${WORKDIR}/alpha_cc
-RUN pip install --no-deps .
-
-# nn-service runner: Python 3.13, both backends available via --backend tch|pytorch
-FROM builder-nn-service AS nn-service
-COPY --from=builder-rs-313 /code/engine/target/release/nn-service /app/nn-service
-# libtorch .so files live inside the PyTorch wheel in the venv
-ENV LD_LIBRARY_PATH="/opt/python313/lib:/code/.venv/lib/python3.13/lib-dynload:/code/.venv/lib/python3.13/site-packages/torch/lib:${LD_LIBRARY_PATH}"
+# nn-service runtime: just the binary + CUDA/TRT libs + onnxruntime
+FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04 AS nn-service
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libnvinfer10 libnvinfer-plugin10 libnvonnxparsers10 \
+        python3 python3-pip \
+    && pip install --break-system-packages onnxruntime-gpu \
+    && apt-get remove -y python3-pip \
+    && apt-get autoremove -y \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+COPY --from=builder-nnservice /code/engine/target/release/nn-service /app/nn-service
+# Register onnxruntime libs in ldconfig so ort's dlopen("libonnxruntime.so") finds them
+RUN ORT_CAPI=$(python3 -c "import onnxruntime, os; print(os.path.join(os.path.dirname(onnxruntime.__file__), 'capi'))") \
+    && ln -sf "$ORT_CAPI"/libonnxruntime.so.* "$ORT_CAPI/libonnxruntime.so" \
+    && echo "$ORT_CAPI" > /etc/ld.so.conf.d/onnxruntime.conf \
+    && ldconfig
 CMD ["/app/nn-service", "server"]

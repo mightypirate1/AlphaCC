@@ -143,9 +143,6 @@ impl OnnxBackend {
             .map_err(|e| anyhow::anyhow!("execution providers: {e}"))?
             .commit_from_memory(bytes)
             .map_err(|e| anyhow::anyhow!("commit_from_memory: {e}"))?;
-        // Check if the session's default allocator is on a CUDA device
-        let info = session.allocator().memory_info();
-        eprintln!("[onnx] session allocator device: {:?} (id={})", info.allocation_device(), info.device_id());
         Ok(OnnxSession::new(session))
     }
 
@@ -205,7 +202,12 @@ impl Backend for OnnxBackend {
     fn model_from_bytes(&self, bytes: &[u8]) -> anyhow::Result<OnnxSession> {
         let session = Self::build_session(bytes)?;
         // Initialize the CUDA allocator on first model load
-        let _ = self.cuda_allocator.set(create_cuda_allocator(&session.lock()));
+        if self.cuda_allocator.get().is_none() {
+            let alloc = create_cuda_allocator(&session.lock());
+            let info = alloc.0.memory_info();
+            eprintln!("[onnx] CUDA allocator device: {:?} (id={})", info.allocation_device(), info.device_id());
+            let _ = self.cuda_allocator.set(alloc);
+        }
         Ok(session)
     }
 

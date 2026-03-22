@@ -18,11 +18,9 @@ class ResBlock(torch.nn.Module):
         self.bn1 = torch.nn.BatchNorm2d(out_channels) if apply_batch_norm else torch.nn.Identity()
         self.bn2 = torch.nn.BatchNorm2d(out_channels) if apply_batch_norm else torch.nn.Identity()
         self.relu = torch.nn.ReLU()
-
-        if in_channels != out_channels:
-            self.skip = torch.nn.Conv2d(in_channels, out_channels, 1)
-        else:
-            self.skip = torch.nn.Identity()
+        self.skip = (
+            torch.nn.Conv2d(in_channels, out_channels, 1) if in_channels != out_channels else torch.nn.Identity()
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         residual = self.skip(x)

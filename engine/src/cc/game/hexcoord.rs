@@ -1,17 +1,16 @@
 use std::vec::Vec;
+
+#[cfg(feature = "extension-module")]
 extern crate pyo3;
-use pyo3::prelude::*;
 
 use crate::cc::dtypes;
 
 
 
-#[pyclass(module="alpha_cc_engine", from_py_object)]
+#[cfg_attr(feature = "extension-module", pyo3::prelude::pyclass(module="alpha_cc_engine", from_py_object))]
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct HexCoord {
-    #[pyo3(get)]
     pub x: dtypes::BoardSize,
-    #[pyo3(get)]
     pub y: dtypes::BoardSize,
     board_size: dtypes::BoardSize,
 }
@@ -81,7 +80,8 @@ impl HexCoord {
 }
 
 
-#[pymethods]
+/// Methods used from both Rust and Python.
+#[cfg_attr(feature = "extension-module", pyo3::prelude::pymethods)]
 impl HexCoord {
     pub fn get_all_neighbours(&self, distance: usize) -> Vec<HexCoord> {
         let mb_neighbors = vec![
@@ -107,7 +107,25 @@ impl HexCoord {
         }
     }
 
-    pub fn __repr__(&self) -> String {
+    pub fn repr(&self) -> String {
         format!("HexCoord[{}, {}]", self.x, self.y)
+    }
+}
+
+#[cfg(feature = "extension-module")]
+#[pyo3::prelude::pymethods]
+impl HexCoord {
+    #[getter]
+    fn get_x(&self) -> dtypes::BoardSize {
+        self.x
+    }
+
+    #[getter]
+    fn get_y(&self) -> dtypes::BoardSize {
+        self.y
+    }
+
+    pub fn __repr__(&self) -> String {
+        self.repr()
     }
 }

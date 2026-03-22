@@ -1,26 +1,21 @@
+#[cfg(feature = "extension-module")]
 extern crate pyo3;
-use pyo3::prelude::*;
 
 use crate::cc::dtypes;
 
-#[pyclass(module="alpha_cc_engine")]
+#[cfg_attr(feature = "extension-module", pyo3::prelude::pyclass(module="alpha_cc_engine", get_all))]
 pub struct BoardInfo {
-    #[pyo3(get)]
     pub current_player: i8,
-    #[pyo3(get)]
     pub winner: i8,
-    #[pyo3(get)]
     pub size: dtypes::BoardSize,
-    #[pyo3(get)]
     pub duration: dtypes::GameDuration,
-    #[pyo3(get)]
     pub game_over: bool,
-    #[pyo3(get)]
     pub reward: f32,
 }
 
 
-#[pymethods]
+#[cfg(feature = "extension-module")]
+#[pyo3::prelude::pymethods]
 impl BoardInfo {
     pub fn __repr__(&self) -> String {
         format!(
