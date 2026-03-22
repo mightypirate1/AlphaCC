@@ -134,9 +134,9 @@ class MCTS:
         """
         ...
 
-    def advance_root(self, action: int) -> Board | None:
+    def advance_root(self, action: int) -> None:
         """Advance the tree root to the child reached by `action`.
-        Prunes sibling subtrees. Returns the board at the new root."""
+        Prunes sibling subtrees."""
         ...
 
     def get_fetch_stats(self) -> FetchStats:

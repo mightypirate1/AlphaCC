@@ -55,6 +55,40 @@ impl ModelSource for TrainingDBRs {
             .context("redis GET failed")?;
         bytes.ok_or_else(|| anyhow!("no weights for version {version} (key={key})"))
     }
+
+    fn try_acquire_build_lock(&self, version: usize) -> bool {
+        let key = format!("trt-build-lock:{version}");
+        let mut conn = self.conn.lock().unwrap();
+        // SETNX + EXPIRE: acquire lock with 120s TTL (safety net if holder crashes)
+        let acquired: bool = redis::cmd("SET")
+            .arg(&key).arg("1").arg("NX").arg("EX").arg(120)
+            .query(&mut *conn)
+            .unwrap_or(false);
+        acquired
+    }
+
+    fn release_build_lock(&self, version: usize) {
+        let key = format!("trt-build-lock:{version}");
+        let mut conn = self.conn.lock().unwrap();
+        let _: () = redis::cmd("DEL").arg(&key).query(&mut *conn).unwrap_or(());
+    }
+
+    fn is_build_complete(&self, version: usize) -> bool {
+        let key = format!("trt-build-done:{version}");
+        let mut conn = self.conn.lock().unwrap();
+        let exists: bool = conn.exists(&key).unwrap_or(false);
+        exists
+    }
+
+    fn mark_build_complete(&self, version: usize) {
+        let key = format!("trt-build-done:{version}");
+        let mut conn = self.conn.lock().unwrap();
+        // Mark complete with 300s TTL (long enough for all replicas to load)
+        let _: () = redis::cmd("SET")
+            .arg(&key).arg("1").arg("EX").arg(300)
+            .query(&mut *conn)
+            .unwrap_or(());
+    }
 }
 
 fn weight_key(index: u32) -> String {

@@ -88,7 +88,7 @@ def main(
     )
     if existing_checkpoint is None:
         db.flush_db()  # safe fresh start
-        curr_index = publish_weights(trainer.nn, db, size)
+        curr_index, _ = publish_weights(trainer.nn, db, size)
         champion_index = curr_index
         replay_buffer = TrainingDataset(max_size=replay_buffer_size)
     else:
@@ -122,8 +122,8 @@ def main(
         replay_buffer.move_new_to_main_buffer(drop_internal_nodes=not multiple_training_steps_on_internal_nodes)
 
         # publish weights
-        curr_index = publish_weights(trainer.nn, db, size)
-        save_weights(run_id, curr_index, trainer.nn.state_dict())
+        curr_index, onnx_payload = publish_weights(trainer.nn, db, size)
+        save_weights(run_id, curr_index, trainer.nn.state_dict(), onnx_payload)
 
         # periodically run tournament
         if curr_index % tournament_freq == 0:
@@ -182,12 +182,12 @@ def publish_weights(
     model: torch.nn.Module,
     db: TrainingDB,
     board_size: int,
-) -> int:
+) -> tuple[int, bytes]:
     payload = _serialize_model(model, board_size)
     curr_idx = db.weights_incr_weights_index()
     db.weights_publish(payload, curr_idx, set_latest=True)
     db.model_set_current(0, curr_idx)
-    return curr_idx
+    return curr_idx, payload
 
 
 def initialize_training(
@@ -309,12 +309,16 @@ def create_and_register_signal_handler(
     signal.signal(signal.SIGTERM, signal_handler)
 
 
-def save_weights(run_id: str, curr_index: int, weights: dict[str, Any]) -> None:
+def save_weights(run_id: str, curr_index: int, weights: dict[str, Any], onnx_payload: bytes) -> None:
     path = save_path(run_id, curr_index)
     latest_path = save_path_latest(run_id)
+    onnx_path = save_path(run_id, curr_index, ext="onnx")
+    onnx_latest_path = save_path_latest(run_id, ext="onnx")
     Path(path).parent.mkdir(exist_ok=True, parents=True)
     torch.save(weights, latest_path)
     torch.save(weights, path)
+    Path(onnx_latest_path).write_bytes(onnx_payload)
+    Path(onnx_path).write_bytes(onnx_payload)
 
 
 def load_weights(run_id: str, index: int) -> dict[str, Any]:
@@ -324,12 +328,12 @@ def load_weights(run_id: str, index: int) -> dict[str, Any]:
     return torch.load(path, weights_only=True)
 
 
-def save_path_latest(run_id: str) -> str:
-    return f"{save_root(run_id)}/weights-latest.pth"
+def save_path_latest(run_id: str, ext: str = "pth") -> str:
+    return f"{save_root(run_id)}/weights-latest.{ext}"
 
 
-def save_path(run_id: str, index: int) -> str:
-    return f"{save_root(run_id)}/weights-{str(index).zfill(4)}.pth"
+def save_path(run_id: str, index: int, ext: str = "pth") -> str:
+    return f"{save_root(run_id)}/weights-{str(index).zfill(4)}.{ext}"
 
 
 def save_root(run_id: str) -> str:

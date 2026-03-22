@@ -105,32 +105,31 @@ impl Tree {
     }
 
     /// Set the root board (called when starting rollouts on a new position).
-    pub fn set_root(&self, board: Board) {
-        *self.root.lock().unwrap() = Some(board);
+    pub fn set_root(&self, board: &Board) {
+        *self.root.lock().unwrap() = Some(board.clone());
     }
 
     /// Insert node data for a board position. Returns true if newly inserted.
     /// Uses DashMap's entry API to avoid races between contains_key and insert.
-    pub fn insert_data(&self, board: Board, pi: Vec<f32>, v: f32) -> bool {
+    pub fn insert_data(&self, board: &Board, pi: Vec<f32>, v: f32) -> bool {
         use dashmap::mapref::entry::Entry;
         match self.data.entry(board.clone()) {
             Entry::Occupied(_) => false,
             Entry::Vacant(e) => {
-                e.insert(NodeData::new(pi, v, &board));
+                e.insert(NodeData::new(pi, v, board));
                 true
             }
         }
     }
 
     /// Advance the root to the position reached by `action`.
-    /// Returns the board at the new root, or None if root has no data.
-    pub fn advance_root(&self, action: usize) -> Option<Board> {
+    /// Prunes the old root from the tree.
+    pub fn advance_root(&self, action: usize) {
         let mut root_guard = self.root.lock().unwrap();
-        let root_board = root_guard.take()?;
-        let data_ref = self.data.get(&root_board)?;
+        let Some(root_board) = root_guard.take() else { return };
+        let Some(data_ref) = self.data.get(&root_board) else { return };
         let new_board = root_board.apply(&data_ref.moves[action]);
-        *root_guard = Some(new_board.clone());
-        Some(new_board)
+        *root_guard = Some(new_board);
     }
 
     /// Get a reference to node data for a board position.

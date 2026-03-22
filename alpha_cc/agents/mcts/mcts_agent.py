@@ -60,13 +60,9 @@ class MCTSAgent(Agent):
             action_index = np.random.choice(len(pi), p=pi)
         return action_index
 
-    def advance_root(self, action: int) -> Board:
-        """Advance the tree root to the child reached by `action`.
-        Prunes sibling subtrees. Returns the board at the new root."""
-        board = self._mcts.advance_root(action)
-        if board is None:
-            raise ValueError(f"advance_root({action}) failed — child not in tree")
-        return board
+    def on_move_applied(self, action: int) -> None:
+        """Notify the agent that a move was applied, so it can update internals (e.g. reroot the tree)."""
+        self._mcts.advance_root(action)
 
     def run_rollouts(
         self,

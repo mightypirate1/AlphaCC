@@ -98,21 +98,26 @@ pub struct OnnxBackend {
     cuda_allocator: OnceLock<SyncAllocator>,
     game_size: i64,
     verbose: bool,
+    trt_cache_path: Option<String>,
 }
 
 impl OnnxBackend {
-    pub fn new(models: Vec<VersionedModel<OnnxSession>>, game_size: i64, verbose: bool, max_models: usize) -> Self {
+    pub fn new(models: Vec<VersionedModel<OnnxSession>>, game_size: i64, verbose: bool, max_models: usize, trt_cache_path: Option<String>) -> Self {
         let cuda_allocator = OnceLock::new();
         // Eagerly initialize if we have a model at startup
         if let Some(first) = models.first() {
             let session = first.model.lock();
             let _ = cuda_allocator.set(create_cuda_allocator(&session));
         }
+        if let Some(path) = &trt_cache_path {
+            eprintln!("[onnx] TensorRT engine cache enabled at: {path}");
+        }
         Self {
             models: ModelStore::new(models, max_models),
             cuda_allocator,
             game_size,
             verbose,
+            trt_cache_path,
         }
     }
 
@@ -126,30 +131,41 @@ impl OnnxBackend {
         }
     }
 
-    fn execution_providers() -> Vec<ort::execution_providers::ExecutionProviderDispatch> {
-        vec![
-            TensorRTExecutionProvider::default().build(),
-            CUDAExecutionProvider::default().build(),
-        ]
+    fn execution_providers(&self) -> Vec<ort::execution_providers::ExecutionProviderDispatch> {
+        let trt = match &self.trt_cache_path {
+            Some(path) => TensorRTExecutionProvider::default()
+                .with_engine_cache(true)
+                .with_engine_cache_path(path)
+                .build(),
+            None => TensorRTExecutionProvider::default().build(),
+        };
+        vec![trt, CUDAExecutionProvider::default().build()]
     }
 
-    fn build_session(bytes: &[u8]) -> anyhow::Result<OnnxSession> {
+    fn build_session(&self, bytes: &[u8]) -> anyhow::Result<OnnxSession> {
         eprintln!("[onnx] building session from {} bytes", bytes.len());
         let session = Session::builder()
             .map_err(|e| anyhow::anyhow!("session builder: {e}"))?
             .with_log_level(ort::logging::LogLevel::Verbose)
             .map_err(|e| anyhow::anyhow!("log level: {e}"))?
-            .with_execution_providers(Self::execution_providers())
+            .with_execution_providers(self.execution_providers())
             .map_err(|e| anyhow::anyhow!("execution providers: {e}"))?
             .commit_from_memory(bytes)
             .map_err(|e| anyhow::anyhow!("commit_from_memory: {e}"))?;
         Ok(OnnxSession::new(session))
     }
 
-    pub fn load_session_from_file(path: &str) -> anyhow::Result<OnnxSession> {
+    pub fn load_session_from_file(path: &str, trt_cache_path: Option<&str>) -> anyhow::Result<OnnxSession> {
+        let trt = match trt_cache_path {
+            Some(cache) => TensorRTExecutionProvider::default()
+                .with_engine_cache(true)
+                .with_engine_cache_path(cache)
+                .build(),
+            None => TensorRTExecutionProvider::default().build(),
+        };
         let session = Session::builder()
             .map_err(|e| anyhow::anyhow!("session builder: {e}"))?
-            .with_execution_providers(Self::execution_providers())
+            .with_execution_providers(vec![trt, CUDAExecutionProvider::default().build()])
             .map_err(|e| anyhow::anyhow!("execution providers: {e}"))?
             .commit_from_file(path)
             .map_err(|e| anyhow::anyhow!("commit_from_file: {e}"))?;
@@ -200,7 +216,7 @@ impl Backend for OnnxBackend {
     }
 
     fn model_from_bytes(&self, bytes: &[u8]) -> anyhow::Result<OnnxSession> {
-        let session = Self::build_session(bytes)?;
+        let session = self.build_session(bytes)?;
         // Initialize the CUDA allocator on first model load
         if self.cuda_allocator.get().is_none() {
             let alloc = create_cuda_allocator(&session.lock());

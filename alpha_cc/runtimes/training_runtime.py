@@ -24,8 +24,8 @@ class TrainingRunTime:
     def play_game(
         self,
         agent: MCTSAgent,
-        n_rollouts: int | None = None,
-        rollout_depth: int | None = None,
+        n_rollouts: int,
+        rollout_depth: int,
         action_temperature: float = 1.0,
         max_game_length: int | None = None,
         argmax_delay: int | None = None,
@@ -36,8 +36,6 @@ class TrainingRunTime:
         max_game_duration = np.inf if max_game_length is None else max_game_length
         time_to_argmax = argmax_delay if argmax_delay is not None else np.inf
         agent.on_game_start()
-
-        effective_n_rollouts = n_rollouts if n_rollouts is not None else agent._n_rollouts
         snapshot_interval = 1 if internal_nodes_fraction else 0
 
         trajectory: list[MCTSExperience] = []
@@ -63,11 +61,11 @@ class TrainingRunTime:
                 )
                 trajectory.append(experience)
 
-                # Sample internal nodes BEFORE advance_root prunes the tree
+                # Sample internal nodes BEFORE on_move_applied prunes the tree
                 if snapshot_interval and len(trajectory) % snapshot_interval == 0:
                     internal_nodes.update(
                         _sample_internal_nodes(
-                            agent=agent,
+                            nodes=agent.internal_nodes,
                             trajectory=trajectory,
                             fraction=internal_nodes_fraction,  # type: ignore[arg-type]
                             min_visits=internal_nodes_min_visits,
@@ -79,7 +77,8 @@ class TrainingRunTime:
                 if (time_to_argmax := time_to_argmax - 1) >= 0:
                     a = np.random.choice(len(pi), p=pi)
 
-                board = agent.advance_root(a)
+                agent.on_move_applied(a)
+                board = board.apply(board.get_moves()[a])
                 pbar.update(1)
         training_data = TrainingData(
             trajectory=self._value_assignment_strategy(trajectory, final_board=board),
@@ -91,7 +90,7 @@ class TrainingRunTime:
 
 
 def _sample_internal_nodes(
-    agent: MCTSAgent,
+    nodes: dict[Board, MCTSNodePy],
     trajectory: list[MCTSExperience],
     fraction: float,
     min_visits: int,
@@ -109,9 +108,9 @@ def _sample_internal_nodes(
 
     real_hashes = {exp.state.hash for exp in trajectory}
     candidates = [
-        (GameState(board), MCTSNodePy.from_node(node))
-        for board, node in agent._mcts.get_nodes().items()
-        if sum(node.n) >= min_visits and hash(board) not in real_hashes
+        (GameState(board), node)
+        for board, node in nodes.items()
+        if node.n.sum() >= min_visits and hash(board) not in real_hashes
     ]
     if not candidates:
         return {}

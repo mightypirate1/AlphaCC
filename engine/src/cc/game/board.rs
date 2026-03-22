@@ -36,6 +36,12 @@ pub struct Board {
     home_capacity: dtypes::HomeCapacity,
     matrix: BoardMatrix,
     current_player: i8,
+    #[bitcode(skip)]
+    cached_hash: u64,
+    #[bitcode(skip)]
+    cached_reward: f32,
+    #[bitcode(skip)]
+    cached_winner: i8,
 }
 
 impl PartialEq for Board {
@@ -48,24 +54,38 @@ impl Eq for Board {}
 
 impl Hash for Board {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.matrix.hash(state);
+        self.cached_hash.hash(state);
     }
 }
 
 impl Board {
+    fn recompute_cache(&mut self) {
+        let mut hasher = DefaultHasher::new();
+        self.matrix.hash(&mut hasher);
+        self.cached_hash = hasher.finish();
+        let (reward, winner) = self.compute_reward_and_winner();
+        self.cached_reward = reward;
+        self.cached_winner = winner;
+    }
+
     pub fn create(size: usize) -> Board {
         if ![3, 5, 7, 9].contains(&size) {
             panic!("supports sizes: 3, 5, 7, 9");
         }
         let size = size as dtypes::BoardSize;
-        Board {
+        let mut board = Board {
             size,
             duration: 0,
             home_size: Board::home_size(size),
             home_capacity: Board::home_capacity(size),
             matrix: Board::initialize_matrix(size),
             current_player: 1,
-        }
+            cached_hash: 0,
+            cached_reward: 0.0,
+            cached_winner: 0,
+        };
+        board.recompute_cache();
+        board
     }
 
     pub fn get_size(&self) -> dtypes::BoardSize {
@@ -122,20 +142,23 @@ impl Board {
 
         matrix[flipped_from_x][flipped_from_y] = to_coord_content;
         matrix[flipped_to_x][flipped_to_y] = 2;  // 2 is the current player (since the board is flipped)
-        Board {
+        let mut board = Board {
             size: self.size,
             duration: self.duration + 1,
             home_size: self.home_size,
             home_capacity: self.home_capacity,
             matrix,
             current_player: if self.current_player == 1 {2} else {1},
-        }
+            cached_hash: 0,
+            cached_reward: 0.0,
+            cached_winner: 0,
+        };
+        board.recompute_cache();
+        board
     }
 
     pub fn compute_hash(&self) -> dtypes::BoardHash {
-        let mut hasher = DefaultHasher::new();
-        self.hash(&mut hasher);
-        hasher.finish()
+        self.cached_hash
     }
 
     pub fn compute_reward_and_winner(&self) -> (f32, i8) {
@@ -269,10 +292,12 @@ impl Board {
     }
 
     pub fn deserialize_rs(data: &[u8]) -> Board {
-        bitcode::decode(data)
+        let mut board: Board = bitcode::decode(data)
             .unwrap_or_else(|e| {
                 panic!("Failed to deserialize board state: {}", e)
-            })
+            });
+        board.recompute_cache();
+        board
     }
 }
 
@@ -340,14 +365,13 @@ impl Board {
 
 impl Board {
     pub fn get_info(&self) -> BoardInfo {
-        let (reward, winner) = self.compute_reward_and_winner();
         BoardInfo {
             current_player: self.current_player,
-            winner,
-            reward,
+            winner: self.cached_winner,
+            reward: self.cached_reward,
             size: self.size,
             duration: self.duration,
-            game_over: winner > 0,
+            game_over: self.cached_winner > 0,
         }
     }
 }
@@ -384,12 +408,7 @@ impl Board {
         let py_bytes = state.extract::<Bound<'_, PyBytes>>(py)?;
         let bytes = py_bytes.as_bytes();
         let board = Board::deserialize_rs(bytes);
-        self.size = board.size;
-        self.duration = board.duration;
-        self.home_size = board.home_size;
-        self.home_capacity = board.home_capacity;
-        self.matrix = board.matrix;
-        self.current_player = board.current_player;
+        *self = board;
         Ok(())
     }
 

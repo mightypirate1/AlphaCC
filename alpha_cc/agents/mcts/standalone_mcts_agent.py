@@ -71,6 +71,9 @@ class StandaloneMCTSAgent(MCTSAgent):
     def on_game_end(self) -> None:
         pass
 
+    def on_move_applied(self, action: int) -> None:
+        pass
+
     def get_worker_stats(self) -> WorkerStats:
         # StandaloneMCTSAgent does not use the Rust MCTS engine, so no real stats
         return WorkerStats.empty()

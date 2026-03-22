@@ -15,4 +15,14 @@ pub trait ModelSource: Send + Sync + 'static {
     fn desired_versions(&self) -> Option<HashMap<usize, usize>>;
     /// Load raw model bytes for a given version.
     fn load_bytes(&self, version: usize) -> Result<Vec<u8>>;
+
+    /// Try to acquire a build lock for the given version (SETNX-style).
+    /// Returns true if this instance should build; false if another is building.
+    fn try_acquire_build_lock(&self, _version: usize) -> bool { true }
+    /// Release the build lock.
+    fn release_build_lock(&self, _version: usize) {}
+    /// Check whether another instance has finished building this version.
+    fn is_build_complete(&self, _version: usize) -> bool { true }
+    /// Mark the build as complete so other instances can proceed.
+    fn mark_build_complete(&self, _version: usize) {}
 }

@@ -31,8 +31,15 @@ impl HexCoord {
         HexCoord::new(x as dtypes::BoardSize, y as dtypes::BoardSize, board_size as dtypes::BoardSize)
     }
 
-    pub fn get_all_directions(&self) -> Vec<usize> {
-        vec![0, 1, 2, 3, 4, 5]
+    pub fn get_all_neighbours_arr(&self, distance: usize) -> [Option<HexCoord>; 6] {
+        [
+            self.get_neighbor(0, distance),
+            self.get_neighbor(1, distance),
+            self.get_neighbor(2, distance),
+            self.get_neighbor(3, distance),
+            self.get_neighbor(4, distance),
+            self.get_neighbor(5, distance),
+        ]
     }
 
     #[allow(clippy::identity_op)]
@@ -83,18 +90,6 @@ impl HexCoord {
 /// Methods used from both Rust and Python.
 #[cfg_attr(feature = "extension-module", pyo3::prelude::pymethods)]
 impl HexCoord {
-    pub fn get_all_neighbours(&self, distance: usize) -> Vec<HexCoord> {
-        let mb_neighbors = vec![
-            self.get_neighbor(0, distance),
-            self.get_neighbor(1, distance),
-            self.get_neighbor(2, distance),
-            self.get_neighbor(3, distance),
-            self.get_neighbor(4, distance),
-            self.get_neighbor(5, distance),
-        ];
-        mb_neighbors.into_iter().flatten().collect()
-    }
-
     pub fn flip(&self) -> HexCoord {
         /*
         the game engine will flip boards so that player 1 is always at the top,
@@ -115,6 +110,10 @@ impl HexCoord {
 #[cfg(feature = "extension-module")]
 #[pyo3::prelude::pymethods]
 impl HexCoord {
+    pub fn get_all_neighbours(&self, distance: usize) -> Vec<HexCoord> {
+        self.get_all_neighbours_arr(distance).into_iter().flatten().collect()
+    }
+
     #[getter]
     fn get_x(&self) -> dtypes::BoardSize {
         self.x

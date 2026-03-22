@@ -4,6 +4,7 @@ extern crate rand_distr;
 
 use std::io::Error;
 use std::sync::Arc;
+use std::time::Duration;
 #[cfg(feature = "extension-module")]
 use std::collections::HashMap;
 
@@ -13,25 +14,19 @@ use rand::prelude::*;
 use rand_distr::multi::Dirichlet;
 
 use crate::cc::game::board::Board;
-use crate::cc::predictions::NNPred;
 #[cfg(feature = "extension-module")]
 use crate::cc::predictions::FetchStats;
+#[cfg(feature = "extension-module")]
 use crate::cc::rollouts::mcts_node::MCTSNode;
 use crate::cc::rollouts::tree::{NodeData, Tree};
-use crate::nn::client::PredictClient;
-use crate::nn::io;
-use super::super::predictions::inference_utils::softmax;
+use crate::cc::predictions::nn_remote::NNRemote;
 
-
-struct ThreadContext {
-    rt: tokio::runtime::Runtime,
-    client: PredictClient,
-}
+const DEFAULT_PREDICT_TIMEOUT: Duration = Duration::from_secs(1);
 
 #[cfg_attr(feature = "extension-module", pyo3::prelude::pyclass(module="alpha_cc_engine"))]
 pub struct MCTS {
     tree: Arc<Tree>,
-    thread_pool: Vec<ThreadContext>,
+    services: Vec<NNRemote>,
     model_id: u32,
     mcts_params: MCTSParams,
 }
@@ -53,50 +48,26 @@ impl MCTS {
         mcts_params: MCTSParams,
         n_threads: usize,
     ) -> Self {
-        let contexts: Vec<ThreadContext> = (0..n_threads.max(1))
-            .map(|_| {
-                let rt = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .expect("failed to create thread-local tokio runtime");
-                let client = rt.block_on(PredictClient::connect(nn_service_addr))
-                    .unwrap_or_else(|e| panic!("failed to connect to nn-service at {nn_service_addr}: {e}"));
-                ThreadContext { rt, client }
-            })
+        let services = (0..n_threads.max(1))
+            .map(|_| NNRemote::connect(nn_service_addr, DEFAULT_PREDICT_TIMEOUT))
             .collect();
-
         MCTS {
             tree: Arc::new(Tree::new()),
-            thread_pool: contexts,
+            services,
             model_id,
             mcts_params,
         }
     }
 
-    fn fetch_pred(
-        rt: &tokio::runtime::Runtime,
-        client: &PredictClient,
-        model_id: u32,
-        board: &Board,
-    ) -> Result<NNPred, Error> {
-        let (state_tensor, moves) = io::encode_request(board);
-        let resp = rt
-            .block_on(client.predict(state_tensor, moves, model_id))
-            .map_err(|e| Error::other(format!("prediction failed: {e}")))?;
-        let (logits, value) = io::decode_response(&resp);
-        let pi = softmax(&logits);
-        Ok(NNPred::new(pi, value))
-    }
-
     /// Perform a single rollout from `board` down the tree.
     fn rollout(
         tree: &Tree,
-        rt: &tokio::runtime::Runtime,
-        client: &PredictClient,
+        service: &NNRemote,
         model_id: u32,
-        board: Board,
+        board: &Board,
         remaining_depth: usize,
         params: &MCTSParams,
+        root_noise: Option<&[f32]>,
     ) -> Result<f32, Error> {
         let info = board.get_info();
         if info.game_over {
@@ -104,21 +75,21 @@ impl MCTS {
         }
 
         // Check if we have data for this board
-        if let Some(data) = tree.get_data(&board) {
+        if let Some(data) = tree.get_data(board) {
             if remaining_depth == 0 {
                 return Ok(-data.get_v());
             }
 
-            let a = find_best_action(&data, params.c_puct_init, params.c_puct_base);
+            let a = find_best_action(&data, params.c_puct_init, params.c_puct_base, root_noise, params.dirichlet_weight);
             let s_prime = board.apply(&data.moves[a]);
 
             data.apply_virtual_loss(a);
             drop(data);
 
-            let v = MCTS::rollout(tree, rt, client, model_id, s_prime, remaining_depth - 1, params)?;
+            let v = MCTS::rollout(tree, service, model_id, &s_prime, remaining_depth - 1, params, None)?;
             let gamma_v = params.gamma * v;
 
-            if let Some(data) = tree.get_data(&board) {
+            if let Some(data) = tree.get_data(board) {
                 data.resolve_virtual_loss(a, gamma_v);
             }
 
@@ -126,22 +97,10 @@ impl MCTS {
         }
 
         // Leaf: fetch prediction
-        let nn_pred = MCTS::fetch_pred(rt, client, model_id, &board)?;
+        let nn_pred = service.predict(board, model_id)
+            .map_err(|e| Error::other(format!("prediction failed: {e}")))?;
         let v = nn_pred.value();
-        let mut pi = nn_pred.pi();
-
-        if params.dirichlet_weight > 0.0 && pi.len() > 1 {
-            let alpha: Vec<f32> = pi.iter()
-                .map(|x| (x * params.dirichlet_alpha).max(f32::EPSILON))
-                .collect();
-            if let Ok(dirichlet) = Dirichlet::new(&alpha) {
-                let noise = dirichlet.sample(&mut rand::rng());
-                pi = pi.iter()
-                    .zip(noise.iter())
-                    .map(|(p, n)| p * (1.0 - params.dirichlet_weight) + n * params.dirichlet_weight)
-                    .collect();
-            }
-        }
+        let pi = nn_pred.pi();
 
         tree.insert_data(board, pi, v);
 
@@ -155,15 +114,30 @@ impl MCTS {
         rollout_depth: usize,
         temperature: f32,
     ) -> Result<(Vec<f32>, f32), Error> {
-        // Ensure root data exists (use first thread context)
-        let ctx0 = &self.thread_pool[0];
+        // Ensure root data exists
         if self.tree.get_data(board).is_none() {
-            let nn_pred = MCTS::fetch_pred(&ctx0.rt, &ctx0.client, self.model_id, board)?;
-            self.tree.insert_data(board.clone(), nn_pred.pi(), nn_pred.value());
+            let nn_pred = self.services[0].predict(board, self.model_id)
+                .map_err(|e| Error::other(format!("root prediction failed: {e}")))?;
+            self.tree.insert_data(board, nn_pred.pi(), nn_pred.value());
         }
-        self.tree.set_root(board.clone());
+        self.tree.set_root(board);
 
-        let n_threads = self.thread_pool.len().min(n_rollouts);
+        // Sample Dirichlet noise once for root exploration
+        let root_noise: Option<Vec<f32>> = if self.mcts_params.dirichlet_weight > 0.0 {
+            self.tree.get_data(board).and_then(|data| {
+                let pi: Vec<f32> = (0..data.num_actions()).map(|a| data.get_pi(a)).collect();
+                if pi.len() <= 1 { return None; }
+                let alpha: Vec<f32> = pi.iter()
+                    .map(|x| (x * self.mcts_params.dirichlet_alpha).max(f32::EPSILON))
+                    .collect();
+                Dirichlet::new(&alpha).ok().map(|d| d.sample(&mut rand::rng()))
+            })
+        } else {
+            None
+        };
+        let root_noise_ref = root_noise.as_deref();
+
+        let n_threads = self.services.len().min(n_rollouts);
         let rollouts_per_thread = n_rollouts / n_threads;
         let remainder = n_rollouts % n_threads;
 
@@ -171,28 +145,38 @@ impl MCTS {
         let params = &self.mcts_params;
         let model_id = self.model_id;
 
-        let value_sum: f64 = std::thread::scope(|s| {
-            let handles: Vec<_> = self.thread_pool[..n_threads].iter().enumerate().map(|(i, ctx)| {
+        let (value_sum, n_ok): (f64, u64) = std::thread::scope(|s| {
+            let handles: Vec<_> = self.services[..n_threads].iter().enumerate().map(|(i, svc)| {
                 let board = board.clone();
                 let extra = if i < remainder { 1 } else { 0 };
                 let count = rollouts_per_thread + extra;
 
                 s.spawn(move || {
                     let mut local_sum = 0.0f64;
+                    let mut local_ok = 0u64;
                     for _ in 0..count {
-                        match MCTS::rollout(tree, &ctx.rt, &ctx.client, model_id, board.clone(), rollout_depth, params) {
-                            Ok(v) => local_sum += (-v) as f64,
+                        match MCTS::rollout(tree, svc, model_id, &board, rollout_depth, params, root_noise_ref) {
+                            Ok(v) => {
+                                local_sum += (-v) as f64;
+                                local_ok += 1;
+                            }
                             Err(e) => eprintln!("rollout error: {e}"),
                         }
                     }
-                    local_sum
+                    (local_sum, local_ok)
                 })
             }).collect();
 
-            handles.into_iter().map(|h: std::thread::ScopedJoinHandle<'_, f64>| h.join().unwrap()).sum()
+            handles.into_iter()
+                .map(|h| h.join().unwrap())
+                .fold((0.0, 0), |(s, n), (ds, dn)| (s + ds, n + dn))
         });
 
-        let mean_value = (value_sum / n_rollouts as f64) as f32;
+        let mean_value = if n_ok > 0 {
+            (value_sum / n_ok as f64) as f32
+        } else {
+            0.0
+        };
 
         // Build pi from root node visit counts
         let pi = if let Some(data) = self.tree.get_data(board) {
@@ -223,7 +207,7 @@ impl MCTS {
 }
 
 
-fn find_best_action(data: &NodeData, c_puct_init: f32, c_puct_base: f32) -> usize {
+fn find_best_action(data: &NodeData, c_puct_init: f32, c_puct_base: f32, noise: Option<&[f32]>, dirichlet_weight: f32) -> usize {
     let sum_n: u32 = (0..data.num_actions()).map(|a| data.get_n(a)).sum();
     let sum_n_f = sum_n as f32;
     let c_puct = c_puct_init + ((sum_n_f + c_puct_base + 1.0) / c_puct_base).ln();
@@ -233,7 +217,11 @@ fn find_best_action(data: &NodeData, c_puct_init: f32, c_puct_base: f32) -> usiz
     for i in 0..data.num_actions() {
         let n_a = data.get_n(i) as f32;
         let prior_weight = c_puct * sum_n_f.sqrt() / (1.0 + n_a);
-        let u = data.get_q(i) + prior_weight * data.get_pi(i);
+        let pi = match noise {
+            Some(n) => (1.0 - dirichlet_weight) * data.get_pi(i) + dirichlet_weight * n[i],
+            None => data.get_pi(i),
+        };
+        let u = data.get_q(i) + prior_weight * pi;
         if u > best_u {
             best_u = u;
             best_action = i;
@@ -296,8 +284,8 @@ impl MCTS {
         Ok((pi_arr, mean_value))
     }
 
-    pub fn advance_root(&self, action: usize) -> Option<Board> {
-        self.tree.advance_root(action)
+    pub fn advance_root(&self, action: usize) {
+        self.tree.advance_root(action);
     }
 
     pub fn get_node(&self, board: &Board) -> Option<MCTSNode> {
@@ -312,6 +300,9 @@ impl MCTS {
 
     pub fn clear_nodes(&self) {
         self.tree.clear();
+        for svc in &self.services {
+            let _ = svc.reconnect();
+        }
     }
 
     pub fn get_fetch_stats(&self) -> FetchStats {

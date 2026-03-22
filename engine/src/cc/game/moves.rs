@@ -60,7 +60,7 @@ pub fn find_all_moves(board: &Board) -> Vec<Move> {
             from_coord = HexCoord::new(x, y , board.get_size());
             if board.coord_is_player1(&from_coord) {
                 from_coords.insert(from_coord);
-                for to_coord in from_coord.get_all_neighbours(1) {
+                for to_coord in from_coord.get_all_neighbours_arr(1).into_iter().flatten() {
                     if board.coord_is_empty(&to_coord)
                     || board.coord_is_player2_home(&to_coord)
                     && board.coord_is_player2(&to_coord) {
@@ -123,7 +123,7 @@ fn _recusive_exporation<'a>(
         `jump_moves` vec.
      */
 
-    for direction in current_coord.get_all_directions() {
+    for direction in 0..6 {
         if let Some(target_coord) = current_coord.get_neighbor(direction, 2) {
             if let Some(intermediate_coord) = current_coord.get_neighbor(direction, 1) {
             let is_standard_jump = board.coord_is_empty(&target_coord)

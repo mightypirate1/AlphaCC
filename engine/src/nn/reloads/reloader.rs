@@ -1,9 +1,25 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use crate::nn::backends::{Backend, VersionedModel};
 use super::ModelSource;
+
+static HEALTH_MARKED: AtomicBool = AtomicBool::new(false);
+
+fn mark_healthy(health_file: &Option<String>) {
+    if HEALTH_MARKED.swap(true, Ordering::Relaxed) {
+        return; // already marked
+    }
+    if let Some(path) = health_file {
+        if let Err(e) = std::fs::write(path, "ok") {
+            eprintln!("[reloader] warning: failed to write health file {path}: {e}");
+        } else {
+            eprintln!("[reloader] health file written: {path}");
+        }
+    }
+}
 
 /// Spawn a background thread that periodically polls `source` for desired model
 /// versions, diffs against the current ModelStore state, and reconciles:
@@ -14,17 +30,17 @@ pub fn spawn_reloader<B: Backend>(
     backend: Arc<B>,
     source: impl ModelSource,
     poll_interval: Duration,
+    health_file: Option<String>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
-
         loop {
             thread::sleep(poll_interval);
-            reload_cycle(&backend, &source);
+            reload_cycle(&backend, &source, &health_file);
         }
     })
 }
 
-fn reload_cycle<B: Backend>(backend: &Arc<B>, source: &impl ModelSource) {
+fn reload_cycle<B: Backend>(backend: &Arc<B>, source: &impl ModelSource, health_file: &Option<String>) {
     // 1. Poll desired state
     let desired = match source.desired_versions() {
         Some(d) => d,
@@ -63,13 +79,31 @@ fn reload_cycle<B: Backend>(backend: &Arc<B>, source: &impl ModelSource) {
             }
         };
 
-        // Construct model from bytes and compile
+        // Coordinated build: try to be the one that compiles (others wait for cache)
+        let is_builder = source.try_acquire_build_lock(desired_version);
+        if !is_builder {
+            // Another instance is building — wait for it to finish so TRT cache is populated
+            eprintln!(
+                "[reloader] waiting for another instance to build version={desired_version}..."
+            );
+            while !source.is_build_complete(desired_version) {
+                thread::sleep(Duration::from_secs(1));
+            }
+            eprintln!(
+                "[reloader] build complete for version={desired_version}, loading from cache"
+            );
+        }
+
+        // Construct model from bytes (builder: TRT compiles + caches; others: TRT loads from cache)
         let model = match backend.model_from_bytes(&bytes) {
             Ok(m) => m,
             Err(e) => {
                 eprintln!(
                     "[reloader] model_from_bytes failed for model_id={model_id} version={desired_version}: {e}"
                 );
+                if is_builder {
+                    source.release_build_lock(desired_version);
+                }
                 continue;
             }
         };
@@ -79,9 +113,18 @@ fn reload_cycle<B: Backend>(backend: &Arc<B>, source: &impl ModelSource) {
                 eprintln!(
                     "[reloader] compile_model failed for model_id={model_id} version={desired_version}: {e}"
                 );
+                if is_builder {
+                    source.release_build_lock(desired_version);
+                }
                 continue;
             }
         };
+
+        // Signal completion if we were the builder
+        if is_builder {
+            source.mark_build_complete(desired_version);
+            source.release_build_lock(desired_version);
+        }
 
         // Arc-swap into the store
         backend.model_store().set(
@@ -92,5 +135,6 @@ fn reload_cycle<B: Backend>(backend: &Arc<B>, source: &impl ModelSource) {
             "[reloader] loaded model_id={model_id} version={desired_version} (was {:?})",
             current_version,
         );
+        mark_healthy(health_file);
     }
 }

@@ -102,6 +102,8 @@ def main(
         internal_nodes_fraction_val = internal_nodes_fraction_schedule.as_float(trainer_time)
         training_data = training_runtime.play_game(
             agent=create_model(0, trainer_time),
+            n_rollouts=n_rollouts_schedule.as_int(trainer_time),
+            rollout_depth=rollout_depth_schedule.as_int(trainer_time),
             max_game_length=max_game_length_schedule.as_int(trainer_time),
             action_temperature=action_temperature_schedule.as_float(trainer_time),
             argmax_delay=argmax_delay_schedule.as_int(trainer_time),
