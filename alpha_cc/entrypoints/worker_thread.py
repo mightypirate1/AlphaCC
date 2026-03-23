@@ -30,6 +30,7 @@ logger = logging.getLogger(__file__)
 @click.option("--max-game-length", type=str)
 @click.option("--rollout-gamma", type=float, default=1.0)
 @click.option("--dirichlet-noise-weight", type=float, default=0.0)
+@click.option("--dirichlet-leaf-noise-weight", type=str, default="0.0")
 @click.option("--argmax-delay", type=str, default=None)
 @click.option("--action-temperature", type=str, default="1.0")
 @click.option("--gamma", type=float, default=1.0)
@@ -46,6 +47,7 @@ def main(
     max_game_length: str | None,
     rollout_gamma: float,
     dirichlet_noise_weight: float,
+    dirichlet_leaf_noise_weight: str,
     argmax_delay: str | None,
     action_temperature: str,
     gamma: float,
@@ -64,6 +66,7 @@ def main(
             rollout_depth=rollout_depth_schedule.as_int(trainer_time),
             rollout_gamma=rollout_gamma,
             dirichlet_weight=dirichlet_noise_weight,
+            dirichlet_leaf_weight=dirichlet_leaf_noise_weight_schedule.as_float(trainer_time),
             n_threads=n_threads,
         )
 
@@ -74,6 +77,7 @@ def main(
     action_temperature_schedule = ParamSchedule.from_str(action_temperature)
     internal_nodes_fraction_schedule = ParamSchedule.from_str(internal_nodes_fraction)
     internal_nodes_min_visits_schedule = ParamSchedule.from_str(internal_nodes_min_visits)
+    dirichlet_leaf_noise_weight_schedule = ParamSchedule.from_str(dirichlet_leaf_noise_weight)
 
     init_rootlogger(verbose=verbose)
     create_and_register_signal_handler()

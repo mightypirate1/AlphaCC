@@ -112,6 +112,7 @@ class MCTS:
         channel: int,
         gamma: float,
         dirichlet_weight: float,
+        dirichlet_leaf_weight: float,
         dirichlet_alpha: float,
         c_puct_init: float,
         c_puct_base: float,

@@ -35,6 +35,7 @@ pub struct MCTS {
 pub struct MCTSParams {
     pub gamma: f32,
     pub dirichlet_weight: f32,
+    pub dirichlet_leaf_weight: f32,
     pub dirichlet_alpha: f32,
     pub c_puct_init: f32,
     pub c_puct_base: f32,
@@ -96,11 +97,15 @@ impl MCTS {
             return Ok(-gamma_v);
         }
 
-        // Leaf: fetch prediction
+        // Leaf: fetch prediction and optionally apply Dirichlet noise to priors
         let nn_pred = service.predict(board, model_id)
             .map_err(|e| Error::other(format!("prediction failed: {e}")))?;
         let v = nn_pred.value();
-        let pi = nn_pred.pi();
+        let mut pi = nn_pred.pi();
+
+        if params.dirichlet_leaf_weight > 0.0 {
+            apply_dirichlet_noise(&mut pi, params.dirichlet_leaf_weight, params.dirichlet_alpha);
+        }
 
         tree.insert_data(board, pi, v);
 
@@ -122,7 +127,7 @@ impl MCTS {
         }
         self.tree.set_root(board);
 
-        // Sample Dirichlet noise once for root exploration
+        // Sample Dirichlet noise once for root exploration (blending happens in find_best_action)
         let root_noise: Option<Vec<f32>> = if self.mcts_params.dirichlet_weight > 0.0 {
             self.tree.get_data(board).and_then(|data| {
                 let pi: Vec<f32> = (0..data.num_actions()).map(|a| data.get_pi(a)).collect();
@@ -207,6 +212,21 @@ impl MCTS {
 }
 
 
+/// Sample Dirichlet noise and blend it into `pi` in-place.
+/// Returns the original `pi` unmodified if there are fewer than 2 actions.
+fn apply_dirichlet_noise(pi: &mut Vec<f32>, weight: f32, alpha_scale: f32) {
+    if pi.len() <= 1 { return; }
+    let alpha: Vec<f32> = pi.iter()
+        .map(|x| (x * alpha_scale).max(f32::EPSILON))
+        .collect();
+    if let Ok(dirichlet) = Dirichlet::new(&alpha) {
+        let noise = dirichlet.sample(&mut rand::rng());
+        for (p, n) in pi.iter_mut().zip(noise.iter()) {
+            *p = *p * (1.0 - weight) + n * weight;
+        }
+    }
+}
+
 fn find_best_action(data: &NodeData, c_puct_init: f32, c_puct_base: f32, noise: Option<&[f32]>, dirichlet_weight: f32) -> usize {
     let sum_n: u32 = (0..data.num_actions()).map(|a| data.get_n(a)).sum();
     let sum_n_f = sum_n as f32;
@@ -238,12 +258,13 @@ fn find_best_action(data: &NodeData, c_puct_init: f32, c_puct_base: f32, noise: 
 impl MCTS {
     #[allow(clippy::too_many_arguments)]
     #[new]
-    #[pyo3(signature = (nn_service_addr, channel, gamma, dirichlet_weight, dirichlet_alpha, c_puct_init, c_puct_base, n_threads=1))]
+    #[pyo3(signature = (nn_service_addr, channel, gamma, dirichlet_weight, dirichlet_leaf_weight, dirichlet_alpha, c_puct_init, c_puct_base, n_threads=1))]
     fn create(
         nn_service_addr: String,
         channel: u32,
         gamma: f32,
         dirichlet_weight: f32,
+        dirichlet_leaf_weight: f32,
         dirichlet_alpha: f32,
         c_puct_init: f32,
         c_puct_base: f32,
@@ -255,6 +276,7 @@ impl MCTS {
             MCTSParams {
                 gamma,
                 dirichlet_weight,
+                dirichlet_leaf_weight,
                 dirichlet_alpha,
                 c_puct_init,
                 c_puct_base,
