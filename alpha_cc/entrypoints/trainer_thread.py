@@ -41,7 +41,8 @@ checkpoint_lock = threading.Lock()
 @click.option("--init-run-id", type=str, default=None)
 @click.option("--init-weights-index", type=int, default=None)
 @click.option("--init-champion-weight-index", type=int, default=None)
-@click.option("--multiple-training-steps-on-internal-nodes", is_flag=True, default=False)
+@click.option("--per-gamma", type=float, default=0.5)
+@click.option("--per-visits-threshold", type=float, default=100.0)
 @click.option("--gpu", is_flag=True, default=False)
 def main(
     run_id: str,
@@ -61,7 +62,8 @@ def main(
     init_run_id: str | None,
     init_weights_index: int | None,
     init_champion_weight_index: int | None,
-    multiple_training_steps_on_internal_nodes: bool,
+    per_gamma: float,
+    per_visits_threshold: float,
     gpu: bool,
 ) -> None:
     init_rootlogger(verbose=verbose)
@@ -90,10 +92,14 @@ def main(
         db.flush_db()  # safe fresh start
         curr_index, _ = publish_weights(trainer.nn, db, size)
         champion_index = curr_index
-        replay_buffer = TrainingDataset(max_size=replay_buffer_size)
+        replay_buffer = TrainingDataset(
+            max_size=replay_buffer_size,
+            gamma=per_gamma,
+            visits_threshold=per_visits_threshold,
+        )
     else:
         replay_buffer = existing_checkpoint.replay_buffer
-        logger.info(f"Restored replay buffer from checkpoint: size={len(replay_buffer)} (new+main)")
+        logger.info(f"Restored replay buffer from checkpoint: size={len(replay_buffer)}")
 
     tournament_manager = TournamentManager(
         tournament_runtime=tournament_runtime,
@@ -114,12 +120,15 @@ def main(
     while True:
         # wait until we have enough new samples
         training_datas = await_samples(db, n_train_samples)
-        trainer.report_rollout_stats(training_datas)
+        trainer.report_rollout_stats(training_datas, limit=n_train_samples)
         replay_buffer.add_datas(training_datas)
 
-        # train on samples
-        trainer.train(replay_buffer, train_size)
-        replay_buffer.move_new_to_main_buffer(drop_internal_nodes=not multiple_training_steps_on_internal_nodes)
+        # prioritized sampling
+        sampled_indices, sampled_dataset = replay_buffer.prioritized_sample(train_size)
+
+        # train on sampled dataset and compute per-sample errors for PER
+        kl_divs, td_errors = trainer.train(sampled_dataset)
+        replay_buffer.update_priorities(sampled_indices, kl_divs, td_errors)
 
         # publish weights
         curr_index, onnx_payload = publish_weights(trainer.nn, db, size)
@@ -147,7 +156,8 @@ def await_samples(db: TrainingDB, n_train_samples: int) -> list[TrainingData]:
     # remaining on the queue. thus, we clear the queue so we can train on
     # the latest data.
     if remaining_training_datas := db.training_data_fetch_all():
-        logger.warning(f"trainer is behind by {len(remaining_training_datas)} samples")
+        n_remaining = sum([len(t.trajectory) for t in remaining_training_datas])
+        logger.warning(f"trainer is behind by {n_remaining} samples")
         training_datas.extend(remaining_training_datas)
     return training_datas
 

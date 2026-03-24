@@ -50,9 +50,10 @@ class Trainer:
     def optimizer(self) -> torch.optim.Optimizer:
         return self._optimizer
 
-    def train(self, dataset: TrainingDataset, train_size: int) -> None:
-        self._update_nn(dataset, train_size)
+    def train(self, dataset: TrainingDataset) -> tuple[np.ndarray, np.ndarray]:
+        kl_divs, td_errors = self._update_nn(dataset)
         self._global_step += 1
+        return kl_divs, td_errors
 
     def set_steps(self, global_step: int, eval_step: int) -> None:
         self._global_step = global_step
@@ -65,7 +66,7 @@ class Trainer:
         for g in self._optimizer.param_groups:
             g["lr"] = lr
 
-    def report_rollout_stats(self, training_datas: list[TrainingData]) -> None:
+    def report_rollout_stats(self, training_datas: list[TrainingData], limit: int | None = None) -> None:
         def log_aggregates(key: str, data: np.ndarray | torch.Tensor, prefix: str = "train-rollouts") -> None:
             if self._summary_writer is None:
                 return
@@ -87,6 +88,8 @@ class Trainer:
         #####
         trajectories = [data.trajectory for data in training_datas]
         experiences = [exp for traj in trajectories for exp in traj]
+        if limit is not None:
+            experiences = experiences[:limit]
         eval_dataset = TrainingDataset(experiences)
         with torch.no_grad():
             self._nn.eval()
@@ -191,6 +194,51 @@ class Trainer:
         if worker_stats_list:
             self._report_worker_stats(worker_stats_list)
 
+    @torch.no_grad()
+    def _compute_sample_errors_batched(self, dataset: TrainingDataset) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Batched forward pass over dataset to compute per-sample KL divergence and TD error.
+        Used by PER to update priorities after training.
+
+        Returns (kl_divs, td_errors) as float32 numpy arrays, one entry per sample.
+        Internal nodes get td_error=0 (value head is not trained on them).
+        """
+        self._nn.eval()
+        kl_divs_list: list[torch.Tensor] = []
+        td_errors_list: list[torch.Tensor] = []
+        dataloader = DataLoader(
+            dataset,
+            batch_size=self._batch_size,
+            shuffle=False,
+            drop_last=False,
+            pin_memory=True,
+            num_workers=self._num_dataloader_workers,
+            prefetch_factor=3,
+        )
+
+        for batch in dataloader:
+            x, pi_mask_batch, pi_target_batch, target_value, _, is_internal = (
+                b.to(self._device) for b in batch
+            )
+            pi_tensor_batch, value_batch = self._nn(x)
+
+            # Per-sample TD error: |v_pred - v_target|, 0 for internal nodes
+            td_err = torch.abs(value_batch.squeeze() - target_value.squeeze())
+            td_err = torch.where(is_internal.squeeze(), torch.zeros_like(td_err), td_err)
+            td_errors_list.append(td_err.cpu())
+
+            # Per-sample KL divergence (batched): KL(pi_target || pi_pred) over legal moves
+            log_pred = self._policy_log_softmax(pi_tensor_batch, pi_mask_batch)
+            log_target = torch.log(pi_target_batch.clamp_min(1e-6))
+            kl_per_sample = (pi_target_batch * (log_target - log_pred))
+            kl_per_sample = torch.where(pi_mask_batch, kl_per_sample, 0.0)
+            kl_per_sample = kl_per_sample.reshape(x.shape[0], -1).sum(dim=1)
+            kl_divs_list.append(kl_per_sample.cpu())
+
+        kl_array = torch.cat(kl_divs_list).numpy().astype(np.float32)
+        td_array = torch.cat(td_errors_list).numpy().astype(np.float32)
+        return kl_array, td_array
+
     def _report_worker_stats(self, stats_list: list[WorkerStats]) -> None:
         if self._summary_writer is None:
             return
@@ -204,7 +252,7 @@ class Trainer:
                 global_step=self._global_step,
             )
 
-    def _update_nn(self, dataset: TrainingDataset, train_size: int) -> None:
+    def _update_nn(self, dataset: TrainingDataset) -> tuple[np.ndarray, np.ndarray]:
         def train_epoch(dataloader: DataLoader) -> tuple[float, float, float]:
             self._nn.train()
             # accumulator of: value_loss, policy_loss, entropy_loss
@@ -296,7 +344,7 @@ class Trainer:
                 self._eval_step += 1
             return epoch_value_loss, epoch_policy_loss, epoch_entropy_loss
 
-        _, test_data = dataset.split(0.9)
+        train_data, test_data = dataset.split(0.9)
         test_dataloader = DataLoader(
             test_data,
             batch_size=self._batch_size,
@@ -310,7 +358,7 @@ class Trainer:
         with tqdm(desc="nn-update", total=self._epochs_per_update) as pbar:
             for _ in range(self._epochs_per_update):
                 train_dataloader = DataLoader(
-                    dataset.sample(train_size),
+                    train_data,
                     batch_size=self._batch_size,
                     shuffle=True,
                     drop_last=True,
@@ -335,3 +383,7 @@ class Trainer:
             self._summary_writer.add_scalar("trainer/policy-loss", total_policy_loss, global_step=self._global_step)
             self._summary_writer.add_scalar("trainer/value-loss", total_value_loss, global_step=self._global_step)
             self._summary_writer.add_scalar("trainer/entropy-loss", total_entropy_loss, global_step=self._global_step)
+
+        # Final batched eval pass over full dataset for PER priority updates
+        kl_divs, td_errors = self._compute_sample_errors_batched(dataset)
+        return kl_divs, td_errors

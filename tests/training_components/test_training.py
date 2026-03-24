@@ -7,8 +7,5 @@ def test_training(
     trainer: Trainer,
     training_data: TrainingData,
 ) -> None:
-    trainer.train(
-        training_dataset_with_content,
-        len(training_dataset_with_content),
-    )
+    trainer.train(training_dataset_with_content)
     trainer.report_rollout_stats([training_data])

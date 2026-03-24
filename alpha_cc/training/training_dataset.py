@@ -6,6 +6,7 @@ from collections.abc import Iterable
 
 import numpy as np
 import torch
+from scipy.stats import rankdata
 from torch.utils.data import Dataset
 
 from alpha_cc.agents.mcts.mcts_experience import MCTSExperience
@@ -22,37 +23,56 @@ class TrainingDataWeighter(ABC):
 
 class TrainingDataset(Dataset):
     """
-    Has 2 buffers, one for new samples and one main buffer. This is so that one
-    can sample the dataset and be sure to see the most recent ones along with a
-    random selection of "old" samples.
+    Prioritized Experience Replay (PER) buffer using rank-based sampling.
 
-    - on `add_*`, experiences are added as "new"
-    - on `sample`, "new" experiments are sampled, and then if there's enough
-      room left, "old" samples are added. All "new" samples are moved to "old"
-      once they have been sampled once.
+    Ring buffer (deque) of MCTSExperience with parallel deques for KL-divergence
+    and TD-error. New samples are initialized with max priority (visit-count
+    gated for internal nodes). Sampling uses combined rank-based priorities:
 
+        priority[i] = 1 / (rank_kl[i] * rank_td[i])^gamma
+
+    After training, per-sample KL and TD errors are written back via
+    update_priorities().
     """
 
     def __init__(
         self,
         experiences: Iterable[MCTSExperience] | None = None,
-        max_size: int = 10000,
+        max_size: int | None = None,
+        gamma: float = 0.5,
+        visits_threshold: float = 100.0,
         weighter: TrainingDataWeighter | None = None,
     ) -> None:
+        if experiences is not None:
+            exp_list = list(experiences)
+            if max_size is None:
+                max_size = len(exp_list)
+        else:
+            exp_list = []
+            if max_size is None:
+                max_size = 10000
+
         self._max_size = max_size
+        self._gamma = gamma
+        self._visits_threshold = visits_threshold
         self._weighter = weighter
-        self._experiences = deque[MCTSExperience](maxlen=max_size)
-        self._new_experiences: list[MCTSExperience] = [] if experiences is None else list(experiences)
+
+        self._experiences: deque[MCTSExperience] = deque(maxlen=max_size)
+        self._kl_div: deque[float] = deque(maxlen=max_size)
+        self._td_error: deque[float] = deque(maxlen=max_size)
+
+        for exp in exp_list:
+            self._experiences.append(exp)
+            self._kl_div.append(1.0)
+            self._td_error.append(1.0)
 
     def __len__(self) -> int:
-        return len(self._new_experiences) + len(self._experiences)
+        return len(self._experiences)
 
     def __getitem__(
         self, index: int
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        n_new = len(self._new_experiences)
-        # faster than concatenating
-        exp = self._new_experiences[index] if index < n_new else self._experiences[index - n_new]
+        exp = self._experiences[index]
 
         x = state_tensor(exp.state)
         pi_mask = torch.as_tensor(exp.state.action_mask)
@@ -71,47 +91,42 @@ class TrainingDataset(Dataset):
 
     @property
     def samples(self) -> list[MCTSExperience]:
-        return self._new_experiences + list(self._experiences)
+        return list(self._experiences)
 
-    def resize(self, new_size: int) -> None:
-        experiences = self._experiences
-        self._experiences = deque(maxlen=new_size)
-        self._experiences.extend(experiences)
-        self._max_size = new_size
-
-    def sample(self, batch_size: int, replace: bool = True) -> TrainingDataset:
+    def prioritized_sample(self, n: int) -> tuple[np.ndarray, TrainingDataset]:
         """
-        Two cases:
-        1. we request less samples than what is in the new buffer -> we sample from the new buffer
-        2. we request more/all samples than what is in the new buffer -> we sample all from the new buffer,
-              and then sample the rest from the old buffer
-        """
-        if batch_size < len(self._new_experiences):
-            sampled_experiences = np.random.choice(
-                self._new_experiences,  # type: ignore
-                batch_size,
-                replace=replace,
-            ).tolist()
-            return TrainingDataset(experiences=sampled_experiences, max_size=self._max_size)
+        Rank-based PER sampling. Returns (buffer_indices, sampled_dataset).
 
-        dataset_sample = TrainingDataset(experiences=self._new_experiences, max_size=self._max_size)
-        remaining = batch_size - len(dataset_sample)
-        if remaining > 0:
-            sampled_experiences = np.random.choice(
-                self._experiences,  # type: ignore
-                min(remaining, len(self._experiences)),
-                replace=replace,
-            ).tolist()
-            dataset_sample.add_trajectory(sampled_experiences)
-        return dataset_sample
+        priority[i] = 1 / (rank_kl[i] * rank_td[i])^gamma
+        where rank 1 = highest error (most surprising).
+        """
+        size = len(self._experiences)
+        if n >= size:
+            indices = np.arange(size)
+            return indices, TrainingDataset(experiences=self.samples)
+
+        kl = np.array(self._kl_div)
+        td = np.array(self._td_error)
+        rank_kl = rankdata(-kl, method="average")
+        rank_td = rankdata(-td, method="average")
+        priority = 1.0 / (rank_kl * rank_td) ** self._gamma
+        probs = priority / priority.sum()
+        indices = np.random.choice(size, size=n, replace=False, p=probs)
+        sampled_exps = [self._experiences[i] for i in indices]
+        return indices, TrainingDataset(experiences=sampled_exps)
+
+    def update_priorities(self, indices: np.ndarray, kl_divs: np.ndarray, td_errors: np.ndarray) -> None:
+        for i, idx in enumerate(indices):
+            self._kl_div[idx] = float(kl_divs[i])
+            self._td_error[idx] = float(td_errors[i])
 
     def split(self, frac: float) -> tuple[TrainingDataset, TrainingDataset]:
-        samples = self.samples
-        np.random.shuffle(samples)  # type: ignore
-        n = int(len(samples) * frac)
+        all_samples = self.samples
+        np.random.shuffle(all_samples)  # type: ignore
+        n = int(len(all_samples) * frac)
         return (
-            TrainingDataset(samples[:n], max_size=self._max_size, weighter=self._weighter),
-            TrainingDataset(samples[n:], max_size=self._max_size, weighter=self._weighter),
+            TrainingDataset(all_samples[:n], weighter=self._weighter),
+            TrainingDataset(all_samples[n:], weighter=self._weighter),
         )
 
     def add_data(self, training_data: TrainingData) -> None:
@@ -123,36 +138,39 @@ class TrainingDataset(Dataset):
             self.add_data(training_data)
 
     def add_trajectories(self, trajectories: list[list[MCTSExperience]]) -> None:
-        self._new_experiences.extend([exp for traj in trajectories for exp in traj])
+        for traj in trajectories:
+            self.add_trajectory(traj)
 
     def add_trajectory(self, trajectory: list[MCTSExperience]) -> None:
-        self._new_experiences.extend(trajectory)
+        for exp in trajectory:
+            self._add_experience(exp, priority_scale=1.0)
 
     def add_internal_node(self, state: GameState, node: MCTSNodePy) -> None:
-        n_visits = np.sum(node.n)
+        n_visits = int(np.sum(node.n))
         pi_target = np.ones_like(node.n) / len(node.n) if n_visits == 0 else node.n / n_visits
-        self._new_experiences.append(
-            MCTSExperience(
-                state=state,
-                pi_target=pi_target,
-                v_target=0.0,
-                weight=self._weighter.weigh_internal_node(state, node) if self._weighter else 1.0,
-                is_internal_node=True,
-            )
+        exp = MCTSExperience(
+            state=state,
+            pi_target=pi_target,
+            v_target=0.0,
+            weight=self._weighter.weigh_internal_node(state, node) if self._weighter else 1.0,
+            is_internal_node=True,
         )
+        priority_scale = min(1.0, n_visits / self._visits_threshold) if self._visits_threshold > 0 else 1.0
+        self._add_experience(exp, priority_scale=priority_scale)
 
     def add_internal_nodes(self, internal_nodes: dict[GameState, MCTSNodePy]) -> None:
         for state, node in internal_nodes.items():
             self.add_internal_node(state, node)
 
-    def move_new_to_main_buffer(self, drop_internal_nodes: bool = False) -> None:
-        experiences = (
-            self._new_experiences
-            if not drop_internal_nodes
-            else [exp for exp in self._new_experiences if not exp.is_internal_node]
-        )
-        self._experiences.extendleft(experiences)
-        self._new_experiences.clear()
+    # Implausibly high init values so new samples rank highest until measured.
+    # td_error: values in [-1,1] so max error is 2.  kl_div: rarely exceeds ~10.
+    _INIT_TD_ERROR = 2.0
+    _INIT_KL_DIV = 10.0
+
+    def _add_experience(self, exp: MCTSExperience, priority_scale: float = 1.0) -> None:
+        self._experiences.append(exp)
+        self._kl_div.append(self._INIT_KL_DIV * priority_scale)
+        self._td_error.append(self._INIT_TD_ERROR * priority_scale)
 
     def _create_pi_target_tensor(self, exp: MCTSExperience) -> torch.Tensor:
         """
@@ -173,3 +191,28 @@ class TrainingDataset(Dataset):
             from_coord, to_coord = exp.state.action_mask_indices[i]
             pi_target[from_coord.x, from_coord.y, to_coord.x, to_coord.y] = exp.pi_target[i]
         return torch.as_tensor(pi_target)
+
+    def __setstate__(self, state: dict) -> None:
+        """Backward compat: convert old two-buffer format to deque-based PER."""
+        if "_kl_div" in state and isinstance(state["_kl_div"], deque):
+            # New format
+            self.__dict__.update(state)
+            return
+
+        # Old format had _experiences (deque) and _new_experiences (list)
+        old_main = list(state.get("_experiences", []))
+        old_new = state.get("_new_experiences", [])
+        all_experiences = old_new + old_main
+        max_size = state.get("_max_size", 10000)
+
+        self._max_size = max_size
+        self._weighter = state.get("_weighter")
+        self._gamma = 0.5
+        self._visits_threshold = 100.0
+        self._experiences = deque[MCTSExperience](maxlen=max_size)
+        self._kl_div = deque[float](maxlen=max_size)
+        self._td_error = deque[float](maxlen=max_size)
+        for exp in all_experiences:
+            self._experiences.append(exp)
+            self._kl_div.append(1.0)
+            self._td_error.append(1.0)
