@@ -323,6 +323,7 @@ class Trainer:
             epoch_value_loss = 0.0
             epoch_policy_loss = 0.0
             epoch_entropy_loss = 0.0
+            epoch_is_internal = 0.0
             for data_tuple in test_dataloader:
                 x, pi_mask, target_pi, target_value, weight, is_internal = (
                     data.to(self._device) for data in data_tuple
@@ -334,12 +335,13 @@ class Trainer:
                 epoch_value_loss += value_loss.mean().cpu().item() / len(test_dataloader)
                 epoch_policy_loss += policy_loss.mean().cpu().item() / len(test_dataloader)
                 epoch_entropy_loss += entropy_loss.mean().cpu().item() / len(test_dataloader)
+                epoch_is_internal += is_internal.mean().cpu().item() / len(test_dataloader)
             if self._summary_writer is not None:
                 self._summary_writer.add_scalar("eval/policy-loss", epoch_policy_loss, global_step=self._eval_step)
                 self._summary_writer.add_scalar("eval/value-loss", epoch_value_loss, global_step=self._eval_step)
                 self._summary_writer.add_scalar("eval/entropy-loss", epoch_entropy_loss, global_step=self._eval_step)
                 self._summary_writer.add_scalar(
-                    "eval/effective-frac-internal", is_internal.float().mean(), global_step=self._eval_step
+                    "eval/effective-frac-internal", epoch_is_internal, global_step=self._eval_step
                 )
                 self._eval_step += 1
             return epoch_value_loss, epoch_policy_loss, epoch_entropy_loss
@@ -350,6 +352,8 @@ class Trainer:
             batch_size=self._batch_size,
             drop_last=False,
             pin_memory=True,
+            num_workers=self._num_dataloader_workers,
+            prefetch_factor=3,
         )
 
         total_value_loss = 0.0
