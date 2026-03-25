@@ -61,6 +61,7 @@ def main(
     def create_model(channel: int, trainer_time: int) -> MCTSAgent:
         return MCTSAgent(
             nn_service_addr=Environment.nn_service_addr,
+            board_size=size,
             pred_channel=channel,
             n_rollouts=n_rollouts_schedule.as_int(trainer_time),
             rollout_depth=rollout_depth_schedule.as_int(trainer_time),

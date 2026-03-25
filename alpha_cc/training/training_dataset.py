@@ -4,10 +4,15 @@ from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Iterable
 
+from typing import TYPE_CHECKING, Literal
+
 import numpy as np
 import torch
 from scipy.stats import rankdata
 from torch.utils.data import Dataset
+
+if TYPE_CHECKING:
+    from torch.utils.tensorboard import SummaryWriter
 
 from alpha_cc.agents.mcts.mcts_experience import MCTSExperience
 from alpha_cc.agents.mcts.mcts_node_py import MCTSNodePy
@@ -29,7 +34,9 @@ class TrainingDataset(Dataset):
     and TD-error. New samples are initialized with max priority (visit-count
     gated for internal nodes). Sampling uses combined rank-based priorities:
 
-        priority[i] = 1 / (rank_kl[i] * rank_td[i])^gamma
+        mode "prod": priority[i] = 1 / (rank_kl[i] * rank_td[i])^gamma
+        mode "min": priority[i] = 1 / min(rank_kl[i], rank_td[i])^gamma
+        mode "td": priority[i] = 1 / rank_td[i]^gamma
 
     After training, per-sample KL and TD errors are written back via
     update_priorities().
@@ -41,6 +48,7 @@ class TrainingDataset(Dataset):
         max_size: int | None = None,
         gamma: float = 0.5,
         visits_threshold: float = 100.0,
+        rank_mode: Literal["prod", "min", "td"] = "td",
         weighter: TrainingDataWeighter | None = None,
     ) -> None:
         if experiences is not None:
@@ -55,6 +63,7 @@ class TrainingDataset(Dataset):
         self._max_size = max_size
         self._gamma = gamma
         self._visits_threshold = visits_threshold
+        self._rank_mode = rank_mode
         self._weighter = weighter
 
         self._experiences: deque[MCTSExperience] = deque(maxlen=max_size)
@@ -93,12 +102,14 @@ class TrainingDataset(Dataset):
     def samples(self) -> list[MCTSExperience]:
         return list(self._experiences)
 
-    def prioritized_sample(self, n: int) -> tuple[np.ndarray, TrainingDataset]:
+    def prioritized_sample(
+        self,
+        n: int,
+        summary_writer: SummaryWriter | None = None,
+        global_step: int = 0,
+    ) -> tuple[np.ndarray, TrainingDataset]:
         """
         Rank-based PER sampling. Returns (buffer_indices, sampled_dataset).
-
-        priority[i] = 1 / (rank_kl[i] * rank_td[i])^gamma
-        where rank 1 = highest error (most surprising).
         """
         size = len(self._experiences)
         if n >= size:
@@ -107,13 +118,46 @@ class TrainingDataset(Dataset):
 
         kl = np.array(self._kl_div)
         td = np.array(self._td_error)
-        rank_kl = rankdata(-kl, method="average")
-        rank_td = rankdata(-td, method="average")
-        priority = 1.0 / (rank_kl * rank_td) ** self._gamma
+        priority = 1.0 / (self._joined_rank(kl, td)) ** self._gamma
         probs = priority / priority.sum()
         indices = np.random.choice(size, size=n, replace=False, p=probs)
         sampled_exps = [self._experiences[i] for i in indices]
+
+        if summary_writer is not None:
+            self._log_per_stats(summary_writer, global_step, sampled_exps, priority, kl, td)
+
         return indices, TrainingDataset(experiences=sampled_exps)
+
+    def _joined_rank(self, kl: np.ndarray, td: np.ndarray) -> np.ndarray:
+        if self._rank_mode == "prod":
+            rank_kl = rankdata(-kl, method="average")
+            rank_td = rankdata(-td, method="average")
+            return rank_kl * rank_td
+        if self._rank_mode == "min":
+            return np.minimum(rankdata(-kl, method="average"), rankdata(-td, method="average"))
+        if self._rank_mode == "td":
+            return rankdata(-td, method="average")
+        raise ValueError(f"Invalid rank_mode: {self._rank_mode}")
+
+    def _log_per_stats(
+        self,
+        writer: SummaryWriter,
+        step: int,
+        sampled_exps: list[MCTSExperience],
+        priority: np.ndarray,
+        kl: np.ndarray,
+        td: np.ndarray,
+    ) -> None:
+        v_targets = np.array([e.v_target for e in sampled_exps])
+        is_internal = np.array([e.is_internal_node for e in sampled_exps])
+        is_terminal = np.array([e.weight == 1.0 and not e.is_internal_node for e in sampled_exps])
+
+        writer.add_histogram("per/v-target-sampled", v_targets, global_step=step)
+        writer.add_scalar("per/frac-internal-sampled", is_internal.mean(), global_step=step)
+        writer.add_scalar("per/frac-terminal-sampled", is_terminal.mean(), global_step=step)
+        writer.add_histogram("per/priority", priority, global_step=step)
+        writer.add_histogram("per/kl-div-buffer", kl, global_step=step)
+        writer.add_histogram("per/td-error-buffer", td, global_step=step)
 
     def update_priorities(self, indices: np.ndarray, kl_divs: np.ndarray, td_errors: np.ndarray) -> None:
         for i, idx in enumerate(indices):

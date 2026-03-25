@@ -109,6 +109,7 @@ def remote(
     def get_agent(ch: int) -> MCTSAgent:
         return MCTSAgent(
             nn_service_addr=nn_service_addr,
+            board_size=size,
             pred_channel=ch,
             n_rollouts=n_rollouts,
             rollout_depth=rollout_depth,

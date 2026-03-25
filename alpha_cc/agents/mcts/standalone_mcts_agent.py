@@ -64,7 +64,7 @@ class StandaloneMCTSAgent(MCTSAgent):
     def internal_nodes(self) -> dict[Board, MCTSNodePy]:
         return {board: self.node_store.get(board) for board in self.node_store.keys()}  # noqa: SIM118
 
-    def on_game_start(self) -> None:
+    def on_game_start(self, board: Board) -> None:
         self._steps_left_to_argmax = (self._argmax_delay or np.inf) + 1
         self.node_store.clear()
 

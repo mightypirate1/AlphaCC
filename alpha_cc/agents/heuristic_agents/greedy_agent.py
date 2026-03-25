@@ -14,7 +14,7 @@ class GreedyAgent(Agent):
         sp_values = self._evaluation(board)
         return int(np.argmax(sp_values))
 
-    def on_game_start(self) -> None:
+    def on_game_start(self, board: Board) -> None:
         pass
 
     def on_game_end(self) -> None:

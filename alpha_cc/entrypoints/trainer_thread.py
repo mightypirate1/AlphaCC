@@ -124,7 +124,9 @@ def main(
         replay_buffer.add_datas(training_datas)
 
         # prioritized sampling
-        sampled_indices, sampled_dataset = replay_buffer.prioritized_sample(train_size)
+        sampled_indices, sampled_dataset = replay_buffer.prioritized_sample(
+            train_size, summary_writer=summary_writer, global_step=curr_index,
+        )
 
         # train on sampled dataset and compute per-sample errors for PER
         kl_divs, td_errors = trainer.train(sampled_dataset)

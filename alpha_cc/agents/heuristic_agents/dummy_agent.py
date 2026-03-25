@@ -11,7 +11,7 @@ class DummyAgent(Agent):
     def choose_move(self, board: Board, _: bool = False) -> int:
         return int(np.random.choice(len(board.get_next_states())))
 
-    def on_game_start(self) -> None:
+    def on_game_start(self, board: Board) -> None:
         pass
 
     def on_game_end(self) -> None:

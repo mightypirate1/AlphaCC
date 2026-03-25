@@ -10,6 +10,7 @@ class MCTSAgent(Agent):
     def __init__(
         self,
         nn_service_addr: str,
+        board_size: int,
         pred_channel: int = 0,
         n_rollouts: int = 100,
         rollout_depth: int = 500,
@@ -35,6 +36,7 @@ class MCTSAgent(Agent):
             dirichlet_alpha,
             c_puct_init,
             c_puct_base,
+            board_size,
             n_threads,
         )
 
@@ -45,12 +47,12 @@ class MCTSAgent(Agent):
     def internal_nodes(self) -> dict[Board, MCTSNodePy]:
         return {board: MCTSNodePy.from_node(node) for board, node in self._mcts.get_nodes().items()}
 
-    def on_game_start(self) -> None:
+    def on_game_start(self, board: Board) -> None:
         self._steps_left_to_argmax = (self._argmax_delay or np.inf) + 1
-        self._mcts.clear_nodes()
+        self._mcts.clear_nodes(board)
 
     def on_game_end(self) -> None:
-        self._mcts.clear_nodes()
+        pass
 
     def choose_move(self, board: Board, training: bool = False, temperature: float = 1.0) -> int:
         if self._argmax_delay is not None:

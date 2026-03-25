@@ -48,12 +48,13 @@ impl MCTS {
         model_id: u32,
         mcts_params: MCTSParams,
         n_threads: usize,
+        game_size: usize,
     ) -> Self {
         let services = (0..n_threads.max(1))
             .map(|_| NNRemote::connect(nn_service_addr, DEFAULT_PREDICT_TIMEOUT))
             .collect();
         MCTS {
-            tree: Arc::new(Tree::new()),
+            tree: Arc::new(Tree::new(Board::create(game_size))),
             services,
             model_id,
             mcts_params,
@@ -87,14 +88,16 @@ impl MCTS {
             data.apply_virtual_loss(a);
             drop(data);
 
-            let v = MCTS::rollout(tree, service, model_id, &s_prime, remaining_depth - 1, params, None)?;
-            let gamma_v = params.gamma * v;
+            let result = MCTS::rollout(tree, service, model_id, &s_prime, remaining_depth - 1, params, None);
 
-            if let Some(data) = tree.get_data(board) {
-                data.resolve_virtual_loss(a, gamma_v);
+            let data = tree.get_data(board)
+                .expect("node data disappeared mid-rollout");
+            match &result {
+                Ok(v) => data.resolve_virtual_loss(a, params.gamma * *v),
+                Err(_) => data.resolve_virtual_loss(a, 0.0),
             }
 
-            return Ok(-gamma_v);
+            return result.map(|v| -(params.gamma * v));
         }
 
         // Leaf: fetch prediction and optionally apply Dirichlet noise to priors
@@ -119,6 +122,9 @@ impl MCTS {
         rollout_depth: usize,
         temperature: f32,
     ) -> Result<(Vec<f32>, f32), Error> {
+        // TEMPORARY: verify tree root matches the board the runtime expects
+        self.tree.assert_root_matches(board);
+
         // Ensure root data exists
         if self.tree.get_data(board).is_none() {
             let nn_pred = self.services[0].predict(board, self.model_id)
@@ -258,7 +264,7 @@ fn find_best_action(data: &NodeData, c_puct_init: f32, c_puct_base: f32, noise: 
 impl MCTS {
     #[allow(clippy::too_many_arguments)]
     #[new]
-    #[pyo3(signature = (nn_service_addr, channel, gamma, dirichlet_weight, dirichlet_leaf_weight, dirichlet_alpha, c_puct_init, c_puct_base, n_threads=1))]
+    #[pyo3(signature = (nn_service_addr, channel, gamma, dirichlet_weight, dirichlet_leaf_weight, dirichlet_alpha, c_puct_init, c_puct_base, game_size, n_threads=1))]
     fn create(
         nn_service_addr: String,
         channel: u32,
@@ -268,6 +274,7 @@ impl MCTS {
         dirichlet_alpha: f32,
         c_puct_init: f32,
         c_puct_base: f32,
+        game_size: usize,
         n_threads: usize,
     ) -> MCTS {
         MCTS::new(
@@ -282,6 +289,7 @@ impl MCTS {
                 c_puct_base,
             },
             n_threads,
+            game_size,
         )
     }
 
@@ -320,8 +328,8 @@ impl MCTS {
             .collect()
     }
 
-    pub fn clear_nodes(&self) {
-        self.tree.clear();
+    pub fn clear_nodes(&self, board: &Board) {
+        self.tree.clear(board.clone());
         for svc in &self.services {
             let _ = svc.reconnect();
         }

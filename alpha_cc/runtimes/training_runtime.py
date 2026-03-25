@@ -35,7 +35,7 @@ class TrainingRunTime:
         board = self._board.reset()
         max_game_duration = np.inf if max_game_length is None else max_game_length
         time_to_argmax = argmax_delay if argmax_delay is not None else np.inf
-        agent.on_game_start()
+        agent.on_game_start(board)
         snapshot_interval = 1 if internal_nodes_fraction else 0
 
         trajectory: list[MCTSExperience] = []

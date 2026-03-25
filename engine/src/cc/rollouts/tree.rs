@@ -78,25 +78,25 @@ impl NodeData {
 }
 
 
-/// MCTS tree: a concurrent data map keyed by board position + a root pointer.
+/// MCTS tree: a concurrent data map keyed by board position + a root.
 /// Rollouts traverse via board lookups with no global lock — DashMap provides
 /// shard-level locking for inserts and lock-free reads. NodeData fields use
 /// atomics for concurrent updates.
 pub struct Tree {
-    root: Mutex<Option<Board>>,
+    root: Mutex<Board>,
     data: DashMap<Board, NodeData>,
 }
 
 impl Tree {
-    pub fn new() -> Self {
+    pub fn new(board: Board) -> Self {
         Self {
-            root: Mutex::new(None),
+            root: Mutex::new(board),
             data: DashMap::new(),
         }
     }
 
-    pub fn clear(&self) {
-        *self.root.lock().unwrap() = None;
+    pub fn clear(&self, board: Board) {
+        *self.root.lock().unwrap() = board;
         self.data.clear();
     }
 
@@ -106,7 +106,7 @@ impl Tree {
 
     /// Set the root board (called when starting rollouts on a new position).
     pub fn set_root(&self, board: &Board) {
-        *self.root.lock().unwrap() = Some(board.clone());
+        *self.root.lock().unwrap() = board.clone();
     }
 
     /// Insert node data for a board position. Returns true if newly inserted.
@@ -123,13 +123,22 @@ impl Tree {
     }
 
     /// Advance the root to the position reached by `action`.
-    /// Prunes the old root from the tree.
     pub fn advance_root(&self, action: usize) {
         let mut root_guard = self.root.lock().unwrap();
-        let Some(root_board) = root_guard.take() else { return };
-        let Some(data_ref) = self.data.get(&root_board) else { return };
+        let root_board = root_guard.clone();
+        let data_ref = self.data.get(&root_board)
+            .expect("advance_root: root board has no data in tree");
         let new_board = root_board.apply(&data_ref.moves[action]);
-        *root_guard = Some(new_board);
+        *root_guard = new_board;
+    }
+
+    /// TEMPORARY: panic if the tree root doesn't match the expected board.
+    pub fn assert_root_matches(&self, board: &Board) {
+        let root = self.root.lock().unwrap();
+        assert!(
+            *root == *board,
+            "tree root desynced from runtime board"
+        );
     }
 
     /// Get a reference to node data for a board position.
