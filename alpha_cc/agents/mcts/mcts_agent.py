@@ -10,7 +10,6 @@ class MCTSAgent(Agent):
     def __init__(
         self,
         nn_service_addr: str,
-        board_size: int,
         pred_channel: int = 0,
         n_rollouts: int = 100,
         rollout_depth: int = 500,
@@ -36,7 +35,6 @@ class MCTSAgent(Agent):
             dirichlet_alpha,
             c_puct_init,
             c_puct_base,
-            board_size,
             n_threads,
         )
 
@@ -47,9 +45,9 @@ class MCTSAgent(Agent):
     def internal_nodes(self) -> dict[Board, MCTSNodePy]:
         return {board: MCTSNodePy.from_node(node) for board, node in self._mcts.get_nodes().items()}
 
-    def on_game_start(self, board: Board) -> None:
+    def on_game_start(self) -> None:
         self._steps_left_to_argmax = (self._argmax_delay or np.inf) + 1
-        self._mcts.clear_nodes(board)
+        self._mcts.clear_nodes()
 
     def on_game_end(self) -> None:
         pass
@@ -63,10 +61,6 @@ class MCTSAgent(Agent):
         if training and self._steps_left_to_argmax > 0:
             action_index = np.random.choice(len(pi), p=pi)
         return action_index
-
-    def on_move_applied(self, action: int) -> None:
-        """Notify the agent that a move was applied, so it can update internals (e.g. reroot the tree)."""
-        self._mcts.advance_root(action)
 
     def run_rollouts(
         self,

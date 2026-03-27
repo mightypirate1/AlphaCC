@@ -112,7 +112,7 @@ pub fn run_benchmarks(
     game_size: usize,
     warmup: usize,
     iters: usize,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     let batch_sizes = [1, 8, 32, 64, 128, 256, 512, 1024];
     let game_size_i64 = game_size as i64;
 
@@ -124,7 +124,7 @@ pub fn run_benchmarks(
     let model = OnnxBackend::load_session_from_file(nn_path, None)
         .unwrap_or_else(|e| panic!("failed to load ONNX model: {e}"));
     let backend = OnnxBackend::new(
-        vec![VersionedModel { model, version: 0 }], game_size_i64, false, 1, None,
+        vec![VersionedModel { model, version: 0 }], game_size_i64, false, 1, None, true, None,
     );
     let results = bench_pipeline(&backend, game_size, &batch_sizes, warmup, iters);
 

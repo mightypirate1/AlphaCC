@@ -3,7 +3,6 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Iterable
-
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
@@ -118,7 +117,8 @@ class TrainingDataset(Dataset):
 
         kl = np.array(self._kl_div)
         td = np.array(self._td_error)
-        priority = 1.0 / (self._joined_rank(kl, td)) ** self._gamma
+        weights = np.array([e.weight for e in self._experiences])
+        priority = weights / (self._joined_rank(kl, td)) ** self._gamma
         probs = priority / priority.sum()
         indices = np.random.choice(size, size=n, replace=False, p=probs)
         sampled_exps = [self._experiences[i] for i in indices]

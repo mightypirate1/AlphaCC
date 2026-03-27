@@ -84,7 +84,10 @@ impl PredictClient {
     /// This spawns a background tokio task to read responses. The task exits
     /// when the stream closes or the last `PredictClient` clone is dropped.
     pub async fn connect(addr: &str) -> Result<Self, PredictError> {
-        let mut grpc_client = PredictionServiceClient::connect(addr.to_string())
+        let endpoint = tonic::transport::Endpoint::from_shared(addr.to_string())
+            .map_err(|e| PredictError::Transport(e.to_string()))?
+            .connect_timeout(std::time::Duration::from_secs(2));
+        let mut grpc_client = PredictionServiceClient::connect(endpoint)
             .await
             .map_err(|e| PredictError::Transport(e.to_string()))?;
 

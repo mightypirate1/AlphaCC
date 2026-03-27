@@ -9,7 +9,7 @@ class Agent(ABC):
         pass
 
     @abstractmethod
-    def on_game_start(self, board: Board) -> None:
+    def on_game_start(self) -> None:
         pass
 
     @abstractmethod

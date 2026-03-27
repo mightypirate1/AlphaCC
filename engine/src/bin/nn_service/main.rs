@@ -5,7 +5,7 @@ use clap::{Parser, Subcommand};
 use alpha_cc_engine::nn::backends::VersionedModel;
 use alpha_cc_engine::nn::backends::cpu::CpuBackend;
 use alpha_cc_engine::nn::backends::onnx::{OnnxBackend, OnnxSession};
-use alpha_cc_engine::nn::server::{config::ServerConfig, PredictServer};
+use alpha_cc_engine::nn::server::{config::ServerConfig, PredictServer, ServiceGate};
 
 #[derive(Parser)]
 struct Cli {
@@ -37,9 +37,12 @@ enum Command {
         /// Channel buffer size for incoming gRPC requests.
         #[arg(long, default_value = "1024")]
         channel_buffer: usize,
-        /// Inter-stage pipeline channel buffer size.
+        /// Pipeline buffer before inference (low = backpressure → larger batches).
+        #[arg(long, default_value = "1")]
+        intake_buffer: usize,
+        /// Pipeline buffer after inference (high = GPU never stalls on downstream).
         #[arg(long, default_value = "4")]
-        pipeline_buffer_size: usize,
+        outtake_buffer: usize,
         /// Print batch size on each inference call.
         #[arg(long)]
         verbose: bool,
@@ -56,6 +59,16 @@ enum Command {
         /// caching and Redis-coordinated staggered reloads across replicas.
         #[arg(long)]
         trt_cache_path: Option<String>,
+        /// Use TensorRT execution provider for optimized inference. Requires
+        /// TRT compilation on model load (slow reload, fast steady-state).
+        /// Without this flag, uses CUDA EP only (instant reload, ~30% slower).
+        #[arg(long)]
+        trt: bool,
+        /// Zero-pad all batches to --batch-size so TRT only compiles
+        /// kernels for one shape. Must match --onnx-compiled-batch-size
+        /// in the trainer if the ONNX model uses a static batch dim.
+        #[arg(long)]
+        fixed_batch_size: bool,
         /// Run inference on CPU instead of GPU (no CUDA/TensorRT needed).
         #[arg(long)]
         cpu: bool,
@@ -77,11 +90,11 @@ enum Command {
     },
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Command::Server { nn_path, game_size, port, batch_size, max_wait, channel_buffer, pipeline_buffer_size, verbose, reload_freq, redis_host, max_models, trt_cache_path, cpu } => {
+        Command::Server { nn_path, game_size, port, batch_size, max_wait, channel_buffer, intake_buffer, outtake_buffer, verbose, reload_freq, redis_host, max_models, trt_cache_path, trt, fixed_batch_size, cpu } => {
             let config = ServerConfig {
                 port,
                 game_size,
@@ -91,14 +104,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     channel_buffer,
                 },
                 pipeline: alpha_cc_engine::nn::server::config::PipelineConfig {
-                    buffer_size: pipeline_buffer_size,
+                    intake_buffer,
+                    outtake_buffer,
                 },
             };
             let rt = tokio::runtime::Runtime::new()?;
             if cpu {
                 rt.block_on(run_server_cpu(config, nn_path, verbose, reload_freq, redis_host, max_models))
             } else {
-                rt.block_on(run_server_gpu(config, nn_path, verbose, reload_freq, redis_host, max_models, trt_cache_path))
+                let fixed = if fixed_batch_size { Some(batch_size) } else { None };
+                rt.block_on(run_server_gpu(config, nn_path, verbose, reload_freq, redis_host, max_models, trt_cache_path, trt, fixed))
             }
         }
         Command::Bench { nn_path, game_size, warmup, iters } => {
@@ -115,7 +130,9 @@ async fn run_server_gpu(
     redis_host: String,
     max_models: usize,
     trt_cache_path: Option<String>,
-) -> Result<(), Box<dyn std::error::Error>> {
+    use_trt: bool,
+    fixed_batch_size: Option<usize>,
+) -> anyhow::Result<()> {
     let addr = format!("[::]:{}", config.port);
     let game_size = config.game_size as i64;
     let n_models = nn_paths.len();
@@ -127,17 +144,20 @@ async fn run_server_gpu(
         VersionedModel { model, version: 0 }
     }).collect();
     println!("Loaded {n_models} onnx model(s) (GPU)");
-    let backend = OnnxBackend::new(models, game_size, verbose, max_models, trt_cache_path);
-    let server = PredictServer::new(config, backend);
+    let reloader_trt_cache_path = trt_cache_path.clone();
+    let backend = OnnxBackend::new(models, game_size, verbose, max_models, trt_cache_path, use_trt, fixed_batch_size);
+    let gate = ServiceGate::new();
+    let server = PredictServer::new(config, backend, gate.clone());
 
     let source = alpha_cc_engine::db::TrainingDBRs::from_host(&redis_host)
         .expect("failed to connect to Redis for model reloading");
     let _reloader = alpha_cc_engine::nn::reloads::spawn_reloader(
-        server.backend(), source, poll_interval, Some("/tmp/healthy".to_string()),
+        server.backend(), source, poll_interval, Some("/tmp/healthy".to_string()), reloader_trt_cache_path, gate, use_trt,
     );
     println!("Model reloader started (poll every {reload_freq}s, redis={redis_host})");
 
     server.serve(&addr).await
+        .map_err(|e| anyhow::anyhow!("error: {e}"))
 }
 
 async fn run_server_cpu(
@@ -147,7 +167,7 @@ async fn run_server_cpu(
     reload_freq: u64,
     redis_host: String,
     max_models: usize,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     use alpha_cc_engine::nn::backends::cpu::CpuBackend;
 
     let addr = format!("[::]:{}", config.port);
@@ -162,14 +182,16 @@ async fn run_server_cpu(
     }).collect();
     println!("Loaded {n_models} onnx model(s) (CPU)");
     let backend = CpuBackend::new(models, game_size, verbose, max_models);
-    let server = PredictServer::new(config, backend);
+    let gate = ServiceGate::new();
+    let server = PredictServer::new(config, backend, gate.clone());
 
     let source = alpha_cc_engine::db::TrainingDBRs::from_host(&redis_host)
         .expect("failed to connect to Redis for model reloading");
     let _reloader = alpha_cc_engine::nn::reloads::spawn_reloader(
-        server.backend(), source, poll_interval, Some("/tmp/healthy".to_string()),
+        server.backend(), source, poll_interval, Some("/tmp/healthy".to_string()), None, gate, false,
     );
     println!("Model reloader started (poll every {reload_freq}s, redis={redis_host})");
 
     server.serve(&addr).await
+        .map_err(|e| anyhow::anyhow!("error: {e}"))
 }

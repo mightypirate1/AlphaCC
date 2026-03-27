@@ -1,5 +1,4 @@
 use std::sync::atomic::{AtomicI32, AtomicU32, Ordering::Relaxed};
-use std::sync::Mutex;
 
 use dashmap::DashMap;
 
@@ -78,25 +77,20 @@ impl NodeData {
 }
 
 
-/// MCTS tree: a concurrent data map keyed by board position + a root.
+/// Concurrent node store keyed by board position.
 /// Rollouts traverse via board lookups with no global lock — DashMap provides
 /// shard-level locking for inserts and lock-free reads. NodeData fields use
 /// atomics for concurrent updates.
 pub struct Tree {
-    root: Mutex<Board>,
     data: DashMap<Board, NodeData>,
 }
 
 impl Tree {
-    pub fn new(board: Board) -> Self {
-        Self {
-            root: Mutex::new(board),
-            data: DashMap::new(),
-        }
+    pub fn new() -> Self {
+        Self { data: DashMap::new() }
     }
 
-    pub fn clear(&self, board: Board) {
-        *self.root.lock().unwrap() = board;
+    pub fn clear(&self) {
         self.data.clear();
     }
 
@@ -104,41 +98,17 @@ impl Tree {
         self.data.len()
     }
 
-    /// Set the root board (called when starting rollouts on a new position).
-    pub fn set_root(&self, board: &Board) {
-        *self.root.lock().unwrap() = board.clone();
-    }
-
     /// Insert node data for a board position. Returns true if newly inserted.
     /// Uses DashMap's entry API to avoid races between contains_key and insert.
-    pub fn insert_data(&self, board: &Board, pi: Vec<f32>, v: f32) -> bool {
+    pub fn insert_data(&self, board: &Board, data: NodeData) -> bool {
         use dashmap::mapref::entry::Entry;
         match self.data.entry(board.clone()) {
             Entry::Occupied(_) => false,
             Entry::Vacant(e) => {
-                e.insert(NodeData::new(pi, v, board));
+                e.insert(data);
                 true
             }
         }
-    }
-
-    /// Advance the root to the position reached by `action`.
-    pub fn advance_root(&self, action: usize) {
-        let mut root_guard = self.root.lock().unwrap();
-        let root_board = root_guard.clone();
-        let data_ref = self.data.get(&root_board)
-            .expect("advance_root: root board has no data in tree");
-        let new_board = root_board.apply(&data_ref.moves[action]);
-        *root_guard = new_board;
-    }
-
-    /// TEMPORARY: panic if the tree root doesn't match the expected board.
-    pub fn assert_root_matches(&self, board: &Board) {
-        let root = self.root.lock().unwrap();
-        assert!(
-            *root == *board,
-            "tree root desynced from runtime board"
-        );
     }
 
     /// Get a reference to node data for a board position.

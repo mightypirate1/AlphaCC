@@ -13,13 +13,16 @@ pub async fn run_inference<B: Backend>(
     decoder_tx: mpsc::Sender<PipelineItem<B::Inferred>>,
 ) {
     while let Some(item) = inference_rx.recv().await {
-        let output = backend.inference(item.model_id, item.payload);
-        let out = PipelineItem {
-            model_id: item.model_id,
-            replies: item.replies,
-            moves: item.moves,
-            payload: output,
-        };
+        let backend = backend.clone();
+        let out = tokio::task::spawn_blocking(move || {
+            let output = backend.inference(item.model_id, item.payload);
+            PipelineItem {
+                model_id: item.model_id,
+                replies: item.replies,
+                moves: item.moves,
+                payload: output,
+            }
+        }).await.unwrap();
         if decoder_tx.send(out).await.is_err() {
             return;  // Decoder is down!
         };

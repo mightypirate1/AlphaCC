@@ -35,7 +35,7 @@ class TrainingRunTime:
         board = self._board.reset()
         max_game_duration = np.inf if max_game_length is None else max_game_length
         time_to_argmax = argmax_delay if argmax_delay is not None else np.inf
-        agent.on_game_start(board)
+        agent.on_game_start()
         snapshot_interval = 1 if internal_nodes_fraction else 0
 
         trajectory: list[MCTSExperience] = []
@@ -61,7 +61,6 @@ class TrainingRunTime:
                 )
                 trajectory.append(experience)
 
-                # Sample internal nodes BEFORE on_move_applied prunes the tree
                 if snapshot_interval and len(trajectory) % snapshot_interval == 0:
                     internal_nodes.update(
                         _sample_internal_nodes(
@@ -77,7 +76,6 @@ class TrainingRunTime:
                 if (time_to_argmax := time_to_argmax - 1) >= 0:
                     a = np.random.choice(len(pi), p=pi)
 
-                agent.on_move_applied(a)
                 board = board.apply(board.get_moves()[a])
                 pbar.update(1)
         training_data = TrainingData(

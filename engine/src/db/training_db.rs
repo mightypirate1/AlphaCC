@@ -56,21 +56,18 @@ impl ModelSource for TrainingDBRs {
         bytes.ok_or_else(|| anyhow!("no weights for version {version} (key={key})"))
     }
 
-    fn try_acquire_build_lock(&self, version: usize) -> bool {
+    fn try_acquire_build_lock(&self, version: usize) -> u64 {
         let key = format!("trt-build-lock:{version}");
         let mut conn = self.conn.lock().unwrap();
-        // SETNX + EXPIRE: acquire lock with 120s TTL (safety net if holder crashes)
-        let acquired: bool = redis::cmd("SET")
-            .arg(&key).arg("1").arg("NX").arg("EX").arg(120)
-            .query(&mut *conn)
-            .unwrap_or(false);
-        acquired
+        let val: u64 = redis::cmd("INCR").arg(&key).query(&mut *conn).unwrap_or(0);
+        let _: () = redis::cmd("EXPIRE").arg(&key).arg(120).query(&mut *conn).unwrap_or(());
+        val
     }
 
     fn release_build_lock(&self, version: usize) {
         let key = format!("trt-build-lock:{version}");
         let mut conn = self.conn.lock().unwrap();
-        let _: () = redis::cmd("DEL").arg(&key).query(&mut *conn).unwrap_or(());
+        let _: () = redis::cmd("SET").arg(&key).arg("0").query(&mut *conn).unwrap_or(());
     }
 
     fn is_build_complete(&self, version: usize) -> bool {

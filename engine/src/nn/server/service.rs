@@ -5,12 +5,14 @@ use tonic::{Request, Response, Status, Streaming};
 
 use crate::nn::proto::prediction_service_server::PredictionService;
 use crate::nn::proto::{PredictRequest, PredictResponse};
+use crate::nn::server::gate::ServiceGate;
 use crate::nn::server::types::PendingPrediction;
 
 
 pub struct NNService<F: Fn(u32) -> bool + Clone + Send + Sync + 'static> {
     pub submit_tx: mpsc::Sender<PendingPrediction>,
     pub model_id_ready: F,
+    pub gate: ServiceGate,
 }
 
 #[tonic::async_trait]
@@ -24,6 +26,7 @@ impl<F: Fn(u32) -> bool + Clone + Send + Sync + 'static> PredictionService for N
         let mut inbound = request.into_inner();
         let submit_tx = self.submit_tx.clone();
         let model_id_ready = self.model_id_ready.clone();
+        let gate = self.gate.clone();
 
         // Per-worker outbound channel.
         let (out_tx, out_rx) = mpsc::channel(64);
@@ -35,6 +38,12 @@ impl<F: Fn(u32) -> bool + Clone + Send + Sync + 'static> PredictionService for N
                     Ok(r) => r,
                     Err(_) => break, // Stream error, worker probably disconnected.
                 };
+
+                // Service unavailable during model reload — close stream so
+                // worker reconnects to a different replica.
+                if !gate.is_available() {
+                    break;
+                }
 
                 // Hold request until the requested model is loaded.
                 while !model_id_ready(req.model_id) {

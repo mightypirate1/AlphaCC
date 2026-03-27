@@ -35,6 +35,12 @@ impl NNQuantizedPi {
         (self.0 as f32) * Self::INV_SCALE
     }
 
+
+    #[inline]
+    pub fn dequantize_vec(src: &[NNQuantizedPi]) -> Vec<f32> {
+        src.iter().map(|q| q.dequantize()).collect()
+    }
+
     #[inline]
     pub fn quantize_into(dst: &mut [NNQuantizedPi], src: &[f32]) {
         assert_eq!(dst.len(), src.len());

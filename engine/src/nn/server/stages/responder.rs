@@ -53,7 +53,7 @@ pub async fn run_responder<B: Backend>(
     spawn_stats_printer(stats.clone(), Duration::from_secs(10));
 
     while let Some(item) = responder_rx.recv().await {
-        let batch_size = item.payload.len() as u64;
+        let batch_size = item.replies.len() as u64;
         for (((request_id, reply_tx), (pi_bytes, value)), move_bytes) in
             item.replies.into_iter().zip(item.payload).zip(item.moves)
         {

@@ -23,7 +23,7 @@ def _fresh_reward_and_winner(board: Board) -> tuple[float, int]:
     """
     raw = board.__getstate__()
     fresh = Board.__new__(Board)
-    fresh.__setstate__(raw)
+    fresh.__setstate__(raw)  # type: ignore[attr-defined]
     return fresh.info.reward, fresh.info.winner
 
 
@@ -31,7 +31,7 @@ def _fresh_hash(board: Board) -> int:
     """Get the hash of a board reconstructed from serialized bytes."""
     raw = board.__getstate__()
     fresh = Board.__new__(Board)
-    fresh.__setstate__(raw)
+    fresh.__setstate__(raw)  # type: ignore[attr-defined]
     return hash(fresh)
 
 
@@ -61,12 +61,12 @@ def test_cache_valid_through_full_game(size: int) -> None:
 
         # verify reward/winner
         fresh_r, fresh_w = _fresh_reward_and_winner(board)
-        assert board.info.reward == pytest.approx(fresh_r), (
-            f"reward mismatch at step {step}: cached={board.info.reward}, fresh={fresh_r}"
-        )
-        assert board.info.winner == fresh_w, (
-            f"winner mismatch at step {step}: cached={board.info.winner}, fresh={fresh_w}"
-        )
+        assert board.info.reward == pytest.approx(
+            fresh_r
+        ), f"reward mismatch at step {step}: cached={board.info.reward}, fresh={fresh_r}"
+        assert (
+            board.info.winner == fresh_w
+        ), f"winner mismatch at step {step}: cached={board.info.winner}, fresh={fresh_w}"
 
         # verify game_over consistent with winner
         assert board.info.game_over == (board.info.winner > 0)
@@ -92,7 +92,7 @@ def test_cache_survives_pickle_roundtrip(size: int) -> None:
         moves = board.get_moves()
         board = board.apply(moves[np.random.randint(len(moves))])
 
-    restored = pickle.loads(pickle.dumps(board))
+    restored = pickle.loads(pickle.dumps(board))  # noqa: S301
     assert hash(restored) == hash(board)
     assert restored.info.reward == pytest.approx(board.info.reward)
     assert restored.info.winner == board.info.winner
@@ -118,9 +118,7 @@ def test_clone_preserves_hash(size: int) -> None:
         moves_again = board.get_moves()
         board_b = board.apply(moves_again[a])
 
-        assert hash(board_a) == hash(board_b), (
-            f"same parent + same action index produced different hashes"
-        )
+        assert hash(board_a) == hash(board_b), "same parent + same action index produced different hashes"
         assert board_a == board_b
         assert board_a.info.reward == pytest.approx(board_b.info.reward)
         assert board_a.info.winner == board_b.info.winner

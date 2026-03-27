@@ -4,6 +4,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use crate::nn::backends::{Backend, VersionedModel};
+use crate::nn::server::gate::ServiceGate;
 use super::ModelSource;
 
 static HEALTH_MARKED: AtomicBool = AtomicBool::new(false);
@@ -31,16 +32,19 @@ pub fn spawn_reloader<B: Backend>(
     source: impl ModelSource,
     poll_interval: Duration,
     health_file: Option<String>,
+    trt_cache_path: Option<String>,
+    gate: ServiceGate,
+    use_trt: bool,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
         loop {
             thread::sleep(poll_interval);
-            reload_cycle(&backend, &source, &health_file);
+            reload_cycle(&backend, &source, &health_file, &trt_cache_path, &gate, use_trt);
         }
     })
 }
 
-fn reload_cycle<B: Backend>(backend: &Arc<B>, source: &impl ModelSource, health_file: &Option<String>) {
+fn reload_cycle<B: Backend>(backend: &Arc<B>, source: &impl ModelSource, health_file: &Option<String>, trt_cache_path: &Option<String>, gate: &ServiceGate, use_trt: bool) {
     // 1. Poll desired state
     let desired = match source.desired_versions() {
         Some(d) => d,
@@ -79,22 +83,48 @@ fn reload_cycle<B: Backend>(backend: &Arc<B>, source: &impl ModelSource, health_
             }
         };
 
-        // Coordinated build: try to be the one that compiles (others wait for cache)
-        let is_builder = source.try_acquire_build_lock(desired_version);
-        if !is_builder {
-            // Another instance is building — wait for it to finish so TRT cache is populated
-            eprintln!(
-                "[reloader] waiting for another instance to build version={desired_version}..."
-            );
-            while !source.is_build_complete(desired_version) {
-                thread::sleep(Duration::from_secs(1));
+        // --- TRT: coordinated build with gate closure ---
+        // Without TRT, model_from_bytes is a lightweight CUDA load — no gate needed.
+        let is_builder = if use_trt {
+            let lock_position = if source.is_build_complete(desired_version) {
+                0 // already built, skip straight to loading
+            } else {
+                source.try_acquire_build_lock(desired_version)
+            };
+            let builder = lock_position == 1;
+            if builder {
+                if let Some(path) = trt_cache_path {
+                    eprintln!("[reloader] wiping TRT cache at {path} for version={desired_version}");
+                    let _ = std::fs::remove_dir_all(path);
+                    let _ = std::fs::create_dir_all(path);
+                }
+            } else {
+                eprintln!(
+                    "[reloader] waiting for another instance to build version={desired_version}..."
+                );
+                while !source.is_build_complete(desired_version) {
+                    thread::sleep(Duration::from_secs(1));
+                }
+                let stagger = Duration::from_secs((1 + lock_position.saturating_sub(1)) * 5);
+                eprintln!(
+                    "[reloader] build complete for version={desired_version}, loading from cache (stagger={stagger:?})"
+                );
+                thread::sleep(stagger);
             }
-            eprintln!(
-                "[reloader] build complete for version={desired_version}, loading from cache"
-            );
-        }
+            builder
+        } else {
+            false
+        };
 
-        // Construct model from bytes (builder: TRT compiles + caches; others: TRT loads from cache)
+        // Close gate during GPU-heavy model loading (TRT compilation or cache load).
+        // Without TRT the CUDA EP load is lightweight — no gate needed.
+        let _unavailable_guard = if use_trt {
+            eprintln!("[reloader] gate closed — stopping inference for model reload");
+            Some(gate.unavailable_guard())
+        } else {
+            None
+        };
+
         let model = match backend.model_from_bytes(&bytes) {
             Ok(m) => m,
             Err(e) => {
@@ -120,7 +150,6 @@ fn reload_cycle<B: Backend>(backend: &Arc<B>, source: &impl ModelSource, health_
             }
         };
 
-        // Signal completion if we were the builder
         if is_builder {
             source.mark_build_complete(desired_version);
             source.release_build_lock(desired_version);
@@ -136,5 +165,7 @@ fn reload_cycle<B: Backend>(backend: &Arc<B>, source: &impl ModelSource, health_
             current_version,
         );
         mark_healthy(health_file);
+        // _gate_guard dropped here → gate restored
+        eprintln!("[reloader] gate open — resuming inference");
     }
 }

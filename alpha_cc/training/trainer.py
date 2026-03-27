@@ -217,20 +217,20 @@ class Trainer:
         )
 
         for batch in dataloader:
-            x, pi_mask_batch, pi_target_batch, target_value, _, is_internal = (
-                b.to(self._device) for b in batch
-            )
+            x, pi_mask_batch, pi_target_batch, target_value, weight, is_internal = (b.to(self._device) for b in batch)
             pi_tensor_batch, value_batch = self._nn(x)
 
-            # Per-sample TD error: |v_pred - v_target|, 0 for internal nodes
+            # Per-sample TD error: |v_pred - v_target|, 0 for internal nodes,
+            # dampened by weight for unfinished games (unreliable v_targets).
             td_err = torch.abs(value_batch.squeeze() - target_value.squeeze())
             td_err = torch.where(is_internal.squeeze(), torch.zeros_like(td_err), td_err)
+            td_err = td_err * weight.squeeze()
             td_errors_list.append(td_err.cpu())
 
             # Per-sample KL divergence (batched): KL(pi_target || pi_pred) over legal moves
             log_pred = self._policy_log_softmax(pi_tensor_batch, pi_mask_batch)
             log_target = torch.log(pi_target_batch.clamp_min(1e-6))
-            kl_per_sample = (pi_target_batch * (log_target - log_pred))
+            kl_per_sample = pi_target_batch * (log_target - log_pred)
             kl_per_sample = torch.where(pi_mask_batch, kl_per_sample, 0.0)
             kl_per_sample = kl_per_sample.reshape(x.shape[0], -1).sum(dim=1)
             kl_divs_list.append(kl_per_sample.cpu())

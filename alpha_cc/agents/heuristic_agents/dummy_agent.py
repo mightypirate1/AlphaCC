@@ -8,10 +8,10 @@ class DummyAgent(Agent):
     def __init__(self) -> None:
         pass
 
-    def choose_move(self, board: Board, _: bool = False) -> int:
+    def choose_move(self, board: Board, training: bool = False) -> int:  # noqa: ARG002
         return int(np.random.choice(len(board.get_next_states())))
 
-    def on_game_start(self, board: Board) -> None:
+    def on_game_start(self) -> None:
         pass
 
     def on_game_end(self) -> None:

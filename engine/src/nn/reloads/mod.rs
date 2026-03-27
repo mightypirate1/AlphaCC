@@ -16,9 +16,9 @@ pub trait ModelSource: Send + Sync + 'static {
     /// Load raw model bytes for a given version.
     fn load_bytes(&self, version: usize) -> Result<Vec<u8>>;
 
-    /// Try to acquire a build lock for the given version (SETNX-style).
-    /// Returns true if this instance should build; false if another is building.
-    fn try_acquire_build_lock(&self, _version: usize) -> bool { true }
+    /// Try to acquire a build lock for the given version.
+    /// Returns the lock position: 1 = builder, 2+ = wait in queue.
+    fn try_acquire_build_lock(&self, _version: usize) -> u64 { 1 }
     /// Release the build lock.
     fn release_build_lock(&self, _version: usize) {}
     /// Check whether another instance has finished building this version.

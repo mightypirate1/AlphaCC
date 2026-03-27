@@ -3,7 +3,7 @@ import signal
 import sys
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import click
 import torch
@@ -43,7 +43,9 @@ checkpoint_lock = threading.Lock()
 @click.option("--init-champion-weight-index", type=int, default=None)
 @click.option("--per-gamma", type=float, default=0.5)
 @click.option("--per-visits-threshold", type=float, default=100.0)
+@click.option("--per-rank-mode", type=click.Choice(["td", "min", "prod"]), default="td")
 @click.option("--gpu", is_flag=True, default=False)
+@click.option("--onnx-compiled-batch-size", type=int, default=None)
 def main(
     run_id: str,
     size: int,
@@ -64,7 +66,9 @@ def main(
     init_champion_weight_index: int | None,
     per_gamma: float,
     per_visits_threshold: float,
+    per_rank_mode: Literal["td", "min", "prod"],
     gpu: bool,
+    onnx_compiled_batch_size: int | None,
 ) -> None:
     init_rootlogger(verbose=verbose)
     summary_writer = create_summary_writer(run_id)
@@ -86,15 +90,17 @@ def main(
     )
 
     curr_index, champion_index, existing_checkpoint = initialize_training(
-        run_id, size, db, trainer, init_run_id, init_weights_index, init_champion_weight_index
+        run_id, size, db, trainer, init_run_id, init_weights_index, init_champion_weight_index,
+        onnx_compiled_batch_size,
     )
     if existing_checkpoint is None:
         db.flush_db()  # safe fresh start
-        curr_index, _ = publish_weights(trainer.nn, db, size)
+        curr_index, _ = publish_weights(trainer.nn, db, size, onnx_compiled_batch_size)
         champion_index = curr_index
         replay_buffer = TrainingDataset(
             max_size=replay_buffer_size,
             gamma=per_gamma,
+            rank_mode=per_rank_mode,
             visits_threshold=per_visits_threshold,
         )
     else:
@@ -116,6 +122,7 @@ def main(
         replay_buffer,
     )
     db.model_set_current(0, curr_index)
+    set_service_healthy()
 
     while True:
         # wait until we have enough new samples
@@ -125,7 +132,9 @@ def main(
 
         # prioritized sampling
         sampled_indices, sampled_dataset = replay_buffer.prioritized_sample(
-            train_size, summary_writer=summary_writer, global_step=curr_index,
+            train_size,
+            summary_writer=summary_writer,
+            global_step=curr_index,
         )
 
         # train on sampled dataset and compute per-sample errors for PER
@@ -133,7 +142,7 @@ def main(
         replay_buffer.update_priorities(sampled_indices, kl_divs, td_errors)
 
         # publish weights
-        curr_index, onnx_payload = publish_weights(trainer.nn, db, size)
+        curr_index, onnx_payload = publish_weights(trainer.nn, db, size, onnx_compiled_batch_size)
         save_weights(run_id, curr_index, trainer.nn.state_dict(), onnx_payload)
 
         # periodically run tournament
@@ -164,22 +173,32 @@ def await_samples(db: TrainingDB, n_train_samples: int) -> list[TrainingData]:
     return training_datas
 
 
-def _serialize_model(model: torch.nn.Module, board_size: int) -> bytes:
+def _serialize_model(
+    model: torch.nn.Module,
+    board_size: int,
+    compiled_batch_size: int | None = None,
+) -> bytes:
     model.eval()
     device = next(model.parameters()).device
-    dummy = torch.zeros(1, 2, board_size, board_size, device=device)
+    batch = compiled_batch_size or 1
+    dummy = torch.zeros(batch, 2, board_size, board_size, device=device)
     tmp_path = Path(Environment.model_dir) / "temp.onnx"
+    dynamic_axes = (
+        None
+        if compiled_batch_size is not None
+        else {
+            "input": {0: "batch"},
+            "policy": {0: "batch"},
+            "value": {0: "batch"},
+        }
+    )
     torch.onnx.export(
         model,
         (dummy,),
         tmp_path,
         input_names=["input"],
         output_names=["policy", "value"],
-        dynamic_axes={
-            "input": {0: "batch"},
-            "policy": {0: "batch"},
-            "value": {0: "batch"},
-        },
+        dynamic_axes=dynamic_axes,
         opset_version=18,
         do_constant_folding=True,
         external_data=False,
@@ -194,8 +213,9 @@ def publish_weights(
     model: torch.nn.Module,
     db: TrainingDB,
     board_size: int,
+    compiled_batch_size: int | None = None,
 ) -> tuple[int, bytes]:
-    payload = _serialize_model(model, board_size)
+    payload = _serialize_model(model, board_size, compiled_batch_size)
     curr_idx = db.weights_incr_weights_index()
     db.weights_publish(payload, curr_idx, set_latest=True)
     db.model_set_current(0, curr_idx)
@@ -210,6 +230,7 @@ def initialize_training(
     init_run_id: str | None,
     init_weights_index: int | None,
     init_champion_weight_index: int | None,
+    onnx_compiled_batch_size: int | None = None,
 ) -> tuple[int, int, TrainingCheckpoint | None]:
     """
     If the run_id is not new, i.e. it has been used before for training,
@@ -238,7 +259,7 @@ def initialize_training(
         # re-serialize the overridden champion as ONNX
         champion_model = DefaultNet(size)
         champion_model.load_state_dict(init_weights)
-        checkpoint.champion_payload = _serialize_model(champion_model, size)
+        checkpoint.champion_payload = _serialize_model(champion_model, size, onnx_compiled_batch_size)
         checkpoint.champion_index = init_champion_weight_index
 
     if init_weights_index is not None and init_weights_index != checkpoint.current_index:
@@ -261,7 +282,7 @@ def initialize_training(
     # publish the weights to redis so the nn-service can load them
     if checkpoint.current_index != checkpoint.champion_index:
         db.weights_publish(checkpoint.champion_payload, checkpoint.champion_index)
-    current_payload = _serialize_model(trainer.nn, size)
+    current_payload = _serialize_model(trainer.nn, size, onnx_compiled_batch_size)
     db.weights_publish(current_payload, checkpoint.current_index, set_latest=True)
     return checkpoint.current_index, checkpoint.champion_index, checkpoint
 
@@ -274,6 +295,11 @@ def load_saved_checkpoint(run_id: str) -> TrainingCheckpoint | None:
     if not Path(checkpoint_path).exists():
         return None
     return TrainingCheckpoint.from_path(checkpoint_path, verbose=True)
+
+
+def set_service_healthy() -> None:
+    Path("/tmp/healthy").write_text("ok")  # noqa: S108
+    logger.info("Trainer ready — health file written: /tmp/healthy")
 
 
 def create_and_register_signal_handler(

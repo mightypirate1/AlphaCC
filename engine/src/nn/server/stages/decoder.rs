@@ -15,13 +15,16 @@ pub async fn run_decoder<B: Backend>(
     responder_tx: mpsc::Sender<PipelineItem<Vec<(Vec<u8>, f32)>>>,
 ) {
     while let Some(item) = decoder_rx.recv().await {
-        let decoded = backend.decode(item.payload);
-        let out = PipelineItem {
-            model_id: item.model_id,
-            replies: item.replies,
-            moves: item.moves,
-            payload: decoded,
-        };
+        let backend = backend.clone();
+        let out = tokio::task::spawn_blocking(move || {
+            let decoded = backend.decode(item.payload);
+            PipelineItem {
+                model_id: item.model_id,
+                replies: item.replies,
+                moves: item.moves,
+                payload: decoded,
+            }
+        }).await.unwrap();
         if responder_tx.send(out).await.is_err() {
             return; // Responder is down.
         }

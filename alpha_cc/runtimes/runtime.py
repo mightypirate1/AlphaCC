@@ -18,7 +18,7 @@ class RunTime:
 
     def play_game(self, training: bool = False) -> int:
         board = self._board.reset()
-        self._agents_on_game_start(board)
+        self._agents_on_game_start()
 
         while not board.info.game_over:
             agent = self._agent_dict[board.info.current_player]
@@ -38,9 +38,9 @@ class RunTime:
         self._agents_on_game_end()
         return board.info.winner
 
-    def _agents_on_game_start(self, board: Board) -> None:
+    def _agents_on_game_start(self) -> None:
         for _, agent in self._agent_dict.items():
-            agent.on_game_start(board)
+            agent.on_game_start()
 
     def _agents_on_game_end(self) -> None:
         for _, agent in self._agent_dict.items():

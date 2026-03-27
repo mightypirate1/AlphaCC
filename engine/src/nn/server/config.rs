@@ -10,7 +10,12 @@ pub struct ServerConfig {
 
 #[derive(Clone, Debug)]
 pub struct PipelineConfig {
-    pub buffer_size: usize,
+    /// Buffer size for channels feeding INTO inference (batcher→encoder, encoder→inference).
+    /// Low values (1) create backpressure that forces larger batches → better GPU utilization.
+    pub intake_buffer: usize,
+    /// Buffer size for channels AFTER inference (inference→decoder, decoder→responder).
+    /// Higher values prevent the GPU from stalling on slow downstream consumers.
+    pub outtake_buffer: usize,
 }
 
 #[derive(Clone, Debug)]

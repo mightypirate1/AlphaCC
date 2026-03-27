@@ -10,11 +10,11 @@ class GreedyAgent(Agent):
     def __init__(self, board_size: int = 9) -> None:
         self._heuristic_function = Heuristic(board_size, subtract_opponent=True)
 
-    def choose_move(self, board: Board, training: bool = False) -> int:
+    def choose_move(self, board: Board, training: bool = False) -> int:  # noqa: ARG002
         sp_values = self._evaluation(board)
         return int(np.argmax(sp_values))
 
-    def on_game_start(self, board: Board) -> None:
+    def on_game_start(self) -> None:
         pass
 
     def on_game_end(self) -> None:
