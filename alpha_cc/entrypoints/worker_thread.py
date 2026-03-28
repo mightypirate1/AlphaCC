@@ -39,6 +39,8 @@ logger = logging.getLogger(__file__)
 @click.option("--internal-nodes-fraction", type=str, default="0.0")
 @click.option("--internal-nodes-min-visits", type=str, default="1")
 @click.option("--n-threads", type=int, default=1)
+@click.option("--pruning-tree", is_flag=True, default=False)
+@click.option("--debug-prints", is_flag=True, default=False)
 @click.option("--verbose", is_flag=True, default=False)
 def main(
     size: int,
@@ -56,6 +58,8 @@ def main(
     internal_nodes_fraction: str,
     internal_nodes_min_visits: str,
     n_threads: int,
+    pruning_tree: bool,
+    debug_prints: bool,
     verbose: bool,
 ) -> None:
     def create_model(channel: int, trainer_time: int) -> MCTSAgent:
@@ -68,6 +72,8 @@ def main(
             dirichlet_weight=dirichlet_noise_weight,
             dirichlet_leaf_weight=dirichlet_leaf_noise_weight_schedule.as_float(trainer_time),
             n_threads=n_threads,
+            pruning_tree=pruning_tree,
+            debug_prints=debug_prints,
         )
 
     max_game_length_schedule = ParamSchedule.from_str(max_game_length or "inf")

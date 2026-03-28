@@ -100,6 +100,7 @@ pub async fn run_batcher(
         if config.adaptive_rate > 0.0 {
             let estimated_optimal_wait = elapsed.mul_f64(inv_fill_rate);
             current_wait = alpha_blend_duration(current_wait, estimated_optimal_wait, config.adaptive_rate);
+            current_wait = current_wait.max(config.min_wait).min(config.max_wait);
             current_wait_us.store(current_wait.as_micros() as u64, Ordering::Relaxed);
         }
     }

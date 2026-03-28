@@ -21,6 +21,8 @@ class MCTSAgent(Agent):
         c_puct_base: float = 10000.0,
         argmax_delay: int | None = None,
         n_threads: int = 1,
+        pruning_tree: bool = False,
+        debug_prints: bool = False,
     ) -> None:
         self._n_rollouts = n_rollouts
         self._rollout_depth = rollout_depth
@@ -36,6 +38,8 @@ class MCTSAgent(Agent):
             c_puct_init,
             c_puct_base,
             n_threads,
+            pruning_tree,
+            debug_prints,
         )
 
     def get_worker_stats(self) -> WorkerStats:

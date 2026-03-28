@@ -226,6 +226,7 @@ def publish_weights(
     curr_idx = db.weights_incr_weights_index()
     db.weights_publish(payload, curr_idx, batch_size=compiled_batch_size, set_latest=True)
     db.model_set_current(0, curr_idx)
+    logger.info(f"published weights {curr_idx} (batch_size={compiled_batch_size})")
     return curr_idx, payload
 
 

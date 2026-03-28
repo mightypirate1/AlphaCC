@@ -39,9 +39,6 @@ enum Command {
         /// Primary pipeline: max wait time (ms).
         #[arg(long, default_value = "5")]
         max_wait: u64,
-        /// Primary pipeline: wait upward drift factor.
-        #[arg(long, default_value = "2")]
-        wait_upward_drift: f64,
         /// Secondary pipeline: max batch size. Enables a separate pipeline for
         /// tournament channels (model_ids 1+). If omitted, all model_ids share
         /// the primary pipeline.
@@ -109,7 +106,7 @@ fn main() -> anyhow::Result<()> {
     match cli.command {
         Command::Server {
             nn_path, game_size, port, batch_size, min_wait, max_wait,
-            secondary_batch_size, secondary_min_wait, wait_upward_drift,
+            secondary_batch_size, secondary_min_wait,
             secondary_max_wait, adaptive_rate, channel_buffer, intake_buffer,
             outtake_buffer, verbose, reload_freq, redis_host, max_models,
             trt_cache_path, trt, fixed_batch_size, cpu,
@@ -122,10 +119,9 @@ fn main() -> anyhow::Result<()> {
                     max_batch_size: batch_size,
                     min_wait: std::time::Duration::from_millis(min_wait),
                     max_wait: std::time::Duration::from_millis(max_wait),
-                    wait_upward_drift,
                     channel_buffer,
                     adaptive_rate,
-                    fixed_batch_size: if fixed_batch_size { Some(batch_size) } else { None },
+                    pad_to_max: fixed_batch_size,
                     pad_item_len,
                 },
                 pipeline: pipeline_cfg.clone(),
@@ -141,10 +137,9 @@ fn main() -> anyhow::Result<()> {
                             max_batch_size: sec_bs,
                             min_wait: std::time::Duration::from_millis(secondary_min_wait),
                             max_wait: std::time::Duration::from_millis(secondary_max_wait),
-                            wait_upward_drift,
                             channel_buffer,
                             adaptive_rate,
-                            fixed_batch_size: if fixed_batch_size { Some(sec_bs) } else { None },
+                            pad_to_max: fixed_batch_size,
                             pad_item_len,
                         },
                         pipeline: pipeline_cfg.clone(),

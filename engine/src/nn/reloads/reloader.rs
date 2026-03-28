@@ -78,7 +78,7 @@ fn reload_cycle<B: Backend>(backend: &Arc<B>, source: &impl ModelSource, health_
             Ok(b) => b,
             Err(e) => {
                 eprintln!(
-                    "[reloader] error loading bytes for model_id={model_id} version={desired_version}: {e}"
+                    "[reloader] error loading bytes for model_id={model_id} version={desired_version} batch_size={batch_size:?}: {e}"
                 );
                 continue;
             }
