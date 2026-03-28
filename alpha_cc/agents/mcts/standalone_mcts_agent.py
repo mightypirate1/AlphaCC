@@ -7,6 +7,7 @@ import torch
 from alpha_cc.agents.mcts.mcts_agent import MCTSAgent
 from alpha_cc.agents.mcts.mcts_node_py import MCTSNodePy
 from alpha_cc.agents.mcts.node_store import LocalNodeStore, NodeStore
+from alpha_cc.agents.mcts.worker_stats import WorkerStats
 from alpha_cc.engine import Board
 from alpha_cc.nn.nets import DefaultNet
 from alpha_cc.state import GameState
@@ -69,6 +70,10 @@ class StandaloneMCTSAgent(MCTSAgent):
 
     def on_game_end(self) -> None:
         pass
+
+    def get_worker_stats(self) -> WorkerStats:
+        # StandaloneMCTSAgent does not use the Rust MCTS engine, so no real stats
+        return WorkerStats.empty()
 
     def choose_move(  # type: ignore
         self,

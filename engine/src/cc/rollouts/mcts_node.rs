@@ -1,20 +1,20 @@
+#[cfg(feature = "extension-module")]
 extern crate pyo3;
 
-use pyo3::prelude::*;
+use std::sync::atomic::Ordering::Relaxed;
 
 use crate::cc::Move;
 use crate::cc::dtypes::{NNQuantizedPi, NNQuantizedValue};
+use crate::cc::rollouts::tree::NodeData;
 
 
-#[pyclass(module="alpha_cc_engine")]
+#[cfg_attr(feature = "extension-module", pyo3::prelude::pyclass(module="alpha_cc_engine", from_py_object))]
 #[derive(Clone)]
 pub struct MCTSNode {
-    #[pyo3(get)]
     pub n: Vec<u32>,
     pub q: Vec<NNQuantizedValue>,
     pub pi: Vec<NNQuantizedPi>,
     pub v: NNQuantizedValue,
-    #[pyo3(get)]
     pub moves: Vec<Move>,
 }
 
@@ -63,10 +63,37 @@ impl MCTSNode {
             .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .unwrap_or(0.0)
     }
+
+    /// Create an MCTSNode snapshot from NodeData (for Python interface compatibility).
+    pub fn from_node_data(data: &NodeData) -> Self {
+        let num_actions = data.num_actions();
+        let n: Vec<u32> = (0..num_actions).map(|a| data.n[a].load(Relaxed)).collect();
+        let q: Vec<NNQuantizedValue> = (0..num_actions)
+            .map(|a| NNQuantizedValue::quantize(data.get_q(a)))
+            .collect();
+        MCTSNode {
+            n,
+            q,
+            pi: data.pi.clone(),
+            v: data.v,
+            moves: data.moves.clone(),
+        }
+    }
 }
 
-#[pymethods]
+#[cfg(feature = "extension-module")]
+#[pyo3::prelude::pymethods]
 impl MCTSNode {
+    #[getter(n)]
+    fn get_n_py(&self) -> Vec<u32> {
+        self.n.clone()
+    }
+
+    #[getter(moves)]
+    fn get_moves_py(&self) -> Vec<Move> {
+        self.moves.clone()
+    }
+
     #[getter(q)]
     fn get_q_py(&self) -> Vec<f32> {
         self.q.iter().map(|q| q.dequantize()).collect()

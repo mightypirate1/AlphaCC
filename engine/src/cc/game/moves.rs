@@ -1,11 +1,17 @@
+#[cfg(feature = "extension-module")]
 extern crate pyo3;
+#[cfg(feature = "extension-module")]
 use pyo3::prelude::*;
-use std::collections::{HashMap, HashSet};
+#[cfg(feature = "extension-module")]
+use std::collections::HashMap;
+use std::collections::HashSet;
 use indexmap::IndexSet;
 use crate::cc::{Board, HexCoord, Move};
+#[cfg(feature = "extension-module")]
 use crate::cc::game::board::MAX_SIZE;
 
 
+#[cfg(feature = "extension-module")]
 #[pyfunction]
 pub fn create_move_mask(moves: Vec<Move>) -> [[[[bool; MAX_SIZE]; MAX_SIZE]; MAX_SIZE]; MAX_SIZE] {
     /*
@@ -22,6 +28,7 @@ pub fn create_move_mask(moves: Vec<Move>) -> [[[[bool; MAX_SIZE]; MAX_SIZE]; MAX
     }
     mask
 }
+#[cfg(feature = "extension-module")]
 #[pyfunction]
 pub fn create_move_index_map(moves: Vec<Move>) -> HashMap<usize, (HexCoord, HexCoord)> {
     let mut move_index_map:HashMap<usize, (HexCoord, HexCoord)> = HashMap::new();
@@ -53,7 +60,7 @@ pub fn find_all_moves(board: &Board) -> Vec<Move> {
             from_coord = HexCoord::new(x, y , board.get_size());
             if board.coord_is_player1(&from_coord) {
                 from_coords.insert(from_coord);
-                for to_coord in from_coord.get_all_neighbours(1) {
+                for to_coord in from_coord.get_all_neighbours_arr(1).into_iter().flatten() {
                     if board.coord_is_empty(&to_coord)
                     || board.coord_is_player2_home(&to_coord)
                     && board.coord_is_player2(&to_coord) {
@@ -116,7 +123,7 @@ fn _recusive_exporation<'a>(
         `jump_moves` vec.
      */
 
-    for direction in current_coord.get_all_directions() {
+    for direction in 0..6 {
         if let Some(target_coord) = current_coord.get_neighbor(direction, 2) {
             if let Some(intermediate_coord) = current_coord.get_neighbor(direction, 1) {
             let is_standard_jump = board.coord_is_empty(&target_coord)

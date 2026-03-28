@@ -3,8 +3,30 @@ Typehints and docs for the game engine
 
 """
 
+import numpy
+
 def create_move_mask(moves: list[Move]) -> list[list[list[list[bool]]]]: ...
 def create_move_index_map(moves: list[Move]) -> dict[int, tuple[HexCoord, HexCoord]]: ...
+def build_inference_request(
+    board: Board,
+) -> tuple[numpy.ndarray, list[tuple[int, int, int, int]]]:
+    """Build an InferenceRequest from a Board and return its fields.
+
+    Returns (tensor_data as ndarray (2, size, size), move_coords).
+    """
+    ...
+
+def preds_from_logits(
+    logits_flat: numpy.ndarray,
+    values_flat: numpy.ndarray,
+    boards: list[Board],
+    board_size: int,
+) -> list[NNPred]:
+    """Compute NNPreds from raw logits (softmax over legal moves).
+
+    Arrays are read zero-copy from numpy buffers. Both must be contiguous float32.
+    """
+    ...
 
 class Board:
     def __init__(self, size: int) -> None:
@@ -52,6 +74,14 @@ class BoardInfo:
 
     def __init__(self, size: int) -> None: ...
 
+class FetchStats:
+    """Per-game fetch statistics from the MCTS worker's NN prediction loop."""
+
+    @property
+    def total_fetch_time_us(self) -> int: ...
+    @property
+    def total_fetches(self) -> int: ...
+
 class HexCoord:
     x: int
     y: int
@@ -72,54 +102,52 @@ class MCTSNode:
     def pi(self) -> list[float]: ...
     @property
     def v(self) -> float: ...
+    @property
+    def moves(self) -> list[Move]: ...
 
 class MCTS:
     def __init__(
         self,
-        keydb_url: str,
-        memcached_url: str,
+        nn_service_addr: str,
         channel: int,
-        cache_size: int,
-        rollout_gamma: float,
+        gamma: float,
         dirichlet_weight: float,
+        dirichlet_leaf_weight: float,
         dirichlet_alpha: float,
         c_puct_init: float,
         c_puct_base: float,
+        game_size: int,
+        n_threads: int = 1,
     ) -> None: ...
     def clear_nodes(self) -> None: ...
     def get_node(self, board: Board) -> MCTSNode | None: ...
     def get_nodes(self) -> dict[Board, MCTSNode]: ...
     def run(self, board: Board, rollout_depth: int) -> float: ...
+    def run_rollouts(
+        self,
+        board: Board,
+        n_rollouts: int,
+        rollout_depth: int,
+        temperature: float = 1.0,
+    ) -> tuple[numpy.ndarray, float]:
+        """Run n_rollouts rollouts in parallel and return (pi, mean_value).
+
+        pi is the temperature-weighted visit count distribution.
+        """
+        ...
+
+    def advance_root(self, action: int) -> None:
+        """Advance the tree root to the child reached by `action`.
+        Prunes sibling subtrees."""
+        ...
+
+    def get_fetch_stats(self) -> FetchStats:
+        """Read and reset fetch statistics. Returns a snapshot of all counters since last call."""
+        ...
 
 class NNPred:
-    pi: list[float]
-    value: float
-
-    def __init__(self, pi: list[float], value: float) -> None: ...
-
-class PredDBChannel:
-    def __init__(self, keydb_url: str, memcached_url: str, channel: int) -> None: ...
     @property
-    def channel(self) -> int: ...
-    def ping(self) -> bool:
-        """Tests if channel is connected correctly"""
-
-    def get_channel(self) -> int:
-        """Get the channel number"""
-
-    def has_pred(self, board: Board) -> bool:
-        """Check if a prediction is available for the given board"""
-
-    def fetch_requests(self, count: int) -> list[Board]:
-        """Pop pred requests from the channel"""
-
-    def request_pred(self, board: Board) -> None:
-        """Request a prediction for the given board"""
-
-    def post_pred(self, board: Board, nn_pred: NNPred) -> None:
-        """Post a prediction for the given board"""
-
-    def post_preds(self, boards: list[Board], nn_preds: list[NNPred]) -> None:
-        """Post a list of predictions for the given boards"""
-
-    def flush_preds(self) -> None: ...
+    def pi(self) -> list[float]: ...
+    @property
+    def value(self) -> float: ...
+    def __init__(self, pi: list[float], value: float) -> None: ...

@@ -41,6 +41,7 @@ develop: clean venv
 		uv pip install -e ".[all]" \
 			--index-url https://pypi.org/simple \
 			--extra-index-url https://download.pytorch.org/whl/cu128 \
+			--index-strategy unsafe-best-match \
     "
 
 install: develop build-engine install-webapp
@@ -49,7 +50,7 @@ build-engine:
 	@bash -c " \
 		source .venv/bin/activate && \
 		cd engine && \
-		maturin develop --release \
+		maturin develop --release --features extension-module \
 	"
 
 install-webapp:
@@ -80,6 +81,7 @@ reformat:
 
 test: ## run tests quickly with the default Python
 	@pytest
+	@bash -c "cd engine && cargo test"
 
 venv:
 	@$(PYTHON3) -m venv .venv --prompt alpha-cc

@@ -56,7 +56,7 @@ def training_dataset() -> TrainingDataset:
 
 @pytest.fixture
 def training_data(agent: StandaloneMCTSAgent, training_runtime: TrainingRunTime) -> TrainingData:
-    return training_runtime.play_game(agent, max_game_length=8)
+    return training_runtime.play_game(agent, n_rollouts=10, rollout_depth=10, max_game_length=8)
 
 
 @pytest.fixture

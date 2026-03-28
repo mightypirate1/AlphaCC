@@ -1,18 +1,24 @@
-use bincode::{self, config::standard};
+#[cfg(feature = "extension-module")]
 extern crate pyo3;
-use pyo3::prelude::*;
 
 use crate::cc::dtypes::{self, NNQuantizedPi, NNQuantizedValue};
 
-#[pyclass(module="alpha_cc_engine")]
-#[derive(Clone, bincode::Encode, bincode::BorrowDecode)]
+#[cfg_attr(feature = "extension-module", pyo3::prelude::pyclass(module="alpha_cc_engine", from_py_object))]
+#[derive(Clone, bitcode::Encode, bitcode::Decode)]
 pub struct NNPred {
     quant_pi: Vec<dtypes::NNQuantizedPi>,
     quant_value: dtypes::NNQuantizedValue,
 }
 
 impl NNPred {
-        pub fn pi(&self) -> Vec<f32> {
+    pub fn new(pi: Vec<f32>, value: f32) -> Self {
+        NNPred {
+            quant_pi: NNQuantizedPi::quantize_vec(&pi),
+            quant_value: NNQuantizedValue::quantize(value),
+        }
+    }
+
+    pub fn pi(&self) -> Vec<f32> {
         self.quant_pi.iter().map(|q| q.dequantize()).collect()
     }
 
@@ -21,29 +27,23 @@ impl NNPred {
     }
 
     pub fn serialize(&self) -> Vec<u8> {
-        bincode::encode_to_vec(self, standard())
-            .unwrap_or_else(|e| {
-                panic!("Failed to serialize: {:?}", e);
-            })
+        bitcode::encode(self)
     }
 
     pub fn deserialize(data: &[u8]) -> NNPred {
-        bincode::borrow_decode_from_slice(data, standard())
+        bitcode::decode(data)
             .unwrap_or_else(|e| {
                 panic!("Failed to deserialize: {:?}", e);
             })
-            .0
     }
 }
 
-#[pymethods]
+#[cfg(feature = "extension-module")]
+#[pyo3::prelude::pymethods]
 impl NNPred {
     #[new]
-    pub fn new(pi: Vec<f32>, value: f32) -> Self {
-        NNPred {
-            quant_pi: NNQuantizedPi::quantize_vec(&pi),
-            quant_value: NNQuantizedValue::quantize(value),
-        }
+    fn py_new(pi: Vec<f32>, value: f32) -> Self {
+        NNPred::new(pi, value)
     }
 
     #[getter]

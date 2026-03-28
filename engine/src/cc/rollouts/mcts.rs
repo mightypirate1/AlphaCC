@@ -1,34 +1,36 @@
+#[cfg(feature = "extension-module")]
 extern crate pyo3;
-extern crate rand_distr;
-extern crate lru;
 
-use std::io::Error;
+use std::sync::Arc;
+#[cfg(feature = "extension-module")]
 use std::collections::HashMap;
-use std::num::NonZeroUsize;
+
+#[cfg(feature = "extension-module")]
 use pyo3::prelude::*;
-use rand::prelude::*;
-use rand_distr::Dirichlet;
-use lru::LruCache;
 
+use crate::cc::dtypes::NNQuantizedPi;
 use crate::cc::game::board::Board;
-use crate::cc::game::moves::find_all_moves;
-use crate::cc::rollouts::nn_remote::NNRemote;
+#[cfg(feature = "extension-module")]
+use crate::cc::predictions::FetchStats;
+#[cfg(feature = "extension-module")]
 use crate::cc::rollouts::mcts_node::MCTSNode;
-use crate::cc::pred_db::{NNPred, PredDBChannel};
+use crate::cc::rollouts::noise;
+use crate::cc::rollouts::tree::{NodeData, Tree};
+use crate::cc::predictions::nn_remote::NNRemote;
 
-
-#[pyclass(module="alpha_cc_engine")]
+#[cfg_attr(feature = "extension-module", pyo3::prelude::pyclass(module="alpha_cc_engine"))]
 pub struct MCTS {
-    nn_remote: NNRemote,
-    nodes: LruCache<Board, MCTSNode>,
+    tree: Arc<Tree>,
+    services: Vec<NNRemote>,
+    model_id: u32,
     mcts_params: MCTSParams,
 }
-
 
 #[derive(Clone)]
 pub struct MCTSParams {
     pub gamma: f32,
     pub dirichlet_weight: f32,
+    pub dirichlet_leaf_weight: f32,
     pub dirichlet_alpha: f32,
     pub c_puct_init: f32,
     pub c_puct_base: f32,
@@ -37,169 +39,251 @@ pub struct MCTSParams {
 
 impl MCTS {
     pub fn new(
-        nn_remote: NNRemote,
-        cache_size: usize,
+        nn_service_addr: &str,
+        model_id: u32,
         mcts_params: MCTSParams,
+        n_threads: usize,
     ) -> Self {
-        MCTS { 
-            nn_remote,
-            nodes: LruCache::new(NonZeroUsize::new(cache_size).unwrap()),
+        let services = (0..n_threads.max(1))
+            .map(|_| NNRemote::connect(nn_service_addr))
+            .collect();
+        MCTS {
+            tree: Arc::new(Tree::new()),
+            services,
+            model_id,
             mcts_params,
         }
     }
 
+    /// Perform a single rollout from `board` down the tree.
     fn rollout(
-        board: Board,
-        nn_remote: &mut NNRemote,
-        nodes: &mut LruCache<Board, MCTSNode>,
+        tree: &Tree,
+        service: &NNRemote,
+        model_id: u32,
+        board: &Board,
         remaining_depth: usize,
-        mcts_params: &MCTSParams,
-    ) -> Result<f32, Error> {
+        params: &MCTSParams,
+        root_noise: &Option<Vec<f32>>,
+    ) -> f32 {
         let info = board.get_info();
         if info.game_over {
-            return Ok(-info.reward);
+            return -info.reward;
         }
-        
-        // if we've seen this node before, we keep rolling
-        if let Some(node) = nodes.get(&board) {
+
+        // Check if we have data for this board
+        if let Some(data) = tree.get_data(board) {
             if remaining_depth == 0 {
-                return Ok(-node.rollout_value());
+                return -data.get_v();
             }
-    
-            // prepare continued rollout
-            let a = MCTS::find_best_action_for_node(
-                node,
-                &mcts_params.c_puct_init,
-                &mcts_params.c_puct_base,
-            );
-            let s_prime = board.apply(&node.moves[a]);
-            
-            // continue rollout
-            let v = MCTS::rollout(
-                s_prime,
-                nn_remote,
-                nodes,
-                remaining_depth - 1,
-                mcts_params,
-            )?;
-            let gamma_v = mcts_params.gamma * v;
-            
-            // backprop rollout update
-            nodes.get_mut(&board).unwrap().update_on_visit(a, gamma_v);
-            return Ok(-gamma_v);
+
+            let a = find_best_action(&data, params.c_puct_init, params.c_puct_base, root_noise, params);
+            let s_prime = board.apply(&data.moves[a]);
+
+            data.apply_virtual_loss(a);
+            drop(data);
+
+            let v = MCTS::rollout(tree, service, model_id, &s_prime, remaining_depth - 1, params, &None);
+
+            let data = tree.get_data(board)
+                .expect("node data disappeared mid-rollout");
+            data.resolve_virtual_loss(a, params.gamma * v);
+
+            return -(params.gamma * v);
         }
 
-
-        let nn_pred = nn_remote.fetch_pred(&board)?;
-        MCTS::add_as_new_node(
-            nodes,
-            board,
-            &nn_pred,
-            mcts_params.dirichlet_weight,
-            mcts_params.dirichlet_alpha,
-        );
-        Ok(-nn_pred.value())
+        let node = MCTS::new_leaf_for(board, service, model_id, params);
+        let v = node.v.dequantize();
+        tree.insert_data(board, node);
+        -v
     }
 
-    fn find_best_action_for_node(node: &MCTSNode, c_puct_init: &f32, c_puct_base: &f32) -> usize {
-        let sum_n = node.n.iter().sum::<u32>() as f32;
-        let c_puct = c_puct_init + ((sum_n + c_puct_base + 1.0) / c_puct_base).ln();
-
-        let mut best_action = 0;
-        let mut best_u = f32::MIN;
-        for i in 0..node.n.len() {
-            let prior_weight = c_puct * sum_n.sqrt() / (1.0 + node.n[i] as f32);
-            let u = node.get_q(i) + prior_weight * node.get_pi(i);
-            if u > best_u {
-                best_u = u;
-                best_action = i;
-            }
-        }
-        best_action
-    }
-
-    fn add_as_new_node(
-        nodes: &mut LruCache<Board, MCTSNode>,
-        board: Board,
-        nn_pred: &NNPred,
-        dirichlet_weight: f32,
-        dirichlet_alpha: f32,
-) {
-        let mut pi = nn_pred.pi();
+    fn new_leaf_for(board: &Board, service: &NNRemote, model_id: u32, params: &MCTSParams) -> NodeData {
+        let nn_pred = service.predict(board, model_id);
         let v = nn_pred.value();
+        let mut pi = nn_pred.pi();
 
-        if dirichlet_weight > 0.0 && pi.len() > 1 {
-            let alpha = pi.iter()
-                .map(|x| (x * dirichlet_alpha).max(f32::EPSILON))
-                .collect::<Vec<f32>>();
-            match Dirichlet::new(&alpha) {
-                Ok(dirichlet) => {
-                    let noise = dirichlet.sample(&mut rand::thread_rng());
-                    pi = pi.iter()
-                        .zip(noise.iter())
-                        .map(|(p, n)| p * (1.0 - dirichlet_weight) + n * dirichlet_weight)
-                        .collect();
-                },
-                Err(e) => {
-                    println!("Failed to create Dirichlet distribution: {}", e);
+        if params.dirichlet_leaf_weight > 0.0 {
+            noise::apply_dirichlet_noise(&mut pi, params);
+        }
+
+        NodeData::new(pi, v, board)
+    }
+
+    pub fn run_rollouts_inner(
+        &self,
+        board: &Board,
+        n_rollouts: usize,
+        rollout_depth: usize,
+        temperature: f32,
+    ) -> (Vec<f32>, f32) {
+        let n_threads = self.services.len().min(n_rollouts);
+        let rollouts_per_thread = n_rollouts / n_threads;
+        let remainder = n_rollouts % n_threads;
+
+        let tree = &self.tree;
+        let params = &self.mcts_params;
+        let model_id = self.model_id;
+
+        let noise = if let Some(node) = tree.get_data(board) {
+            let pi = NNQuantizedPi::dequantize_vec(&node.pi);
+            noise::generate_dirichlet_noise(&pi, params).ok()
+        } else {
+            let node = MCTS::new_leaf_for(board, &self.services[0], model_id, params);
+            let pi = NNQuantizedPi::dequantize_vec(&node.pi);
+            tree.insert_data(board, node);
+            noise::generate_dirichlet_noise(&pi, params).ok()
+        };
+
+        let value_sum: f64 = std::thread::scope(|s| {
+            let handles: Vec<_> = self.services[..n_threads].iter().enumerate().map(|(i, svc)| {
+                let board = board.clone();
+                let extra = if i < remainder { 1 } else { 0 };
+                let count = rollouts_per_thread + extra;
+                let noise = noise.clone();
+                s.spawn(move || {
+                    let mut local_sum = 0.0f64;
+                    for _ in 0..count {
+                        let v = MCTS::rollout(tree, svc, model_id, &board, rollout_depth, params, &noise);
+                        local_sum += (-v) as f64;
+                    }
+                    local_sum
+                })
+            }).collect();
+
+            handles.into_iter()
+                .map(|h| h.join().unwrap())
+                .sum()
+        });
+
+        let mean_value = (value_sum / n_rollouts as f64) as f32;
+
+        // Build pi from root node visit counts
+        let pi = if let Some(data) = self.tree.get_data(board) {
+            let mut weights: Vec<f32> = (0..data.num_actions())
+                .map(|a| data.get_n(a) as f32)
+                .collect();
+            if temperature != 1.0 {
+                let inv_temp = 1.0 / temperature;
+                for w in weights.iter_mut() {
+                    *w = w.powf(inv_temp);
                 }
             }
-        }
+            let sum: f32 = weights.iter().sum();
+            if sum > 0.0 {
+                weights.iter().map(|&w| w / sum).collect()
+            } else {
+                let n = weights.len();
+                vec![1.0 / n as f32; n]
+            }
+        } else {
+            let moves = crate::cc::game::moves::find_all_moves(board);
+            let n = moves.len();
+            vec![1.0 / n as f32; n]
+        };
 
-        let moves = find_all_moves(&board);
-        let node= MCTSNode::new_leaf(pi, v, moves);
-        nodes.put(board,node);
+        (pi, mean_value)
     }
 }
 
 
+fn find_best_action(data: &NodeData, c_puct_init: f32, c_puct_base: f32, root_noise: &Option<Vec<f32>>, params: &MCTSParams) -> usize {
+    let sum_n_f = data.total_visits() as f32;
+    let c_puct = c_puct_init + ((sum_n_f + c_puct_base + 1.0) / c_puct_base).ln();
+
+    let mut best_action = 0;
+    let mut best_u = f32::MIN;
+    let mut pi = NNQuantizedPi::dequantize_vec(&data.pi);
+    if let Some(noise) = root_noise {
+        noise::blend_with_noise(&mut pi, noise, params.dirichlet_weight);
+    }
+    for i in 0..data.num_actions() {
+        let pi_a = pi[i];
+        let n_a = data.get_n(i) as f32;
+        let prior_weight = c_puct * sum_n_f.sqrt() / (1.0 + n_a);
+
+        let u = data.get_q(i) + prior_weight * pi_a;
+        if u > best_u {
+            best_u = u;
+            best_action = i;
+        }
+    }
+    best_action
+}
+
+
+// ── Python interface ──
+
+#[cfg(feature = "extension-module")]
 #[pymethods]
 impl MCTS {
     #[allow(clippy::too_many_arguments)]
     #[new]
+    #[pyo3(signature = (nn_service_addr, channel, gamma, dirichlet_weight, dirichlet_leaf_weight, dirichlet_alpha, c_puct_init, c_puct_base, n_threads=1))]
     fn create(
-        keydb_host: String,
-        memcached_host: String,
-        channel: usize,
-        cache_size: usize,
+        nn_service_addr: String,
+        channel: u32,
         gamma: f32,
         dirichlet_weight: f32,
+        dirichlet_leaf_weight: f32,
         dirichlet_alpha: f32,
         c_puct_init: f32,
         c_puct_base: f32,
+        n_threads: usize,
     ) -> MCTS {
         MCTS::new(
-            NNRemote::new(PredDBChannel::new(&keydb_host, &memcached_host, channel)),
-            cache_size,
+            &nn_service_addr,
+            channel,
             MCTSParams {
                 gamma,
                 dirichlet_weight,
+                dirichlet_leaf_weight,
                 dirichlet_alpha,
                 c_puct_init,
                 c_puct_base,
             },
+            n_threads,
         )
     }
 
-    pub fn run(&mut self, board: &Board, rollout_depth: usize) -> Result<f32, Error> {
-        MCTS::rollout(
-            board.clone(),
-            &mut self.nn_remote,
-            &mut self.nodes,
-            rollout_depth,
-            &self.mcts_params,
-        )
+    pub fn run(&self, board: &Board, rollout_depth: usize) -> f32 {
+        let (_, value) = self.run_rollouts_inner(board, 1, rollout_depth, 1.0);
+        value
     }
 
-    pub fn get_node(&mut self, board: &Board) -> Option<MCTSNode> {
-        self.nodes.get(board).cloned()
+    #[pyo3(signature = (board, n_rollouts, rollout_depth, temperature=1.0))]
+    pub fn run_rollouts<'py>(
+        &self,
+        py: Python<'py>,
+        board: &Board,
+        n_rollouts: usize,
+        rollout_depth: usize,
+        temperature: f32,
+    ) -> (Bound<'py, numpy::PyArray1<f32>>, f32) {
+        let (pi, mean_value) = self.run_rollouts_inner(board, n_rollouts, rollout_depth, temperature);
+        let pi_arr = numpy::IntoPyArray::into_pyarray(
+            numpy::ndarray::Array1::from_vec(pi), py,
+        );
+        (pi_arr, mean_value)
+    }
+
+    pub fn get_node(&self, board: &Board) -> Option<MCTSNode> {
+        self.tree.get_data(board).map(|data| MCTSNode::from_node_data(&data))
     }
 
     pub fn get_nodes(&self) -> HashMap<Board, MCTSNode> {
-        self.nodes.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+        self.tree.iter_data()
+            .map(|entry| (entry.key().clone(), MCTSNode::from_node_data(entry.value())))
+            .collect()
     }
 
-    pub fn clear_nodes(&mut self) {
-        self.nodes.clear();
+    pub fn clear_nodes(&self) {
+        self.tree.clear();
+    }
+
+    pub fn get_fetch_stats(&self) -> FetchStats {
+        FetchStats {
+            total_fetch_time_us: 0,
+            total_fetches: 0,
+        }
     }
 }

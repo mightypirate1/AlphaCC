@@ -1,10 +1,15 @@
+import logging
+
 import numpy as np
 import torch
+
+logger = logging.getLogger(__name__)
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm_loggable.auto import tqdm
 
 from alpha_cc.agents.mcts.training_data import TrainingData
+from alpha_cc.agents.mcts.worker_stats import WorkerStats
 from alpha_cc.nn.blocks import PolicyLogSoftmax, PolicySoftmax
 from alpha_cc.nn.nets import DefaultNet
 from alpha_cc.training.training_dataset import TrainingDataset
@@ -27,6 +32,7 @@ class Trainer:
         summary_writer: SummaryWriter | None = None,
     ) -> None:
         self._nn = nn.to(device)
+        self._compiled_nn = self._nn  # replaced by compile() if called
         self._policy_weight = policy_weight
         self._value_weight = value_weight
         self._entropy_weight = entropy_weight
@@ -49,9 +55,23 @@ class Trainer:
     def optimizer(self) -> torch.optim.Optimizer:
         return self._optimizer
 
-    def train(self, dataset: TrainingDataset, train_size: int) -> None:
-        self._update_nn(dataset, train_size)
+    def compile(self, board_size: int, mode: str = "max-autotune") -> None:
+        """JIT-compile the model for faster training. The original model
+        is preserved at `self.nn` for ONNX export and state_dict access."""
+        logger.info(f"Compiling model with torch.compile(mode={mode!r})...")
+        torch.set_float32_matmul_precision("high")
+        self._compiled_nn = torch.compile(self._nn, mode=mode)
+        # Warmup: run a dummy forward+backward to trigger compilation
+        dummy = torch.zeros(1, 2, board_size, board_size, device=self._device)
+        out_pi, out_v = self._compiled_nn(dummy)
+        (out_pi.sum() + out_v.sum()).backward()
+        self._optimizer.zero_grad()
+        logger.info("Model compiled and warmed up")
+
+    def train(self, dataset: TrainingDataset) -> tuple[np.ndarray, np.ndarray]:
+        kl_divs, td_errors = self._update_nn(dataset)
         self._global_step += 1
+        return kl_divs, td_errors
 
     def set_steps(self, global_step: int, eval_step: int) -> None:
         self._global_step = global_step
@@ -64,7 +84,7 @@ class Trainer:
         for g in self._optimizer.param_groups:
             g["lr"] = lr
 
-    def report_rollout_stats(self, training_datas: list[TrainingData]) -> None:
+    def report_rollout_stats(self, training_datas: list[TrainingData], limit: int | None = None) -> None:
         def log_aggregates(key: str, data: np.ndarray | torch.Tensor, prefix: str = "train-rollouts") -> None:
             if self._summary_writer is None:
                 return
@@ -86,6 +106,8 @@ class Trainer:
         #####
         trajectories = [data.trajectory for data in training_datas]
         experiences = [exp for traj in trajectories for exp in traj]
+        if limit is not None:
+            experiences = experiences[:limit]
         eval_dataset = TrainingDataset(experiences)
         with torch.no_grad():
             self._nn.eval()
@@ -105,7 +127,7 @@ class Trainer:
                 processed = 0
                 for batch in dataloader:
                     x, pi_mask_batch, pi_target_batch, _, _, _ = (b.to(self._device) for b in batch)
-                    pi_tensor_batch, value_batch = self._nn(x)
+                    pi_tensor_batch, value_batch = self._compiled_nn(x)
                     vs.append(value_batch.cpu())
                     # iterate per sample
                     for pi_tensor_unsoftmaxed, pi_mask, pi_target_full in zip(
@@ -175,14 +197,80 @@ class Trainer:
         n_internal_nodes = sum(len(nodes) for nodes in internal_nodes)
         visit_counts = np.array([np.sum(node.n) for nodes in internal_nodes for node in nodes.values()])
         frac_internal_nodes = n_internal_nodes / max(1, len(experiences) + n_internal_nodes)
-        self._summary_writer.add_histogram(
-            "trainer/internal-nodes/visit-counts", visit_counts, global_step=self._global_step
-        )
+        if visit_counts.size > 0:
+            self._summary_writer.add_histogram(
+                "trainer/internal-nodes/visit-counts", visit_counts, global_step=self._global_step
+            )
         self._summary_writer.add_scalar(
             "trainer/internal-nodes/frac-internal-nodes", frac_internal_nodes, global_step=self._global_step
         )
 
-    def _update_nn(self, dataset: TrainingDataset, train_size: int) -> None:
+        #######
+        ### worker fetch stats
+        #####
+        worker_stats_list = [td.worker_stats for td in training_datas if td.worker_stats.total_fetches > 0]
+        if worker_stats_list:
+            self._report_worker_stats(worker_stats_list)
+
+    @torch.no_grad()
+    def _compute_sample_errors_batched(self, dataset: TrainingDataset) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Batched forward pass over dataset to compute per-sample KL divergence and TD error.
+        Used by PER to update priorities after training.
+
+        Returns (kl_divs, td_errors) as float32 numpy arrays, one entry per sample.
+        Internal nodes get td_error=0 (value head is not trained on them).
+        """
+        self._nn.eval()
+        kl_divs_list: list[torch.Tensor] = []
+        td_errors_list: list[torch.Tensor] = []
+        dataloader = DataLoader(
+            dataset,
+            batch_size=self._batch_size,
+            shuffle=False,
+            drop_last=False,
+            pin_memory=True,
+            num_workers=self._num_dataloader_workers,
+            prefetch_factor=3,
+        )
+
+        for batch in dataloader:
+            x, pi_mask_batch, pi_target_batch, target_value, weight, is_internal = (b.to(self._device) for b in batch)
+            pi_tensor_batch, value_batch = self._compiled_nn(x)
+
+            # Per-sample TD error: |v_pred - v_target|, 0 for internal nodes,
+            # dampened by weight for unfinished games (unreliable v_targets).
+            td_err = torch.abs(value_batch.squeeze() - target_value.squeeze())
+            td_err = torch.where(is_internal.squeeze(), torch.zeros_like(td_err), td_err)
+            td_err = td_err * weight.squeeze()
+            td_errors_list.append(td_err.cpu())
+
+            # Per-sample KL divergence (batched): KL(pi_target || pi_pred) over legal moves
+            log_pred = self._policy_log_softmax(pi_tensor_batch, pi_mask_batch)
+            log_target = torch.log(pi_target_batch.clamp_min(1e-6))
+            kl_per_sample = pi_target_batch * (log_target - log_pred)
+            kl_per_sample = torch.where(pi_mask_batch, kl_per_sample, 0.0)
+            kl_per_sample = kl_per_sample.reshape(x.shape[0], -1).sum(dim=1)
+            kl_divs_list.append(kl_per_sample.cpu())
+
+        kl_array = torch.cat(kl_divs_list).numpy().astype(np.float32)
+        td_array = torch.cat(td_errors_list).numpy().astype(np.float32)
+        return kl_array, td_array
+
+    def _report_worker_stats(self, stats_list: list[WorkerStats]) -> None:
+        if self._summary_writer is None:
+            return
+        total_fetches = sum(s.total_fetches for s in stats_list)
+        total_fetch_time_us = sum(s.total_fetch_time_us for s in stats_list)
+
+        if total_fetches > 0:
+            self._summary_writer.add_scalar(
+                "worker/mean-fetch-latency-ms",
+                (total_fetch_time_us / total_fetches) / 1000.0,
+                global_step=self._global_step,
+            )
+
+    def _update_nn(self, dataset: TrainingDataset) -> tuple[np.ndarray, np.ndarray]:
         def train_epoch(dataloader: DataLoader) -> tuple[float, float, float]:
             self._nn.train()
             # accumulator of: value_loss, policy_loss, entropy_loss
@@ -193,7 +281,7 @@ class Trainer:
                     data.to(self._device) for data in data_tuple
                 )
                 self._optimizer.zero_grad(set_to_none=True)
-                current_pi_unsoftmaxed, current_value = self._nn(x)
+                current_pi_unsoftmaxed, current_value = self._compiled_nn(x)
                 value_loss = compute_value_loss(current_value, target_value, weight, is_internal)
                 policy_loss = compute_policy_loss(current_pi_unsoftmaxed, pi_mask, target_pi, weight)
                 entropy_loss = compute_entropy_loss(current_pi_unsoftmaxed, pi_mask, weight)
@@ -253,33 +341,37 @@ class Trainer:
             epoch_value_loss = 0.0
             epoch_policy_loss = 0.0
             epoch_entropy_loss = 0.0
+            epoch_is_internal = 0.0
             for data_tuple in test_dataloader:
                 x, pi_mask, target_pi, target_value, weight, is_internal = (
                     data.to(self._device) for data in data_tuple
                 )
-                current_pi_unsoftmaxed, current_value = self._nn(x)
+                current_pi_unsoftmaxed, current_value = self._compiled_nn(x)
                 value_loss = compute_value_loss(current_value, target_value, weight, is_internal)
                 policy_loss = compute_policy_loss(current_pi_unsoftmaxed, pi_mask, target_pi, weight)
                 entropy_loss = compute_entropy_loss(current_pi_unsoftmaxed, pi_mask, weight)
                 epoch_value_loss += value_loss.mean().cpu().item() / len(test_dataloader)
                 epoch_policy_loss += policy_loss.mean().cpu().item() / len(test_dataloader)
                 epoch_entropy_loss += entropy_loss.mean().cpu().item() / len(test_dataloader)
+                epoch_is_internal += is_internal.float().mean().cpu().item() / len(test_dataloader)
             if self._summary_writer is not None:
                 self._summary_writer.add_scalar("eval/policy-loss", epoch_policy_loss, global_step=self._eval_step)
                 self._summary_writer.add_scalar("eval/value-loss", epoch_value_loss, global_step=self._eval_step)
                 self._summary_writer.add_scalar("eval/entropy-loss", epoch_entropy_loss, global_step=self._eval_step)
                 self._summary_writer.add_scalar(
-                    "eval/effective-frac-internal", is_internal.float().mean(), global_step=self._eval_step
+                    "eval/effective-frac-internal", epoch_is_internal, global_step=self._eval_step
                 )
                 self._eval_step += 1
             return epoch_value_loss, epoch_policy_loss, epoch_entropy_loss
 
-        _, test_data = dataset.split(0.9)
+        train_data, test_data = dataset.split(0.9)
         test_dataloader = DataLoader(
             test_data,
             batch_size=self._batch_size,
             drop_last=False,
             pin_memory=True,
+            num_workers=self._num_dataloader_workers,
+            prefetch_factor=3,
         )
 
         total_value_loss = 0.0
@@ -288,7 +380,7 @@ class Trainer:
         with tqdm(desc="nn-update", total=self._epochs_per_update) as pbar:
             for _ in range(self._epochs_per_update):
                 train_dataloader = DataLoader(
-                    dataset.sample(train_size),
+                    train_data,
                     batch_size=self._batch_size,
                     shuffle=True,
                     drop_last=True,
@@ -313,3 +405,7 @@ class Trainer:
             self._summary_writer.add_scalar("trainer/policy-loss", total_policy_loss, global_step=self._global_step)
             self._summary_writer.add_scalar("trainer/value-loss", total_value_loss, global_step=self._global_step)
             self._summary_writer.add_scalar("trainer/entropy-loss", total_entropy_loss, global_step=self._global_step)
+
+        # Final batched eval pass over full dataset for PER priority updates
+        kl_divs, td_errors = self._compute_sample_errors_batched(dataset)
+        return kl_divs, td_errors

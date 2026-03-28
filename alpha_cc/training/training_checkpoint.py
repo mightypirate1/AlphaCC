@@ -14,7 +14,7 @@ logger = getLogger(__name__)
 class TrainingCheckpoint:
     run_id: str
     model_state_dict: dict[str, torch.Tensor]
-    champion_state_dict: dict[str, torch.Tensor]
+    champion_payload: bytes
     optimizer_state_dict: dict[str, Any]
     current_index: int
     champion_index: int

@@ -3,7 +3,7 @@ import signal
 import sys
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import click
 import torch
@@ -41,8 +41,12 @@ checkpoint_lock = threading.Lock()
 @click.option("--init-run-id", type=str, default=None)
 @click.option("--init-weights-index", type=int, default=None)
 @click.option("--init-champion-weight-index", type=int, default=None)
-@click.option("--multiple-training-steps-on-internal-nodes", is_flag=True, default=False)
+@click.option("--per-gamma", type=float, default=0.5)
+@click.option("--per-visits-threshold", type=float, default=100.0)
+@click.option("--per-rank-mode", type=click.Choice(["td", "min", "prod"]), default="td")
 @click.option("--gpu", is_flag=True, default=False)
+@click.option("--onnx-compiled-batch-size", type=int, default=None)
+@click.option("--onnx-compiled-batch-size-secondary", type=int, default=None)
 def main(
     run_id: str,
     size: int,
@@ -61,13 +65,16 @@ def main(
     init_run_id: str | None,
     init_weights_index: int | None,
     init_champion_weight_index: int | None,
-    multiple_training_steps_on_internal_nodes: bool,
+    per_gamma: float,
+    per_visits_threshold: float,
+    per_rank_mode: Literal["td", "min", "prod"],
     gpu: bool,
+    onnx_compiled_batch_size: int | None,
+    onnx_compiled_batch_size_secondary: int | None,
 ) -> None:
     init_rootlogger(verbose=verbose)
     summary_writer = create_summary_writer(run_id)
     device = "cuda" if gpu and torch.cuda.is_available() else "cpu"
-
     db = TrainingDB(host=Environment.redis_host_main)
     tournament_runtime = TournamentRuntime(size, db)
     trainer = Trainer(
@@ -85,14 +92,22 @@ def main(
     )
 
     curr_index, champion_index, existing_checkpoint = initialize_training(
-        run_id, db, trainer, init_run_id, init_weights_index, init_champion_weight_index
+        run_id, size, db, trainer, init_run_id, init_weights_index, init_champion_weight_index,
+        onnx_compiled_batch_size,
     )
     if existing_checkpoint is None:
         db.flush_db()  # safe fresh start
-        replay_buffer = TrainingDataset(max_size=replay_buffer_size)
+        curr_index, _ = publish_weights(trainer.nn, db, size, onnx_compiled_batch_size)
+        champion_index = curr_index
+        replay_buffer = TrainingDataset(
+            max_size=replay_buffer_size,
+            gamma=per_gamma,
+            rank_mode=per_rank_mode,
+            visits_threshold=per_visits_threshold,
+        )
     else:
         replay_buffer = existing_checkpoint.replay_buffer
-        logger.info(f"Restored replay buffer from checkpoint: size={len(replay_buffer)} (new+main)")
+        logger.info(f"Restored replay buffer from checkpoint: size={len(replay_buffer)}")
 
     tournament_manager = TournamentManager(
         tournament_runtime=tournament_runtime,
@@ -100,6 +115,8 @@ def main(
         summary_writer=summary_writer,
         run_id=run_id,
         champion_index=champion_index,
+        board_size=size,
+        onnx_compiled_batch_size_secondary=onnx_compiled_batch_size_secondary,
     )
     create_and_register_signal_handler(
         run_id,
@@ -109,21 +126,30 @@ def main(
         replay_buffer,
     )
     db.model_set_current(0, curr_index)
+    if gpu:
+        trainer.compile(board_size=size, mode="max-autotune")
+    set_service_healthy()
 
     while True:
         # wait until we have enough new samples
         training_datas = await_samples(db, n_train_samples)
-        trainer.report_rollout_stats(training_datas)
+        trainer.report_rollout_stats(training_datas, limit=n_train_samples)
         replay_buffer.add_datas(training_datas)
 
-        # train on samples
-        trainer.train(replay_buffer, train_size)
-        replay_buffer.move_new_to_main_buffer(drop_internal_nodes=not multiple_training_steps_on_internal_nodes)
+        # prioritized sampling
+        sampled_indices, sampled_dataset = replay_buffer.prioritized_sample(
+            train_size,
+            summary_writer=summary_writer,
+            global_step=curr_index,
+        )
+
+        # train on sampled dataset and compute per-sample errors for PER
+        kl_divs, td_errors = trainer.train(sampled_dataset)
+        replay_buffer.update_priorities(sampled_indices, kl_divs, td_errors)
 
         # publish weights
-        curr_index = db.weights_publish_latest(trainer.nn.state_dict())
-        db.model_set_current(0, curr_index)
-        save_weights(run_id, curr_index, trainer.nn.state_dict())
+        curr_index, onnx_payload = publish_weights(trainer.nn, db, size, onnx_compiled_batch_size)
+        save_weights(run_id, curr_index, trainer.nn.state_dict(), onnx_payload)
 
         # periodically run tournament
         if curr_index % tournament_freq == 0:
@@ -147,58 +173,102 @@ def await_samples(db: TrainingDB, n_train_samples: int) -> list[TrainingData]:
     # remaining on the queue. thus, we clear the queue so we can train on
     # the latest data.
     if remaining_training_datas := db.training_data_fetch_all():
-        logger.warning(f"trainer is behind by {len(remaining_training_datas)} samples")
+        n_remaining = sum([len(t.trajectory) for t in remaining_training_datas])
+        logger.warning(f"trainer is behind by {n_remaining} samples")
         training_datas.extend(remaining_training_datas)
     return training_datas
 
 
+def _serialize_model(
+    model: torch.nn.Module,
+    board_size: int,
+    compiled_batch_size: int | None = None,
+) -> bytes:
+    model.eval()
+    device = next(model.parameters()).device
+    batch = compiled_batch_size or 1
+    dummy = torch.zeros(batch, 2, board_size, board_size, device=device)
+    tmp_path = Path(Environment.model_dir) / "temp.onnx"
+    dynamic_axes = (
+        None
+        if compiled_batch_size is not None
+        else {
+            "input": {0: "batch"},
+            "policy": {0: "batch"},
+            "value": {0: "batch"},
+        }
+    )
+    torch.onnx.export(
+        model,
+        (dummy,),
+        tmp_path,
+        input_names=["input"],
+        output_names=["policy", "value"],
+        dynamic_axes=dynamic_axes,
+        opset_version=18,
+        do_constant_folding=True,
+        external_data=False,
+    )
+    with open(tmp_path, "rb") as f:
+        payload = f.read()
+    model.train()
+    return payload
+
+
+def publish_weights(
+    model: torch.nn.Module,
+    db: TrainingDB,
+    board_size: int,
+    compiled_batch_size: int | None = None,
+) -> tuple[int, bytes]:
+    payload = _serialize_model(model, board_size, compiled_batch_size)
+    curr_idx = db.weights_incr_weights_index()
+    db.weights_publish(payload, curr_idx, batch_size=compiled_batch_size, set_latest=True)
+    db.model_set_current(0, curr_idx)
+    return curr_idx, payload
+
+
 def initialize_training(
     run_id: str,
+    size: int,
     db: TrainingDB,
     trainer: Trainer,
     init_run_id: str | None,
     init_weights_index: int | None,
     init_champion_weight_index: int | None,
+    onnx_compiled_batch_size: int | None = None,
 ) -> tuple[int, int, TrainingCheckpoint | None]:
     """
     If the run_id is not new, i.e. it has been used before for training,
     we will reuse the state from which it was stopped.
 
-    Both initial and chapion weights, and which run_id we take the starting
+    Both initial and champion weights, and which run_id we take the starting
     checkpoint from can be overridden. This is useful for experimentation
     when you might realize you have to tweak the hyperparameters, but are
     not sure which one. This way, you can fearlessly tinker around and see
     what works on a separate run_id, without messing up the state of the
     original run_id.
 
-    For all these configurations, we here load the right stuff from what
-    has been persisted on disk, and rig the db so that the right weights
-    end up in the right place.
-
-    Notice that your weights
-
-    Puts the weights in the db and returns the index of the weights.
-
+    Loads the right checkpoint from disk, restores the trainer state,
+    and publishes weights to Redis so the nn-service can load them.
     """
 
     checkpoint = load_saved_checkpoint(init_run_id) if init_run_id else load_saved_checkpoint(run_id)
 
     if checkpoint is None:
-        # no checkpoint found, start from scratch
-        curr_index = db.weights_publish_latest(trainer.nn.state_dict())
-        champion_index = curr_index
-        logger.info(f"starting from scratch: {curr_index=}")
-        return curr_index, champion_index, None
+        # no checkpoint found — main() will flush_db and publish fresh weights
+        return 0, 0, None
 
     if init_champion_weight_index is not None and init_champion_weight_index != checkpoint.champion_index:
-        # we need to do extra work to load the old weights
         logger.info(f"overriding champion weights with: {run_id=}, weight_index={init_champion_weight_index}")
         init_weights = load_weights(checkpoint.run_id, init_champion_weight_index)
-        checkpoint.champion_state_dict = init_weights
+        # re-serialize the overridden champion as ONNX
+        champion_model = DefaultNet(size)
+        champion_model.load_state_dict(init_weights)
+        checkpoint.champion_payload = _serialize_model(champion_model, size, onnx_compiled_batch_size)
         checkpoint.champion_index = init_champion_weight_index
 
     if init_weights_index is not None and init_weights_index != checkpoint.current_index:
-        # we need to do extra work to load the old weights
         logger.info(f"overriding main weights with: {run_id=}, weight_index={init_weights_index}")
         init_weights = load_weights(checkpoint.run_id, init_weights_index)
         if checkpoint.champion_index > checkpoint.current_index:
@@ -215,10 +285,11 @@ def initialize_training(
     trainer.nn.load_state_dict(checkpoint.model_state_dict)
     trainer.optimizer.load_state_dict(checkpoint.optimizer_state_dict)
     trainer.set_steps(*checkpoint.trainer_steps)
-    # publish the weights to the db so they are available to the workers
+    # publish the weights to redis so the nn-service can load them
     if checkpoint.current_index != checkpoint.champion_index:
-        db.weights_publish(checkpoint.champion_state_dict, checkpoint.champion_index)
-    db.weights_publish(checkpoint.model_state_dict, checkpoint.current_index, set_latest=True)
+        db.weights_publish(checkpoint.champion_payload, checkpoint.champion_index, batch_size=onnx_compiled_batch_size)
+    current_payload = _serialize_model(trainer.nn, size, onnx_compiled_batch_size)
+    db.weights_publish(current_payload, checkpoint.current_index, batch_size=onnx_compiled_batch_size, set_latest=True)
     return checkpoint.current_index, checkpoint.champion_index, checkpoint
 
 
@@ -230,6 +301,11 @@ def load_saved_checkpoint(run_id: str) -> TrainingCheckpoint | None:
     if not Path(checkpoint_path).exists():
         return None
     return TrainingCheckpoint.from_path(checkpoint_path, verbose=True)
+
+
+def set_service_healthy() -> None:
+    Path("/tmp/healthy").write_text("ok")  # noqa: S108
+    logger.info("Trainer ready — health file written: /tmp/healthy")
 
 
 def create_and_register_signal_handler(
@@ -251,7 +327,7 @@ def create_and_register_signal_handler(
         checkpoint = TrainingCheckpoint(
             run_id,
             model_state_dict=trainer.nn.state_dict(),
-            champion_state_dict=training_db.weights_fetch(tournament_manager.champion_index),
+            champion_payload=training_db.weights_fetch(tournament_manager.champion_index),
             optimizer_state_dict=trainer.optimizer.state_dict(),
             current_index=current_index,
             champion_index=tournament_manager.champion_index,
@@ -277,12 +353,16 @@ def create_and_register_signal_handler(
     signal.signal(signal.SIGTERM, signal_handler)
 
 
-def save_weights(run_id: str, curr_index: int, weights: dict[str, Any]) -> None:
+def save_weights(run_id: str, curr_index: int, weights: dict[str, Any], onnx_payload: bytes) -> None:
     path = save_path(run_id, curr_index)
     latest_path = save_path_latest(run_id)
+    onnx_path = save_path(run_id, curr_index, ext="onnx")
+    onnx_latest_path = save_path_latest(run_id, ext="onnx")
     Path(path).parent.mkdir(exist_ok=True, parents=True)
     torch.save(weights, latest_path)
     torch.save(weights, path)
+    Path(onnx_latest_path).write_bytes(onnx_payload)
+    Path(onnx_path).write_bytes(onnx_payload)
 
 
 def load_weights(run_id: str, index: int) -> dict[str, Any]:
@@ -292,12 +372,12 @@ def load_weights(run_id: str, index: int) -> dict[str, Any]:
     return torch.load(path, weights_only=True)
 
 
-def save_path_latest(run_id: str) -> str:
-    return f"{save_root(run_id)}/weights-latest.pth"
+def save_path_latest(run_id: str, ext: str = "pth") -> str:
+    return f"{save_root(run_id)}/weights-latest.{ext}"
 
 
-def save_path(run_id: str, index: int) -> str:
-    return f"{save_root(run_id)}/weights-{str(index).zfill(4)}.pth"
+def save_path(run_id: str, index: int, ext: str = "pth") -> str:
+    return f"{save_root(run_id)}/weights-{str(index).zfill(4)}.{ext}"
 
 
 def save_root(run_id: str) -> str:
