@@ -1,10 +1,10 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use crate::nn::backends::{Backend, VersionedModel};
-use crate::nn::server::gate::ServiceGate;
 use super::ModelSource;
 
 static HEALTH_MARKED: AtomicBool = AtomicBool::new(false);
@@ -33,18 +33,18 @@ pub fn spawn_reloader<B: Backend>(
     poll_interval: Duration,
     health_file: Option<String>,
     trt_cache_path: Option<String>,
-    gate: ServiceGate,
     use_trt: bool,
+    batch_size_map: HashMap<usize, Option<usize>>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
         loop {
             thread::sleep(poll_interval);
-            reload_cycle(&backend, &source, &health_file, &trt_cache_path, &gate, use_trt);
+            reload_cycle(&backend, &source, &health_file, &trt_cache_path, use_trt, &batch_size_map);
         }
     })
 }
 
-fn reload_cycle<B: Backend>(backend: &Arc<B>, source: &impl ModelSource, health_file: &Option<String>, trt_cache_path: &Option<String>, gate: &ServiceGate, use_trt: bool) {
+fn reload_cycle<B: Backend>(backend: &Arc<B>, source: &impl ModelSource, health_file: &Option<String>, trt_cache_path: &Option<String>, use_trt: bool, batch_size_map: &HashMap<usize, Option<usize>>) {
     // 1. Poll desired state
     let desired = match source.desired_versions() {
         Some(d) => d,
@@ -73,7 +73,8 @@ fn reload_cycle<B: Backend>(backend: &Arc<B>, source: &impl ModelSource, health_
         }
 
         // Load bytes
-        let bytes = match source.load_bytes(desired_version) {
+        let batch_size = batch_size_map.get(&model_id).copied().flatten();
+        let bytes = match source.load_bytes(desired_version, batch_size) {
             Ok(b) => b,
             Err(e) => {
                 eprintln!(
@@ -83,8 +84,7 @@ fn reload_cycle<B: Backend>(backend: &Arc<B>, source: &impl ModelSource, health_
             }
         };
 
-        // --- TRT: coordinated build with gate closure ---
-        // Without TRT, model_from_bytes is a lightweight CUDA load — no gate needed.
+        // --- TRT: coordinated build (one replica compiles, others load from cache) ---
         let is_builder = if use_trt {
             let lock_position = if source.is_build_complete(desired_version) {
                 0 // already built, skip straight to loading
@@ -105,24 +105,11 @@ fn reload_cycle<B: Backend>(backend: &Arc<B>, source: &impl ModelSource, health_
                 while !source.is_build_complete(desired_version) {
                     thread::sleep(Duration::from_secs(1));
                 }
-                let stagger = Duration::from_secs((1 + lock_position.saturating_sub(1)) * 5);
-                eprintln!(
-                    "[reloader] build complete for version={desired_version}, loading from cache (stagger={stagger:?})"
-                );
-                thread::sleep(stagger);
+                eprintln!("[reloader] build complete for version={desired_version}, loading from cache");
             }
             builder
         } else {
             false
-        };
-
-        // Close gate during GPU-heavy model loading (TRT compilation or cache load).
-        // Without TRT the CUDA EP load is lightweight — no gate needed.
-        let _unavailable_guard = if use_trt {
-            eprintln!("[reloader] gate closed — stopping inference for model reload");
-            Some(gate.unavailable_guard())
-        } else {
-            None
         };
 
         let model = match backend.model_from_bytes(&bytes) {
@@ -165,7 +152,5 @@ fn reload_cycle<B: Backend>(backend: &Arc<B>, source: &impl ModelSource, health_
             current_version,
         );
         mark_healthy(health_file);
-        // _gate_guard dropped here → gate restored
-        eprintln!("[reloader] gate open — resuming inference");
     }
 }

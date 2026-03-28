@@ -100,13 +100,10 @@ pub struct OnnxBackend {
     verbose: bool,
     trt_cache_path: Option<String>,
     use_trt: bool,
-    /// If set, all inference batches are zero-padded to this size so TRT
-    /// only ever sees one shape (no JIT kernel compilation on new sizes).
-    fixed_batch_size: Option<usize>,
 }
 
 impl OnnxBackend {
-    pub fn new(models: Vec<VersionedModel<OnnxSession>>, game_size: i64, verbose: bool, max_models: usize, trt_cache_path: Option<String>, use_trt: bool, fixed_batch_size: Option<usize>) -> Self {
+    pub fn new(models: Vec<VersionedModel<OnnxSession>>, game_size: i64, verbose: bool, max_models: usize, trt_cache_path: Option<String>, use_trt: bool) -> Self {
         let cuda_allocator = OnceLock::new();
         // Eagerly initialize if we have a model at startup
         if let Some(first) = models.first() {
@@ -128,7 +125,6 @@ impl OnnxBackend {
             verbose,
             trt_cache_path,
             use_trt,
-            fixed_batch_size,
         }
     }
 
@@ -160,7 +156,7 @@ impl OnnxBackend {
         eprintln!("[onnx] building session from {} bytes", bytes.len());
         let session = Session::builder()
             .map_err(|e| anyhow::anyhow!("session builder: {e}"))?
-            .with_log_level(ort::logging::LogLevel::Verbose)
+            .with_log_level(ort::logging::LogLevel::Warning)
             .map_err(|e| anyhow::anyhow!("log level: {e}"))?
             .with_execution_providers(self.execution_providers())
             .map_err(|e| anyhow::anyhow!("execution providers: {e}"))?
@@ -193,15 +189,6 @@ impl Backend for OnnxBackend {
     type Inferred = (DynTensor, DynTensor);
 
     fn encode(&self, batch: Vec<StateBytes>) -> DynValue {
-        let batch = if let Some(fixed) = self.fixed_batch_size {
-            let s = self.game_size as usize;
-            let item_len = 2 * s * s * std::mem::size_of::<f32>();
-            let mut padded = batch;
-            padded.resize_with(fixed, || vec![0u8; item_len]);
-            padded
-        } else {
-            batch
-        };
         encoder::encode(batch, self.game_size, self.allocator())
     }
 

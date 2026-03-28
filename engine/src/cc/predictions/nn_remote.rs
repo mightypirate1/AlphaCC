@@ -53,7 +53,7 @@ impl NNRemote {
             match self.rt.block_on(fut) {
                 Ok(resp) => {
                     let elapsed = start.elapsed();
-                    if elapsed.as_millis() > 50 {
+                    if elapsed.as_millis() > 500 {
                         eprintln!("[NNRemote] slow predict: {}ms", elapsed.as_millis());
                     }
                     if attempt >= WARN_THRESHOLD {

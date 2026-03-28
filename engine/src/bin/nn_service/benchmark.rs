@@ -124,7 +124,7 @@ pub fn run_benchmarks(
     let model = OnnxBackend::load_session_from_file(nn_path, None)
         .unwrap_or_else(|e| panic!("failed to load ONNX model: {e}"));
     let backend = OnnxBackend::new(
-        vec![VersionedModel { model, version: 0 }], game_size_i64, false, 1, None, true, None,
+        vec![VersionedModel { model, version: 0 }], game_size_i64, false, 1, None, true,
     );
     let results = bench_pipeline(&backend, game_size, &batch_sizes, warmup, iters);
 

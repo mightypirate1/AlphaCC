@@ -1,10 +1,13 @@
 import logging
 import threading
+from pathlib import Path
 
+import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from alpha_cc.db import TrainingDB
 from alpha_cc.db.models import TournamentResult
+from alpha_cc.nn.nets.default_net import DefaultNet
 from alpha_cc.runtimes import TournamentRuntime
 
 logger = logging.getLogger(__file__)
@@ -18,6 +21,8 @@ class TournamentManager:
         tournament_runtime: TournamentRuntime,
         training_db: TrainingDB,
         summary_writer: SummaryWriter,
+        board_size: int = 9,
+        onnx_compiled_batch_size_secondary: int | None = None,
     ) -> None:
         self._run_id = run_id
         self._champion_index = champion_index
@@ -25,6 +30,8 @@ class TournamentManager:
         self._training_db = training_db
         self._summary_writer = summary_writer
         self._tournament_thread: threading.Thread | None = None
+        self._board_size = board_size
+        self._onnx_compiled_batch_size_secondary = onnx_compiled_batch_size_secondary
 
     @property
     def is_running(self) -> bool:
@@ -41,6 +48,7 @@ class TournamentManager:
         """
 
         def _run_tournament() -> None:
+            self._publish_secondary_variants(challenger_idx)
             tournament_results = self._tournament_runtime.run_tournament(
                 challenger_idx, self._champion_index, n_rounds=5
             )
@@ -59,6 +67,31 @@ class TournamentManager:
 
         self._tournament_thread = threading.Thread(target=_run_tournament, daemon=True)
         self._tournament_thread.start()
+
+    def _publish_secondary_variants(self, challenger_idx: int) -> None:
+        bs = self._onnx_compiled_batch_size_secondary
+        if bs is None:
+            return
+        from alpha_cc.entrypoints.trainer_thread import _serialize_model, load_weights
+
+        # Challenger: always compile (it's the freshly trained model)
+        challenger_weights = load_weights(self._run_id, challenger_idx)
+        challenger_model = DefaultNet(self._board_size)
+        challenger_model.load_state_dict(challenger_weights)
+        challenger_payload = _serialize_model(challenger_model, self._board_size, bs)
+        self._training_db.weights_publish(challenger_payload, challenger_idx, batch_size=bs)
+        logger.info(f"published secondary variant for challenger idx={challenger_idx} (batch_size={bs})")
+
+        # Champion: skip if already exists
+        if not self._training_db.weights_exists(self._champion_index, batch_size=bs):
+            champion_weights = load_weights(self._run_id, self._champion_index)
+            champion_model = DefaultNet(self._board_size)
+            champion_model.load_state_dict(champion_weights)
+            champion_payload = _serialize_model(champion_model, self._board_size, bs)
+            self._training_db.weights_publish(champion_payload, self._champion_index, batch_size=bs)
+            logger.info(f"published secondary variant for champion idx={self._champion_index} (batch_size={bs})")
+        else:
+            logger.info(f"secondary variant for champion idx={self._champion_index} already exists, skipping")
 
     def _extract_winrate(self, tournament_results: TournamentResult) -> tuple[float, float, float]:
         # assumes exactly two players were queued to play the tournament:

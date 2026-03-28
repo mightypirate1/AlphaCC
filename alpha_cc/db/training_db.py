@@ -58,8 +58,11 @@ class TrainingDB:
     def tournament_queue_key(self) -> str:
         return "tournament-queue"
 
-    def weight_key(self, index: int | str) -> str:
-        return f"weights-{str(index).zfill(4)}"
+    def weight_key(self, index: int | str, batch_size: int | None = None) -> str:
+        base = f"weights-{str(index).zfill(4)}"
+        if batch_size is not None:
+            return f"{base}-b{batch_size}"
+        return base
 
     def tournament_result_key(self, channel_1: int, channel_2: int, winner: int) -> str:
         return f"{channel_1}-{channel_2}-{winner}"
@@ -113,16 +116,19 @@ class TrainingDB:
     def weights_incr_weights_index(self) -> int:
         return int(self._db.incr(self.latest_weights_index_key))  # type: ignore
 
-    def weights_publish(self, payload: bytes, index: int, set_latest: bool = False) -> None:
-        self._db.set(self.weight_key(index), payload)
+    def weights_publish(self, payload: bytes, index: int, batch_size: int | None = None, set_latest: bool = False) -> None:
+        self._db.set(self.weight_key(index, batch_size), payload)
         if set_latest:
             self._db.set(self.latest_weights_index_key, index)
             self._db.set(self.latest_weights_key, payload)
-        logger.debug(f"published weights {index}")
+        logger.debug(f"published weights {index} (batch_size={batch_size})")
 
-    def weights_fetch(self, index: int | str) -> bytes:
-        logger.debug(f"fetching weights {index}")
-        return self._db.get(self.weight_key(index))  # type: ignore
+    def weights_fetch(self, index: int | str, batch_size: int | None = None) -> bytes:
+        logger.debug(f"fetching weights {index} (batch_size={batch_size})")
+        return self._db.get(self.weight_key(index, batch_size))  # type: ignore
+
+    def weights_exists(self, index: int | str, batch_size: int | None = None) -> bool:
+        return self._db.exists(self.weight_key(index, batch_size)) > 0
 
     def weights_fetch_latest_index(self) -> int:
         response = self._db.get(self.latest_weights_index_key)

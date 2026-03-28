@@ -48,8 +48,8 @@ impl ModelSource for TrainingDBRs {
         Some(map)
     }
 
-    fn load_bytes(&self, version: usize) -> Result<Vec<u8>> {
-        let key = weight_key(version as u32);
+    fn load_bytes(&self, version: usize, batch_size: Option<usize>) -> Result<Vec<u8>> {
+        let key = weight_key(version as u32, batch_size);
         let mut conn = self.conn.lock().unwrap();
         let bytes: Option<Vec<u8>> = conn.get(&key)
             .context("redis GET failed")?;
@@ -88,6 +88,9 @@ impl ModelSource for TrainingDBRs {
     }
 }
 
-fn weight_key(index: u32) -> String {
-    format!("{}-{index:04}", WEIGHTS_KEY_PREFIX)
+fn weight_key(index: u32, batch_size: Option<usize>) -> String {
+    match batch_size {
+        Some(bs) => format!("{}-{index:04}-b{bs}", WEIGHTS_KEY_PREFIX),
+        None => format!("{}-{index:04}", WEIGHTS_KEY_PREFIX),
+    }
 }

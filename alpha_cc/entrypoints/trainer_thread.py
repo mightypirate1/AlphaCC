@@ -46,6 +46,7 @@ checkpoint_lock = threading.Lock()
 @click.option("--per-rank-mode", type=click.Choice(["td", "min", "prod"]), default="td")
 @click.option("--gpu", is_flag=True, default=False)
 @click.option("--onnx-compiled-batch-size", type=int, default=None)
+@click.option("--onnx-compiled-batch-size-secondary", type=int, default=None)
 def main(
     run_id: str,
     size: int,
@@ -69,6 +70,7 @@ def main(
     per_rank_mode: Literal["td", "min", "prod"],
     gpu: bool,
     onnx_compiled_batch_size: int | None,
+    onnx_compiled_batch_size_secondary: int | None,
 ) -> None:
     init_rootlogger(verbose=verbose)
     summary_writer = create_summary_writer(run_id)
@@ -113,6 +115,8 @@ def main(
         summary_writer=summary_writer,
         run_id=run_id,
         champion_index=champion_index,
+        board_size=size,
+        onnx_compiled_batch_size_secondary=onnx_compiled_batch_size_secondary,
     )
     create_and_register_signal_handler(
         run_id,
@@ -122,6 +126,8 @@ def main(
         replay_buffer,
     )
     db.model_set_current(0, curr_index)
+    if gpu:
+        trainer.compile(board_size=size, mode="max-autotune")
     set_service_healthy()
 
     while True:
@@ -217,7 +223,7 @@ def publish_weights(
 ) -> tuple[int, bytes]:
     payload = _serialize_model(model, board_size, compiled_batch_size)
     curr_idx = db.weights_incr_weights_index()
-    db.weights_publish(payload, curr_idx, set_latest=True)
+    db.weights_publish(payload, curr_idx, batch_size=compiled_batch_size, set_latest=True)
     db.model_set_current(0, curr_idx)
     return curr_idx, payload
 
@@ -281,9 +287,9 @@ def initialize_training(
     trainer.set_steps(*checkpoint.trainer_steps)
     # publish the weights to redis so the nn-service can load them
     if checkpoint.current_index != checkpoint.champion_index:
-        db.weights_publish(checkpoint.champion_payload, checkpoint.champion_index)
+        db.weights_publish(checkpoint.champion_payload, checkpoint.champion_index, batch_size=onnx_compiled_batch_size)
     current_payload = _serialize_model(trainer.nn, size, onnx_compiled_batch_size)
-    db.weights_publish(current_payload, checkpoint.current_index, set_latest=True)
+    db.weights_publish(current_payload, checkpoint.current_index, batch_size=onnx_compiled_batch_size, set_latest=True)
     return checkpoint.current_index, checkpoint.champion_index, checkpoint
 
 

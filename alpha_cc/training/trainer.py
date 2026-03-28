@@ -1,5 +1,9 @@
+import logging
+
 import numpy as np
 import torch
+
+logger = logging.getLogger(__name__)
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm_loggable.auto import tqdm
@@ -28,6 +32,7 @@ class Trainer:
         summary_writer: SummaryWriter | None = None,
     ) -> None:
         self._nn = nn.to(device)
+        self._compiled_nn = self._nn  # replaced by compile() if called
         self._policy_weight = policy_weight
         self._value_weight = value_weight
         self._entropy_weight = entropy_weight
@@ -49,6 +54,18 @@ class Trainer:
     @property
     def optimizer(self) -> torch.optim.Optimizer:
         return self._optimizer
+
+    def compile(self, board_size: int, mode: str = "max-autotune") -> None:
+        """JIT-compile the model for faster training. The original model
+        is preserved at `self.nn` for ONNX export and state_dict access."""
+        logger.info(f"Compiling model with torch.compile(mode={mode!r})...")
+        self._compiled_nn = torch.compile(self._nn, mode=mode)
+        # Warmup: run a dummy forward+backward to trigger compilation
+        dummy = torch.zeros(1, 2, board_size, board_size, device=self._device)
+        out_pi, out_v = self._compiled_nn(dummy)
+        (out_pi.sum() + out_v.sum()).backward()
+        self._optimizer.zero_grad()
+        logger.info("Model compiled and warmed up")
 
     def train(self, dataset: TrainingDataset) -> tuple[np.ndarray, np.ndarray]:
         kl_divs, td_errors = self._update_nn(dataset)
@@ -109,7 +126,7 @@ class Trainer:
                 processed = 0
                 for batch in dataloader:
                     x, pi_mask_batch, pi_target_batch, _, _, _ = (b.to(self._device) for b in batch)
-                    pi_tensor_batch, value_batch = self._nn(x)
+                    pi_tensor_batch, value_batch = self._compiled_nn(x)
                     vs.append(value_batch.cpu())
                     # iterate per sample
                     for pi_tensor_unsoftmaxed, pi_mask, pi_target_full in zip(
@@ -218,7 +235,7 @@ class Trainer:
 
         for batch in dataloader:
             x, pi_mask_batch, pi_target_batch, target_value, weight, is_internal = (b.to(self._device) for b in batch)
-            pi_tensor_batch, value_batch = self._nn(x)
+            pi_tensor_batch, value_batch = self._compiled_nn(x)
 
             # Per-sample TD error: |v_pred - v_target|, 0 for internal nodes,
             # dampened by weight for unfinished games (unreliable v_targets).
@@ -263,7 +280,7 @@ class Trainer:
                     data.to(self._device) for data in data_tuple
                 )
                 self._optimizer.zero_grad(set_to_none=True)
-                current_pi_unsoftmaxed, current_value = self._nn(x)
+                current_pi_unsoftmaxed, current_value = self._compiled_nn(x)
                 value_loss = compute_value_loss(current_value, target_value, weight, is_internal)
                 policy_loss = compute_policy_loss(current_pi_unsoftmaxed, pi_mask, target_pi, weight)
                 entropy_loss = compute_entropy_loss(current_pi_unsoftmaxed, pi_mask, weight)
@@ -328,7 +345,7 @@ class Trainer:
                 x, pi_mask, target_pi, target_value, weight, is_internal = (
                     data.to(self._device) for data in data_tuple
                 )
-                current_pi_unsoftmaxed, current_value = self._nn(x)
+                current_pi_unsoftmaxed, current_value = self._compiled_nn(x)
                 value_loss = compute_value_loss(current_value, target_value, weight, is_internal)
                 policy_loss = compute_policy_loss(current_pi_unsoftmaxed, pi_mask, target_pi, weight)
                 entropy_loss = compute_entropy_loss(current_pi_unsoftmaxed, pi_mask, weight)

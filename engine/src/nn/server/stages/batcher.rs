@@ -1,4 +1,6 @@
-use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 use tokio::sync::mpsc;
 use crate::nn::server::config::BatcherConfig;
@@ -40,83 +42,71 @@ impl Batch {
 }
 
 
-/// Drains the shared mpsc channel from all gRPC streams. Collects requests
-/// into per-model batches using recv (blocking) + try_recv (greedy drain),
-/// then forwards each batch to the encoder stage.
-///
-/// Requests are grouped by `model_id` so each model gets its own batch.
-/// A batch is flushed immediately if it hits `max_batch_size`, or when
-/// the deadline expires all non-empty batches are flushed.
+/// Collects requests, waits for the adaptive deadline, flushes one batch per
+/// model_id, adjusts wait, repeats. Zero-pads to `fixed_batch_size` if set.
 pub async fn run_batcher(
     config: BatcherConfig,
     mut rx: mpsc::Receiver<PendingPrediction>,
     prepared_tx: mpsc::Sender<PipelineItem<Vec<StateBytes>>>,
+    current_wait_us: Arc<AtomicU64>,
 ) {
-    let mut buckets: HashMap<u32, Batch> = HashMap::new();
+    let mut current_wait = config.max_wait;
+    let scale_down = 1.0 - config.adaptive_rate;
+    let scale_up = 1.0 + config.adaptive_rate * config.wait_upward_drift;
 
     loop {
-        buckets.clear();
-
         // Block until at least one request arrives.
         let first = match rx.recv().await {
             Some(item) => item,
-            None => return, // All senders dropped — server shutting down.
+            None => return,
         };
-        let first_model_id = first.request.model_id;
-        buckets.entry(first_model_id).or_insert_with(Batch::new).push(first);
+        let mut batch = Batch::new();
+        let model_id = first.request.model_id;
+        batch.push(first);
 
-        // Greedily drain everything available, then fall back to a short
-        // timeout if no bucket is full yet. The try_recv loop is the
-        // fast path under heavy load; the timeout catches the gap between
-        // inference waves where workers are briefly idle before resubmitting.
-        let deadline = tokio::time::Instant::now() + config.max_wait;
-        loop {
-            // Check if any bucket hit max_batch_size — flush it immediately.
-            let full_ids: Vec<u32> = buckets.iter()
-                .filter(|(_, b)| b.len() >= config.max_batch_size)
-                .map(|(&id, _)| id)
-                .collect();
-            for model_id in full_ids {
-                if let Some(mut batch) = buckets.remove(&model_id) {
-                    let (replies, moves, states) = batch.take();
-                    let item = PipelineItem { model_id, replies, moves, payload: states };
-                    if prepared_tx.send(item).await.is_err() {
-                        return;
-                    }
-                }
-            }
-
-            // Try to grab more requests.
+        // Accumulate until deadline or batch is full.
+        let deadline = tokio::time::Instant::now() + current_wait;
+        while batch.len() < config.max_batch_size {
             match rx.try_recv() {
-                Ok(item) => {
-                    let model_id = item.request.model_id;
-                    buckets.entry(model_id).or_insert_with(Batch::new).push(item);
-                }
+                Ok(item) => batch.push(item),
                 Err(_) => {
-                    // Channel empty — wait briefly for more to arrive.
                     let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
                     if remaining.is_zero() {
-                        break; // Deadline expired — flush all non-empty buckets.
+                        break;
                     }
                     match tokio::time::timeout(remaining, rx.recv()).await {
-                        Ok(Some(item)) => {
-                            let model_id = item.request.model_id;
-                            buckets.entry(model_id).or_insert_with(Batch::new).push(item);
-                        }
-                        Ok(None) => return, // Channel closed.
-                        Err(_) => break,    // Timeout — flush all non-empty buckets.
+                        Ok(Some(item)) => batch.push(item),
+                        Ok(None) => return,
+                        Err(_) => break,
                     }
                 }
             }
         }
 
-        // Flush all remaining non-empty buckets.
-        for (model_id, mut batch) in buckets.drain() {
-            let (replies, moves, states) = batch.take();
-            let item = PipelineItem { model_id, replies, moves, payload: states };
-            if prepared_tx.send(item).await.is_err() {
-                return;
+        // Flush.
+        let batch_len = batch.len();
+        let (replies, moves, mut states) = batch.take();
+        if let Some(fixed) = config.fixed_batch_size {
+            states.resize_with(fixed, || vec![0u8; config.pad_item_len]);
+        }
+        let item = PipelineItem { model_id, replies, moves, payload: states };
+        if prepared_tx.send(item).await.is_err() {
+            return;
+        }
+
+        // Adaptive wait: drift up, push down when full.
+        if config.adaptive_rate > 0.0 {
+            if batch_len < config.max_batch_size {
+                current_wait = duration_mul(current_wait, scale_up);
+            } else {
+                current_wait = duration_mul(current_wait, scale_down);
             }
+            current_wait = current_wait.max(config.min_wait).min(config.max_wait);
+            current_wait_us.store(current_wait.as_micros() as u64, Ordering::Relaxed);
         }
     }
+}
+
+fn duration_mul(d: Duration, factor: f64) -> Duration {
+    Duration::from_secs_f64(d.as_secs_f64() * factor)
 }

@@ -13,8 +13,8 @@ use anyhow::Result;
 pub trait ModelSource: Send + Sync + 'static {
     /// Poll the desired configuration. Returns None if the source is unavailable.
     fn desired_versions(&self) -> Option<HashMap<usize, usize>>;
-    /// Load raw model bytes for a given version.
-    fn load_bytes(&self, version: usize) -> Result<Vec<u8>>;
+    /// Load raw model bytes for a given version and batch_size variant.
+    fn load_bytes(&self, version: usize, batch_size: Option<usize>) -> Result<Vec<u8>>;
 
     /// Try to acquire a build lock for the given version.
     /// Returns the lock position: 1 = builder, 2+ = wait in queue.

@@ -4,14 +4,24 @@ use std::time::Duration;
 pub struct ServerConfig {
     pub port: u16,
     pub game_size: usize,
+    pub pipelines: Vec<PipelineChannelConfig>,
+}
+
+/// Configuration for a single pipeline channel (e.g., primary training or secondary tournament).
+#[derive(Clone, Debug)]
+pub struct PipelineChannelConfig {
     pub batcher: BatcherConfig,
     pub pipeline: PipelineConfig,
+    /// Which model_id values this pipeline serves.
+    pub model_ids: Vec<u32>,
+    /// Batch size qualifier for the Redis weight key (e.g., Some(170) → `weights-0042-b170`).
+    pub weight_batch_size: Option<usize>,
 }
 
 #[derive(Clone, Debug)]
 pub struct PipelineConfig {
     /// Buffer size for channels feeding INTO inference (batcher→encoder, encoder→inference).
-    /// Low values (1) create backpressure that forces larger batches → better GPU utilization.
+    /// Low values (1-2) create backpressure that forces larger batches → better GPU utilization.
     pub intake_buffer: usize,
     /// Buffer size for channels AFTER inference (inference→decoder, decoder→responder).
     /// Higher values prevent the GPU from stalling on slow downstream consumers.
@@ -21,18 +31,27 @@ pub struct PipelineConfig {
 #[derive(Clone, Debug)]
 pub struct BatcherConfig {
     /// Maximum number of requests in a single batch.
-    ///
-    /// ML-SPECIFIC: Set this to your model's optimal batch size. Larger batches
-    /// = better GPU utilization, but more latency for early arrivals.
     pub max_batch_size: usize,
 
-    /// Maximum time to wait for a full batch before sending an undersized one.
-    ///
-    /// This is your primary latency knob. A request arriving just after a batch
-    /// fires will wait at most this long. Typical values: 1–10ms.
+    /// Minimum wait time before flushing (floor for adaptive adjustment).
+    pub min_wait: Duration,
+
+    /// Maximum wait time before flushing (ceiling for adaptive adjustment).
     pub max_wait: Duration,
 
+    /// Wait upward drift factor (e.g., 2.0 = wait up to 2x max_wait before flushing).
+    pub wait_upward_drift: f64,
+
     /// Buffer size for the internal channel that all streams feed into.
-    /// Should be >= max concurrent in-flight requests across all workers.
     pub channel_buffer: usize,
+
+    /// Rate for exponential wait adjustment (e.g., 0.05 = 5% per cycle).
+    /// 0.0 disables adaptation (static wait at max_wait).
+    pub adaptive_rate: f64,
+
+    /// If set, zero-pad all batches to this fixed size.
+    pub fixed_batch_size: Option<usize>,
+
+    /// Byte length of a single zero-pad item (2 * game_size^2 * sizeof(f32)).
+    pub pad_item_len: usize,
 }
