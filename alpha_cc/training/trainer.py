@@ -59,6 +59,7 @@ class Trainer:
         """JIT-compile the model for faster training. The original model
         is preserved at `self.nn` for ONNX export and state_dict access."""
         logger.info(f"Compiling model with torch.compile(mode={mode!r})...")
+        torch.set_float32_matmul_precision("high")
         self._compiled_nn = torch.compile(self._nn, mode=mode)
         # Warmup: run a dummy forward+backward to trigger compilation
         dummy = torch.zeros(1, 2, board_size, board_size, device=self._device)
