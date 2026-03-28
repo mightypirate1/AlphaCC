@@ -39,9 +39,6 @@ pub struct BatcherConfig {
     /// Maximum wait time before flushing (ceiling for adaptive adjustment).
     pub max_wait: Duration,
 
-    /// Wait upward drift factor (e.g., 2.0 = wait up to 2x max_wait before flushing).
-    pub wait_upward_drift: f64,
-
     /// Buffer size for the internal channel that all streams feed into.
     pub channel_buffer: usize,
 
@@ -49,8 +46,8 @@ pub struct BatcherConfig {
     /// 0.0 disables adaptation (static wait at max_wait).
     pub adaptive_rate: f64,
 
-    /// If set, zero-pad all batches to this fixed size.
-    pub fixed_batch_size: Option<usize>,
+    /// Zero-pad all batches to `max_batch_size`.
+    pub pad_to_max: bool,
 
     /// Byte length of a single zero-pad item (2 * game_size^2 * sizeof(f32)).
     pub pad_item_len: usize,

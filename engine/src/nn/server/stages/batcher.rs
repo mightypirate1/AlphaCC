@@ -43,7 +43,7 @@ impl Batch {
 
 
 /// Collects requests, waits for the adaptive deadline, flushes one batch per
-/// model_id, adjusts wait, repeats. Zero-pads to `fixed_batch_size` if set.
+/// model_id, adjusts wait, repeats. Zero-pads to `max_batch_size` if `pad_to_max` is set.
 pub async fn run_batcher(
     config: BatcherConfig,
     mut rx: mpsc::Receiver<PendingPrediction>,
@@ -51,8 +51,7 @@ pub async fn run_batcher(
     current_wait_us: Arc<AtomicU64>,
 ) {
     let mut current_wait = config.max_wait;
-    let scale_down = 1.0 - config.adaptive_rate;
-    let scale_up = 1.0 + config.adaptive_rate * config.wait_upward_drift;
+    current_wait_us.store(current_wait.as_micros() as u64, Ordering::Relaxed);
 
     loop {
         // Block until at least one request arrives.
@@ -65,7 +64,8 @@ pub async fn run_batcher(
         batch.push(first);
 
         // Accumulate until deadline or batch is full.
-        let deadline = tokio::time::Instant::now() + current_wait;
+        let batch_start = tokio::time::Instant::now();
+        let deadline = batch_start + current_wait;
         while batch.len() < config.max_batch_size {
             match rx.try_recv() {
                 Ok(item) => batch.push(item),
@@ -85,9 +85,10 @@ pub async fn run_batcher(
 
         // Flush.
         let batch_len = batch.len();
+        let elapsed = batch_start.elapsed();
         let (replies, moves, mut states) = batch.take();
-        if let Some(fixed) = config.fixed_batch_size {
-            states.resize_with(fixed, || vec![0u8; config.pad_item_len]);
+        if config.pad_to_max {
+            states.resize_with(config.max_batch_size, || vec![0u8; config.pad_item_len]);
         }
         let item = PipelineItem { model_id, replies, moves, payload: states };
         if prepared_tx.send(item).await.is_err() {
@@ -95,18 +96,17 @@ pub async fn run_batcher(
         }
 
         // Adaptive wait: drift up, push down when full.
+        let inv_fill_rate = config.max_batch_size as f64 / batch_len as f64;
         if config.adaptive_rate > 0.0 {
-            if batch_len < config.max_batch_size {
-                current_wait = duration_mul(current_wait, scale_up);
-            } else {
-                current_wait = duration_mul(current_wait, scale_down);
-            }
-            current_wait = current_wait.max(config.min_wait).min(config.max_wait);
+            let estimated_optimal_wait = elapsed.mul_f64(inv_fill_rate);
+            current_wait = alpha_blend_duration(current_wait, estimated_optimal_wait, config.adaptive_rate);
             current_wait_us.store(current_wait.as_micros() as u64, Ordering::Relaxed);
         }
     }
 }
 
-fn duration_mul(d: Duration, factor: f64) -> Duration {
-    Duration::from_secs_f64(d.as_secs_f64() * factor)
+fn alpha_blend_duration(current: Duration, estimated: Duration, alpha: f64) -> Duration {
+    let contrib_current = current.mul_f64(1.0 - alpha);
+    let contrib_estimated = estimated.mul_f64(alpha);
+    return contrib_current + contrib_estimated;
 }
