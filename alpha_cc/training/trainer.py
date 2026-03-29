@@ -2,8 +2,6 @@ import logging
 
 import numpy as np
 import torch
-
-logger = logging.getLogger(__name__)
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm_loggable.auto import tqdm
@@ -13,6 +11,8 @@ from alpha_cc.agents.mcts.worker_stats import WorkerStats
 from alpha_cc.nn.blocks import PolicyLogSoftmax, PolicySoftmax
 from alpha_cc.nn.nets import DefaultNet
 from alpha_cc.training.training_dataset import TrainingDataset
+
+logger = logging.getLogger(__name__)
 
 
 class Trainer:
@@ -60,9 +60,9 @@ class Trainer:
         is preserved at `self.nn` for ONNX export and state_dict access."""
         logger.info(f"Compiling model with torch.compile(mode={mode!r})...")
         torch.set_float32_matmul_precision("high")
-        self._compiled_nn = torch.compile(self._nn, mode=mode)
+        self._compiled_nn = torch.compile(self._nn, mode=mode)  # type: ignore
         # Warmup: run a dummy forward+backward to trigger compilation
-        dummy = torch.zeros(1, 2, board_size, board_size, device=self._device)
+        dummy = torch.zeros(self._batch_size, 2, board_size, board_size, device=self._device)
         out_pi, out_v = self._compiled_nn(dummy)
         (out_pi.sum() + out_v.sum()).backward()
         self._optimizer.zero_grad()

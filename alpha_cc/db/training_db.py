@@ -116,7 +116,9 @@ class TrainingDB:
     def weights_incr_weights_index(self) -> int:
         return int(self._db.incr(self.latest_weights_index_key))  # type: ignore
 
-    def weights_publish(self, payload: bytes, index: int, batch_size: int | None = None, set_latest: bool = False) -> None:
+    def weights_publish(
+        self, payload: bytes, index: int, batch_size: int | None = None, set_latest: bool = False
+    ) -> None:
         self._db.set(self.weight_key(index, batch_size), payload)
         if set_latest:
             self._db.set(self.latest_weights_index_key, index)
@@ -128,7 +130,7 @@ class TrainingDB:
         return self._db.get(self.weight_key(index, batch_size))  # type: ignore
 
     def weights_exists(self, index: int | str, batch_size: int | None = None) -> bool:
-        return self._db.exists(self.weight_key(index, batch_size)) > 0
+        return self._db.exists(self.weight_key(index, batch_size)) > 0  # type: ignore
 
     def weights_fetch_latest_index(self) -> int:
         response = self._db.get(self.latest_weights_index_key)

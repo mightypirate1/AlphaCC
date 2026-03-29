@@ -1,8 +1,6 @@
 import logging
 import threading
-from pathlib import Path
 
-import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from alpha_cc.db import TrainingDB

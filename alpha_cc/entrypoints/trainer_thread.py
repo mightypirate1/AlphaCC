@@ -92,7 +92,13 @@ def main(
     )
 
     curr_index, champion_index, existing_checkpoint = initialize_training(
-        run_id, size, db, trainer, init_run_id, init_weights_index, init_champion_weight_index,
+        run_id,
+        size,
+        db,
+        trainer,
+        init_run_id,
+        init_weights_index,
+        init_champion_weight_index,
         onnx_compiled_batch_size,
     )
     if existing_checkpoint is None:
