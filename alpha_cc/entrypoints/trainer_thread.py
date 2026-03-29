@@ -103,7 +103,8 @@ def main(
     )
     if existing_checkpoint is None:
         db.flush_db()  # safe fresh start
-        curr_index, _ = publish_weights(trainer.nn, db, size, onnx_compiled_batch_size)
+        curr_index, onnx_payload = publish_weights(trainer.nn, db, size, onnx_compiled_batch_size)
+        save_weights(run_id, curr_index, trainer.nn.state_dict(), onnx_payload)
         champion_index = curr_index
         replay_buffer = TrainingDataset(
             max_size=replay_buffer_size,
@@ -132,6 +133,7 @@ def main(
         db,
         tournament_manager,
         replay_buffer,
+        onnx_compiled_batch_size,
     )
     db.model_set_current(0, curr_index)
     if gpu:
@@ -322,6 +324,7 @@ def create_and_register_signal_handler(
     training_db: TrainingDB,
     tournament_manager: TournamentManager,
     replay_buffer: TrainingDataset,
+    onnx_compiled_batch_size: int | None = None,
 ) -> None:
     """
     Creates a signal handler that saves the training checkpoint and
@@ -335,7 +338,7 @@ def create_and_register_signal_handler(
         checkpoint = TrainingCheckpoint(
             run_id,
             model_state_dict=trainer.nn.state_dict(),
-            champion_payload=training_db.weights_fetch(tournament_manager.champion_index),
+            champion_payload=training_db.weights_fetch(tournament_manager.champion_index, batch_size=onnx_compiled_batch_size),
             optimizer_state_dict=trainer.optimizer.state_dict(),
             current_index=current_index,
             champion_index=tournament_manager.champion_index,
