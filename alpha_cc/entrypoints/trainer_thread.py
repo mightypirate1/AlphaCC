@@ -111,8 +111,6 @@ def main(
             gamma=per_gamma,
             rank_mode=per_rank_mode,
             visits_threshold=per_visits_threshold,
-            expected_num_samples_per_update=n_train_samples,
-            summary_writer=summary_writer,
         )
     else:
         replay_buffer = existing_checkpoint.replay_buffer
@@ -144,11 +142,17 @@ def main(
         # wait until we have enough new samples
         training_datas = await_samples(db, n_train_samples)
         trainer.report_rollout_stats(training_datas, limit=n_train_samples)
-        replay_buffer.add_datas(training_datas, global_step=curr_index)
+        replay_buffer.add_datas(
+            training_datas,
+            summary_writer=summary_writer,
+            global_step=curr_index,
+            expected_num_samples=n_train_samples,
+        )
 
         # prioritized sampling
         sampled_indices, sampled_dataset = replay_buffer.prioritized_sample(
             train_size,
+            summary_writer=summary_writer,
             global_step=curr_index,
         )
 
@@ -338,7 +342,9 @@ def create_and_register_signal_handler(
         checkpoint = TrainingCheckpoint(
             run_id,
             model_state_dict=trainer.nn.state_dict(),
-            champion_payload=training_db.weights_fetch(tournament_manager.champion_index, batch_size=onnx_compiled_batch_size),
+            champion_payload=training_db.weights_fetch(
+                tournament_manager.champion_index, batch_size=onnx_compiled_batch_size
+            ),
             optimizer_state_dict=trainer.optimizer.state_dict(),
             current_index=current_index,
             champion_index=tournament_manager.champion_index,

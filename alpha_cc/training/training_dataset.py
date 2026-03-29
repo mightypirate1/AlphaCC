@@ -49,8 +49,6 @@ class TrainingDataset(Dataset):
         visits_threshold: float = 100.0,
         rank_mode: Literal["prod", "min", "td"] = "td",
         weighter: TrainingDataWeighter | None = None,
-        expected_num_samples_per_update: int | None = None,
-        summary_writer: SummaryWriter | None = None,
     ) -> None:
         if experiences is not None:
             exp_list = list(experiences)
@@ -66,8 +64,6 @@ class TrainingDataset(Dataset):
         self._visits_threshold = visits_threshold
         self._rank_mode = rank_mode
         self._weighter = weighter
-        self._expected_num_samples_per_update = expected_num_samples_per_update
-        self._summary_writer = summary_writer
 
         self._experiences: deque[MCTSExperience] = deque(maxlen=max_size)
         self._kl_div: deque[float] = deque(maxlen=max_size)
@@ -107,9 +103,14 @@ class TrainingDataset(Dataset):
     def samples(self) -> list[MCTSExperience]:
         return list(self._experiences)
 
+    @property
+    def total_num_samples(self) -> int:
+        return self._total_num_samples
+
     def prioritized_sample(
         self,
         n: int,
+        summary_writer: SummaryWriter | None = None,
         global_step: int = 0,
     ) -> tuple[np.ndarray, TrainingDataset]:
         """
@@ -128,8 +129,8 @@ class TrainingDataset(Dataset):
         indices = np.random.choice(size, size=n, replace=False, p=probs)
         sampled_exps = [self._experiences[i] for i in indices]
 
-        if self._summary_writer is not None:
-            self._log_per_stats(global_step, sampled_exps, priority, kl, td)
+        if summary_writer is not None:
+            self._log_per_stats(summary_writer, global_step, sampled_exps, priority, kl, td)
 
         return indices, TrainingDataset(experiences=sampled_exps)
 
@@ -146,6 +147,7 @@ class TrainingDataset(Dataset):
 
     def _log_per_stats(
         self,
+        writer: SummaryWriter,
         step: int,
         sampled_exps: list[MCTSExperience],
         priority: np.ndarray,
@@ -156,12 +158,12 @@ class TrainingDataset(Dataset):
         is_internal = np.array([e.is_internal_node for e in sampled_exps])
         is_terminal = np.array([e.weight == 1.0 and not e.is_internal_node for e in sampled_exps])
 
-        self._summary_writer.add_histogram("per/v-target-sampled", v_targets, global_step=step)
-        self._summary_writer.add_scalar("per/frac-internal-sampled", is_internal.mean(), global_step=step)
-        self._summary_writer.add_scalar("per/frac-terminal-sampled", is_terminal.mean(), global_step=step)
-        self._summary_writer.add_histogram("per/priority", priority, global_step=step)
-        self._summary_writer.add_histogram("per/kl-div-buffer", kl, global_step=step)
-        self._summary_writer.add_histogram("per/td-error-buffer", td, global_step=step)
+        writer.add_histogram("per/v-target-sampled", v_targets, global_step=step)
+        writer.add_scalar("per/frac-internal-sampled", is_internal.mean(), global_step=step)
+        writer.add_scalar("per/frac-terminal-sampled", is_terminal.mean(), global_step=step)
+        writer.add_histogram("per/priority", priority, global_step=step)
+        writer.add_histogram("per/kl-div-buffer", kl, global_step=step)
+        writer.add_histogram("per/td-error-buffer", td, global_step=step)
 
     def update_priorities(self, indices: np.ndarray, kl_divs: np.ndarray, td_errors: np.ndarray) -> None:
         for i, idx in enumerate(indices):
@@ -181,16 +183,27 @@ class TrainingDataset(Dataset):
         self.add_trajectory(training_data.trajectory)
         self.add_internal_nodes(training_data.internal_nodes)
 
-    def add_datas(self, training_datas: list[TrainingData], global_step: int = 0) -> None:
+    def add_datas(
+        self,
+        training_datas: list[TrainingData],
+        summary_writer: SummaryWriter | None = None,
+        global_step: int = 0,
+        expected_num_samples: int | None = None,
+    ) -> int:
+        """Add training data, optionally log stats. Returns total trajectory steps added."""
+        count = 0
         for training_data in training_datas:
+            count += len(training_data.trajectory)
             self.add_data(training_data)
-        if self._summary_writer is not None:
-            count = sum([len(td.trajectory) for td in training_datas])
-            overflow = 0 if self._expected_num_samples_per_update is None else max(0, count - self._expected_num_samples_per_update)
-            self._total_num_samples += count
-            self._summary_writer.add_scalar("per/total-samples-seen", self._total_num_samples, global_step=global_step)
-            self._summary_writer.add_scalar("per/trainer-overflow", overflow, global_step=global_step)
+        self._total_num_samples += count
 
+        if summary_writer is not None:
+            overflow = 0 if expected_num_samples is None else max(0, count - expected_num_samples)
+            summary_writer.add_scalar("trainer/total-samples-seen", self._total_num_samples, global_step=global_step)
+            summary_writer.add_scalar("trainer/overflow", overflow, global_step=global_step)
+            summary_writer.add_scalar("trainer/samples-this-batch", count, global_step=global_step)
+
+        return count
 
     def add_trajectories(self, trajectories: list[list[MCTSExperience]]) -> None:
         for traj in trajectories:
@@ -246,28 +259,3 @@ class TrainingDataset(Dataset):
             from_coord, to_coord = exp.state.action_mask_indices[i]
             pi_target[from_coord.x, from_coord.y, to_coord.x, to_coord.y] = exp.pi_target[i]
         return torch.as_tensor(pi_target)
-
-    def __setstate__(self, state: dict) -> None:
-        """Backward compat: convert old two-buffer format to deque-based PER."""
-        if "_kl_div" in state and isinstance(state["_kl_div"], deque):
-            # New format
-            self.__dict__.update(state)
-            return
-
-        # Old format had _experiences (deque) and _new_experiences (list)
-        old_main = list(state.get("_experiences", []))
-        old_new = state.get("_new_experiences", [])
-        all_experiences = old_new + old_main
-        max_size = state.get("_max_size", 10000)
-
-        self._max_size = max_size
-        self._weighter = state.get("_weighter")
-        self._gamma = 0.5
-        self._visits_threshold = 100.0
-        self._experiences = deque[MCTSExperience](maxlen=max_size)
-        self._kl_div = deque[float](maxlen=max_size)
-        self._td_error = deque[float](maxlen=max_size)
-        for exp in all_experiences:
-            self._experiences.append(exp)
-            self._kl_div.append(1.0)
-            self._td_error.append(1.0)
