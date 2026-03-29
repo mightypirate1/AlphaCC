@@ -42,9 +42,10 @@ pub struct BatcherConfig {
     /// Buffer size for the internal channel that all streams feed into.
     pub channel_buffer: usize,
 
-    /// Rate for exponential wait adjustment (e.g., 0.05 = 5% per cycle).
-    /// 0.0 disables adaptation (static wait at max_wait).
-    pub adaptive_rate: f64,
+    /// Half-life in seconds for adaptive wait adjustment.
+    /// The time for the error between current wait and ideal wait to halve.
+    /// 0.0 disables adaptation (static wait at min_wait).
+    pub half_life: f64,
 
     /// Zero-pad all batches to `max_batch_size`.
     pub pad_to_max: bool,

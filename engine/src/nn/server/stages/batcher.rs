@@ -42,18 +42,22 @@ impl Batch {
 }
 
 
-/// Collects requests, waits for the adaptive deadline, flushes one batch per
-/// model_id, adjusts wait, repeats. Zero-pads to `max_batch_size` if `pad_to_max` is set.
+/// Collects requests, waits for the adaptive deadline, flushes one batch,
+/// adjusts wait, repeats. Zero-pads to `max_batch_size` if `pad_to_max` is set.
 pub async fn run_batcher(
     config: BatcherConfig,
     mut rx: mpsc::Receiver<PendingPrediction>,
     prepared_tx: mpsc::Sender<PipelineItem<Vec<StateBytes>>>,
     current_wait_us: Arc<AtomicU64>,
 ) {
-    let mut current_wait = config.max_wait;
+    assert!(config.half_life > 0.0, "half_life must be > 0");
+    let mut current_wait = config.min_wait;
     current_wait_us.store(current_wait.as_micros() as u64, Ordering::Relaxed);
 
     loop {
+        // Time the full cycle (including wait for first sample) for alpha computation.
+        let cycle_start = tokio::time::Instant::now();
+
         // Block until at least one request arrives.
         let first = match rx.recv().await {
             Some(item) => item,
@@ -64,6 +68,7 @@ pub async fn run_batcher(
         batch.push(first);
 
         // Accumulate until deadline or batch is full.
+        // elapsed (for fill rate estimate) starts AFTER the first sample.
         let batch_start = tokio::time::Instant::now();
         let deadline = batch_start + current_wait;
         while batch.len() < config.max_batch_size {
@@ -86,6 +91,7 @@ pub async fn run_batcher(
         // Flush.
         let batch_len = batch.len();
         let elapsed = batch_start.elapsed();
+        let cycle_duration = cycle_start.elapsed().as_secs_f64(); // capture before send — excludes pipeline backpressure
         let (replies, moves, mut states) = batch.take();
         if config.pad_to_max {
             states.resize_with(config.max_batch_size, || vec![0u8; config.pad_item_len]);
@@ -95,19 +101,19 @@ pub async fn run_batcher(
             return;
         }
 
-        // Adaptive wait: drift up, push down when full.
-        let inv_fill_rate = config.max_batch_size as f64 / batch_len as f64;
-        if config.adaptive_rate > 0.0 {
-            let estimated_optimal_wait = elapsed.mul_f64(inv_fill_rate);
-            current_wait = alpha_blend_duration(current_wait, estimated_optimal_wait, config.adaptive_rate);
-            current_wait = current_wait.max(config.min_wait).min(config.max_wait);
-            current_wait_us.store(current_wait.as_micros() as u64, Ordering::Relaxed);
-        }
+        // Adaptive wait adjustment.
+        // Fill rate estimate: elapsed covers samples 2..N, so N-1 intervals.
+        let effective_count = (batch_len - 1).max(1) as f64;
+        let inv_fill_rate = (config.max_batch_size as f64 - 1.0) / effective_count;
+        let estimated_optimal_wait = elapsed.mul_f64(inv_fill_rate);
+        let alpha = (1.0 - (0.5_f64).powf(cycle_duration / config.half_life)).clamp(0.0, 1.0);
+
+        current_wait = alpha_blend_duration(current_wait, estimated_optimal_wait, alpha);
+        current_wait = current_wait.max(config.min_wait).min(config.max_wait);
+        current_wait_us.store(current_wait.as_micros() as u64, Ordering::Relaxed);
     }
 }
 
 fn alpha_blend_duration(current: Duration, estimated: Duration, alpha: f64) -> Duration {
-    let contrib_current = current.mul_f64(1.0 - alpha);
-    let contrib_estimated = estimated.mul_f64(alpha);
-    return contrib_current + contrib_estimated;
+    current.mul_f64(1.0 - alpha) + estimated.mul_f64(alpha)
 }

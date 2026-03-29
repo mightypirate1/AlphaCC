@@ -34,10 +34,10 @@ enum Command {
         #[arg(long, default_value = "128")]
         batch_size: usize,
         /// Primary pipeline: min wait time (ms).
-        #[arg(long, default_value = "5")]
+        #[arg(long, default_value = "1")]
         min_wait: u64,
         /// Primary pipeline: max wait time (ms).
-        #[arg(long, default_value = "5")]
+        #[arg(long, default_value = "10000")]
         max_wait: u64,
         /// Secondary pipeline: max batch size. Enables a separate pipeline for
         /// tournament channels (model_ids 1+). If omitted, all model_ids share
@@ -45,14 +45,15 @@ enum Command {
         #[arg(long)]
         secondary_batch_size: Option<usize>,
         /// Secondary pipeline: min wait time (ms).
-        #[arg(long, default_value = "5")]
+        #[arg(long, default_value = "1")]
         secondary_min_wait: u64,
         /// Secondary pipeline: max wait time (ms).
-        #[arg(long, default_value = "50")]
+        #[arg(long, default_value = "10000")]
         secondary_max_wait: u64,
-        /// Adaptive wait rate (0.0 = disabled, 0.05 = 5% adjustment per cycle).
-        #[arg(long, default_value = "0.0")]
-        adaptive_rate: f64,
+        /// Half-life in seconds for adaptive wait.
+        /// Time for the error between current and ideal wait to halve.
+        #[arg(long, default_value = "2.0")]
+        half_life: f64,
         /// Channel buffer size for incoming gRPC requests.
         #[arg(long, default_value = "1024")]
         channel_buffer: usize,
@@ -107,7 +108,7 @@ fn main() -> anyhow::Result<()> {
         Command::Server {
             nn_path, game_size, port, batch_size, min_wait, max_wait,
             secondary_batch_size, secondary_min_wait,
-            secondary_max_wait, adaptive_rate, channel_buffer, intake_buffer,
+            secondary_max_wait, half_life, channel_buffer, intake_buffer,
             outtake_buffer, verbose, reload_freq, redis_host, max_models,
             trt_cache_path, trt, fixed_batch_size, cpu,
         } => {
@@ -120,7 +121,7 @@ fn main() -> anyhow::Result<()> {
                     min_wait: std::time::Duration::from_millis(min_wait),
                     max_wait: std::time::Duration::from_millis(max_wait),
                     channel_buffer,
-                    adaptive_rate,
+                    half_life,
                     pad_to_max: fixed_batch_size,
                     pad_item_len,
                 },
@@ -138,7 +139,7 @@ fn main() -> anyhow::Result<()> {
                             min_wait: std::time::Duration::from_millis(secondary_min_wait),
                             max_wait: std::time::Duration::from_millis(secondary_max_wait),
                             channel_buffer,
-                            adaptive_rate,
+                            half_life,
                             pad_to_max: fixed_batch_size,
                             pad_item_len,
                         },
