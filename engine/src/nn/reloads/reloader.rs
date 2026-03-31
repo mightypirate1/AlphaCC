@@ -115,24 +115,24 @@ fn reload_cycle<B: Backend>(backend: &Arc<B>, source: &impl ModelSource, health_
         let model = match backend.model_from_bytes(&bytes) {
             Ok(m) => m,
             Err(e) => {
-                eprintln!(
-                    "[reloader] model_from_bytes failed for model_id={model_id} version={desired_version}: {e}"
-                );
                 if is_builder {
                     source.release_build_lock(desired_version);
                 }
+                eprintln!(
+                    "[reloader] model_from_bytes failed for model_id={model_id} version={desired_version}: {e}"
+                );
                 continue;
             }
         };
         let model = match backend.compile_model(model) {
             Ok(m) => m,
             Err(e) => {
-                eprintln!(
-                    "[reloader] compile_model failed for model_id={model_id} version={desired_version}: {e}"
-                );
                 if is_builder {
                     source.release_build_lock(desired_version);
                 }
+                eprintln!(
+                    "[reloader] compile_model failed for model_id={model_id} version={desired_version}: {e}"
+                );
                 continue;
             }
         };
