@@ -271,6 +271,8 @@ class Trainer:
             )
 
     def _update_nn(self, dataset: TrainingDataset) -> tuple[np.ndarray, np.ndarray]:
+        self._reset_gradient_stats()
+
         def train_epoch(dataloader: DataLoader) -> tuple[float, float, float]:
             self._nn.train()
             # accumulator of: value_loss, policy_loss, entropy_loss
@@ -291,6 +293,7 @@ class Trainer:
                     + self._entropy_weight * entropy_loss
                 )
                 loss.backward()
+                self._accumulate_gradient_stats()
                 self._optimizer.step()
                 batch_size = x.shape[0]
                 samples_seen += batch_size
@@ -406,6 +409,52 @@ class Trainer:
             self._summary_writer.add_scalar("trainer/value-loss", total_value_loss, global_step=self._global_step)
             self._summary_writer.add_scalar("trainer/entropy-loss", total_entropy_loss, global_step=self._global_step)
 
+        self._flush_gradient_stats()
+
         # Final batched eval pass over full dataset for PER priority updates
         kl_divs, td_errors = self._compute_sample_errors_batched(dataset)
         return kl_divs, td_errors
+
+    _PARAM_GROUPS = ("encoder", "global_encoder", "local_encoder", "policy_head", "value_head")
+
+    def _get_param_group_modules(self) -> dict[str, torch.nn.Module]:
+        return {
+            "encoder": self._nn._encoder,
+            "global_encoder": self._nn._global_encoder,
+            "local_encoder": self._nn._local_encoder,
+            "policy_head": self._nn._policy_head,
+            "value_head": self._nn._value_combined,
+        }
+
+    def _reset_gradient_stats(self) -> None:
+        self._grad_stats: dict[str, dict[str, float]] = {
+            name: {"grad_norm": 0.0, "grad_max": 0.0, "grad_min": float("inf"), "weight_norm": 0.0, "weight_max": 0.0}
+            for name in self._PARAM_GROUPS
+        }
+
+    @torch.no_grad()
+    def _accumulate_gradient_stats(self) -> None:
+        if not hasattr(self, "_grad_stats"):
+            self._reset_gradient_stats()
+        for name, module in self._get_param_group_modules().items():
+            stats = self._grad_stats[name]
+            for p in module.parameters():
+                w_abs_max = p.data.abs().max().item()
+                stats["weight_norm"] = max(stats["weight_norm"], p.data.norm().item())
+                stats["weight_max"] = max(stats["weight_max"], w_abs_max)
+                if p.grad is not None:
+                    g_abs = p.grad.abs()
+                    stats["grad_norm"] = max(stats["grad_norm"], p.grad.norm().item())
+                    stats["grad_max"] = max(stats["grad_max"], g_abs.max().item())
+                    stats["grad_min"] = min(stats["grad_min"], g_abs.min().item())
+
+    def _flush_gradient_stats(self) -> None:
+        if self._summary_writer is None or not hasattr(self, "_grad_stats"):
+            return
+        step = self._global_step
+        for name, stats in self._grad_stats.items():
+            for key, val in stats.items():
+                if key == "grad_min" and val == float("inf"):
+                    continue
+                self._summary_writer.add_scalar(f"gradients/{name}/{key}", val, global_step=step)
+        self._reset_gradient_stats()
