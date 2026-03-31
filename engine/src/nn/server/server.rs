@@ -62,7 +62,7 @@ impl<B: Backend> PredictServer<B> {
                 route_map.insert(model_id, submit_tx.clone());
             }
             let ids: Vec<_> = pipeline_cfg.model_ids.iter().map(|id| id.to_string()).collect();
-            println!(
+            log::info!(
                 "Pipeline spawned for model_ids=[{}] (batch_size={}, wait={:?}-{:?})",
                 ids.join(", "),
                 pipeline_cfg.batcher.max_batch_size,
@@ -79,7 +79,7 @@ impl<B: Backend> PredictServer<B> {
             },
         };
 
-        println!("PredictServer listening on {addr}");
+        log::info!("PredictServer listening on {addr}");
 
         tonic::transport::Server::builder()
             .add_service(PredictionServiceServer::new(svc))

@@ -3,7 +3,7 @@ use std::sync::{Mutex, OnceLock};
 use ort::execution_providers::{CUDAExecutionProvider, TensorRTExecutionProvider};
 use ort::memory::{Allocator, AllocationDevice, AllocatorType, MemoryInfo, MemoryType};
 use ort::session::Session;
-use ort::value::{DynTensor, DynValue, TensorElementType};
+use ort::value::{DynTensor, DynValue};
 
 use crate::nn::backends::{Backend, ModelStore, VersionedModel};
 use crate::nn::server::types::StateBytes;
@@ -112,11 +112,11 @@ impl OnnxBackend {
         }
         if use_trt {
             if let Some(path) = &trt_cache_path {
-                eprintln!("[onnx] TensorRT engine cache enabled at: {path}");
+                log::info!("[onnx] TensorRT engine cache enabled at: {path}");
             }
-            eprintln!("[onnx] using TensorRT + CUDA execution providers");
+            log::info!("[onnx] using TensorRT + CUDA execution providers");
         } else {
-            eprintln!("[onnx] using CUDA execution provider only (no TRT)");
+            log::info!("[onnx] using CUDA execution provider only (no TRT)");
         }
         Self {
             models: ModelStore::new(models, max_models),
@@ -133,7 +133,7 @@ impl OnnxBackend {
             if let Some(a) = self.cuda_allocator.get() {
                 return &a.0;
             }
-            eprintln!("CUDA allocator not ready, waiting for first model load...");
+            log::warn!("CUDA allocator not ready, waiting for first model load...");
             std::thread::sleep(std::time::Duration::from_secs(1));
         }
     }
@@ -153,7 +153,7 @@ impl OnnxBackend {
     }
 
     fn build_session(&self, bytes: &[u8]) -> anyhow::Result<OnnxSession> {
-        eprintln!("[onnx] building session from {} bytes", bytes.len());
+        log::info!("[onnx] building session from {} bytes", bytes.len());
         let session = Session::builder()
             .map_err(|e| anyhow::anyhow!("session builder: {e}"))?
             .with_log_level(ort::logging::LogLevel::Warning)
@@ -199,7 +199,7 @@ impl Backend for OnnxBackend {
             _ => panic!("expected tensor input"),
         };
         if self.verbose {
-            println!("Inference model_id={model_id} batch_size={batch_size}");
+            log::debug!("Inference model_id={model_id} batch_size={batch_size}");
         }
         loop {
             let guard = self.models.load(model_id as usize);
@@ -208,7 +208,7 @@ impl Backend for OnnxBackend {
                 return inference::nn_inference(&mut session, self.allocator(), &input, self.game_size, batch_size);
             }
             drop(guard);
-            eprintln!("model_id={model_id} not loaded yet, waiting...");
+            log::warn!("model_id={model_id} not loaded yet, waiting...");
             std::thread::sleep(std::time::Duration::from_secs(1));
         }
     }
@@ -231,7 +231,7 @@ impl Backend for OnnxBackend {
         if self.cuda_allocator.get().is_none() {
             let alloc = create_cuda_allocator(&session.lock());
             let info = alloc.0.memory_info();
-            eprintln!("[onnx] CUDA allocator device: {:?} (id={})", info.allocation_device(), info.device_id());
+            log::info!("[onnx] CUDA allocator device: {:?} (id={})", info.allocation_device(), info.device_id());
             let _ = self.cuda_allocator.set(alloc);
         }
         Ok(session)

@@ -1,5 +1,3 @@
-use std::vec::Vec;
-
 #[cfg(feature = "extension-module")]
 extern crate pyo3;
 

@@ -1,5 +1,9 @@
 mod benchmark;
 
+#[cfg(feature = "jemalloc")]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 use std::collections::HashMap;
 
 use clap::{Parser, Subcommand};
@@ -102,6 +106,14 @@ enum Command {
 }
 
 fn main() -> anyhow::Result<()> {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .format(|buf, record| {
+            use std::io::Write;
+            let level = record.level();
+            let style = buf.default_level_style(level);
+            writeln!(buf, "{} {style}[{level}]{style:#} {}", buf.timestamp_seconds(), record.args())
+        })
+        .init();
     let cli = Cli::parse();
 
     match cli.command {
@@ -196,7 +208,7 @@ async fn run_server_gpu(
             .unwrap_or_else(|e| panic!("failed to load ONNX model {path}: {e}"));
         VersionedModel { model, version: 0 }
     }).collect();
-    println!("Loaded {n_models} onnx model(s) (GPU)");
+    log::info!("Loaded {n_models} onnx model(s) (GPU)");
     let reloader_trt_cache_path = trt_cache_path.clone();
     let backend = OnnxBackend::new(models, game_size, verbose, max_models, trt_cache_path, use_trt);
     let server = PredictServer::new(config, backend);
@@ -206,7 +218,7 @@ async fn run_server_gpu(
     let _reloader = alpha_cc_engine::nn::reloads::spawn_reloader(
         server.backend(), source, poll_interval, Some("/tmp/healthy".to_string()), reloader_trt_cache_path, use_trt, batch_size_map,
     );
-    println!("Model reloader started (poll every {reload_freq}s, redis={redis_host})");
+    log::info!("Model reloader started (poll every {reload_freq}s, redis={redis_host})");
 
     server.serve(&addr).await
         .map_err(|e| anyhow::anyhow!("error: {e}"))
@@ -232,7 +244,7 @@ async fn run_server_cpu(
             .unwrap_or_else(|e| panic!("failed to load ONNX model {path}: {e}"));
         VersionedModel { model, version: 0 }
     }).collect();
-    println!("Loaded {n_models} onnx model(s) (CPU)");
+    log::info!("Loaded {n_models} onnx model(s) (CPU)");
     let backend = CpuBackend::new(models, game_size, verbose, max_models);
     let server = PredictServer::new(config, backend);
 
@@ -241,7 +253,7 @@ async fn run_server_cpu(
     let _reloader = alpha_cc_engine::nn::reloads::spawn_reloader(
         server.backend(), source, poll_interval, Some("/tmp/healthy".to_string()), None, false, HashMap::new(),
     );
-    println!("Model reloader started (poll every {reload_freq}s, redis={redis_host})");
+    log::info!("Model reloader started (poll every {reload_freq}s, redis={redis_host})");
 
     server.serve(&addr).await
         .map_err(|e| anyhow::anyhow!("error: {e}"))

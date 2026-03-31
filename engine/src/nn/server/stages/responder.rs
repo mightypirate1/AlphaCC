@@ -39,7 +39,7 @@ fn spawn_stats_printer<B: Backend>(stats: Arc<Stats>, interval: Duration, backen
             let wait_us = current_wait_us.load(Ordering::Relaxed);
             let wait_ms = wait_us as f64 / 1000.0;
             let secs = interval.as_secs_f64();
-            eprintln!(
+            log::info!(
                 "[nn-service:{label}] {:.0} preds/s  ({} preds in {} batches, avg batch={:.1}, wait={:.1}ms)",
                 preds as f64 / secs,
                 preds,

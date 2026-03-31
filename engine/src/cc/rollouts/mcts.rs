@@ -126,7 +126,7 @@ impl MCTS {
         if let Some(action) = self.tree.maybe_prune(board) {
             if self.tree.debug_prints() {
                 let report = self.tree.memory_report();
-                eprintln!("[mcts] pruned action={action}: {report}");
+                log::debug!("[mcts] pruned action={action}: {report}");
             }
         }
 
