@@ -77,6 +77,7 @@ class TrainingRunTime:
                     a = np.random.choice(len(pi), p=pi)
 
                 board = board.apply(board.get_moves()[a])
+                agent.on_move_applied(board)
                 pbar.update(1)
         training_data = TrainingData(
             trajectory=self._value_assignment_strategy(trajectory, final_board=board),

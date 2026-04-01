@@ -25,6 +25,8 @@ class RunTime:
             agent_index = agent.choose_move(board, training=training)
             move = board.get_moves()[agent_index]
             board = board.apply(move)
+            for a in self._agent_dict.values():
+                a.on_move_applied(board)
 
             if self._config.render:
                 board.render()

@@ -1,4 +1,7 @@
+from pathlib import Path
+
 import click
+import torch
 
 from alpha_cc.agents import Agent, GreedyAgent
 from alpha_cc.agents.mcts.mcts_agent import MCTSAgent
@@ -90,6 +93,8 @@ def local(
 @click.option("--rollout-depth", type=int, default=100)
 @click.option("--rollout-gamma", type=float, default=1.0)
 @click.option("--n-threads", type=int, default=1)
+@click.option("--pruning-tree", is_flag=True)
+@click.option("--opponent-pruning-tree", is_flag=True)
 @click.option("--training", is_flag=True)
 @click.option("--vs-greedy", is_flag=True)
 @click.option("--as-player-2", is_flag=True)
@@ -102,11 +107,13 @@ def remote(
     rollout_depth: int,
     rollout_gamma: float,
     n_threads: int,
+    pruning_tree: bool,
+    opponent_pruning_tree: bool,
     training: bool,
     vs_greedy: bool,
     as_player_2: bool,
 ) -> None:
-    def get_agent(ch: int) -> MCTSAgent:
+    def get_agent(ch: int, pruning: bool) -> MCTSAgent:
         return MCTSAgent(
             nn_service_addr=nn_service_addr,
             pred_channel=ch,
@@ -114,16 +121,61 @@ def remote(
             rollout_depth=rollout_depth,
             rollout_gamma=rollout_gamma,
             n_threads=n_threads,
+            pruning_tree=pruning,
         )
 
     def get_opponent() -> Agent:
         if vs_greedy:
             return GreedyAgent(size)
-        return get_agent(opponent_channel if opponent_channel is not None else channel)
+        opp_ch = opponent_channel if opponent_channel is not None else channel
+        return get_agent(opp_ch, opponent_pruning_tree)
 
     _play_game(
-        agents=(get_agent(channel), get_opponent()),
+        agents=(get_agent(channel, pruning_tree), get_opponent()),
         size=size,
         as_player_2=as_player_2,
         training=training,
     )
+
+
+@main.command("export-onnx")
+@click.argument("weights", type=click.Path(exists=True, dir_okay=False))
+@click.argument("output", type=click.Path(dir_okay=False))
+@click.option("--size", type=int, default=9)
+@click.option("--batch-size", type=int, default=None, help="Fixed batch dimension. If omitted, batch dim is dynamic.")
+def export_onnx(
+    weights: str,
+    output: str,
+    size: int,
+    batch_size: int | None,
+) -> None:
+    """Load a state dict and export as ONNX."""
+    model = DefaultNet(size)
+    state_dict = torch.load(weights, map_location="cpu", weights_only=True)
+    model.load_state_dict(state_dict)
+    model.eval()
+
+    batch = batch_size or 1
+    dummy = torch.zeros(batch, 2, size, size)
+    dynamic_axes = (
+        None
+        if batch_size is not None
+        else {
+            "input": {0: "batch"},
+            "policy": {0: "batch"},
+            "value": {0: "batch"},
+        }
+    )
+    out_path = Path(output)
+    torch.onnx.export(
+        model,
+        (dummy,),
+        out_path,
+        input_names=["input"],
+        output_names=["policy", "value"],
+        dynamic_axes=dynamic_axes,
+        opset_version=18,
+        do_constant_folding=True,
+        external_data=False,
+    )
+    click.echo(f"Exported to {out_path} (batch_size={'dynamic' if batch_size is None else batch_size})")

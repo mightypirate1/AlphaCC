@@ -55,6 +55,8 @@ class TournamentRuntime:
                     # apply action
                     move = board.get_moves()[action_index]
                     board = board.apply(move)
+                    for a in agents:
+                        a.on_move_applied(board)
                     pbar.update(1)
                     current_agent_idx = 1 - current_agent_idx
                     if self._games_db is not None:

@@ -121,7 +121,7 @@ pub fn run_benchmarks(
     println!();
 
     println!("=== ONNX (ort + TensorRT/CUDA EP) ===");
-    let model = OnnxBackend::load_session_from_file(nn_path, None)
+    let model = OnnxBackend::load_session_from_file(nn_path, None, true)
         .unwrap_or_else(|e| panic!("failed to load ONNX model: {e}"));
     let backend = OnnxBackend::new(
         vec![VersionedModel { model, version: 0 }], game_size_i64, false, 1, None, true,

@@ -115,6 +115,15 @@ impl MCTS {
         MCTSNode::new(pi, v, num_actions)
     }
 
+    pub fn notify_move_applied(&self, board: &Board) {
+        if let Some(action) = self.tree.maybe_prune(board) {
+            if self.tree.debug_prints() {
+                let report = self.tree.memory_report();
+                log::debug!("[mcts] pruned action={action}: {report}");
+            }
+        }
+    }
+
     pub fn run_rollouts_inner(
         &self,
         board: &Board,
@@ -122,14 +131,6 @@ impl MCTS {
         rollout_depth: usize,
         temperature: f32,
     ) -> (Vec<f32>, f32) {
-        // Detect board change and prune if tracking is enabled.
-        if let Some(action) = self.tree.maybe_prune(board) {
-            if self.tree.debug_prints() {
-                let report = self.tree.memory_report();
-                log::debug!("[mcts] pruned action={action}: {report}");
-            }
-        }
-
         let n_threads = self.services.len().min(n_rollouts);
         let rollouts_per_thread = n_rollouts / n_threads;
         let remainder = n_rollouts % n_threads;
@@ -296,6 +297,10 @@ impl MCTS {
         self.tree.iter_data()
             .map(|entry| (entry.key().clone(), entry.value().snapshot()))
             .collect()
+    }
+
+    pub fn on_move_applied(&self, board: &Board) {
+        self.notify_move_applied(board);
     }
 
     pub fn clear_nodes(&self) {

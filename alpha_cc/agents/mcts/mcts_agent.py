@@ -56,6 +56,9 @@ class MCTSAgent(Agent):
     def on_game_end(self) -> None:
         pass
 
+    def on_move_applied(self, board: Board) -> None:
+        self._mcts.on_move_applied(board)
+
     def choose_move(self, board: Board, training: bool = False, temperature: float = 1.0) -> int:
         if self._argmax_delay is not None:
             self._steps_left_to_argmax -= 1

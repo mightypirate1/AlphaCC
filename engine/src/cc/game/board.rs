@@ -316,25 +316,34 @@ impl Board {
         self.flipped_matrix()
     }
 
+    // Render colors (truecolor ANSI: R, G, B)
+    const COLOR_EMPTY: (u8, u8, u8) = (150, 100, 200); // purple
+    const COLOR_P1: (u8, u8, u8) = (255, 140, 50);     // orange
+    const COLOR_P2: (u8, u8, u8) = (255, 105, 180);    // pink
+
     pub fn render(&self) {
-        let tokens = HashMap::from([
-            (0, "·"),
-            (1, "⬣"),
-            (2, "⎔"),
-        ]);
         let matrix = self.get_unflipped_matrix();
         println!();
         for (i, row) in matrix[0..self.size as usize].iter().enumerate() {
-            for _ in  0..i {
+            for _ in 0..i {
                 print!(" ");
             }
             for val in row[0..self.size as usize].iter() {
-                print!("{} ", tokens.get(val).unwrap());
+                let (r, g, b, ch) = match val {
+                    1 => (Self::COLOR_P1.0, Self::COLOR_P1.1, Self::COLOR_P1.2, "⬣"),
+                    2 => (Self::COLOR_P2.0, Self::COLOR_P2.1, Self::COLOR_P2.2, "⬣"),
+                    _ => (Self::COLOR_EMPTY.0, Self::COLOR_EMPTY.1, Self::COLOR_EMPTY.2, "⎔"),
+                };
+                print!("\x1b[38;2;{r};{g};{b}m{ch}\x1b[0m ");
             }
             println!();
         }
         println!();
-        println!("current player: {} ({})", tokens.get(&self.current_player).unwrap(), self.current_player);
+        let (cr, cg, cb) = match self.current_player {
+            1 => Self::COLOR_P1,
+            _ => Self::COLOR_P2,
+        };
+        println!("current player: \x1b[38;2;{cr};{cg};{cb}m⬣\x1b[0m ({})", self.current_player);
     }
 
 }

@@ -165,17 +165,22 @@ impl OnnxBackend {
         Ok(OnnxSession::new(session))
     }
 
-    pub fn load_session_from_file(path: &str, trt_cache_path: Option<&str>) -> anyhow::Result<OnnxSession> {
-        let trt = match trt_cache_path {
-            Some(cache) => TensorRTExecutionProvider::default()
-                .with_engine_cache(true)
-                .with_engine_cache_path(cache)
-                .build(),
-            None => TensorRTExecutionProvider::default().build(),
-        };
+    pub fn load_session_from_file(path: &str, trt_cache_path: Option<&str>, use_trt: bool) -> anyhow::Result<OnnxSession> {
+        let mut eps: Vec<ort::execution_providers::ExecutionProviderDispatch> = Vec::new();
+        if use_trt {
+            let trt = match trt_cache_path {
+                Some(cache) => TensorRTExecutionProvider::default()
+                    .with_engine_cache(true)
+                    .with_engine_cache_path(cache)
+                    .build(),
+                None => TensorRTExecutionProvider::default().build(),
+            };
+            eps.push(trt);
+        }
+        eps.push(CUDAExecutionProvider::default().build());
         let session = Session::builder()
             .map_err(|e| anyhow::anyhow!("session builder: {e}"))?
-            .with_execution_providers(vec![trt, CUDAExecutionProvider::default().build()])
+            .with_execution_providers(eps)
             .map_err(|e| anyhow::anyhow!("execution providers: {e}"))?
             .commit_from_file(path)
             .map_err(|e| anyhow::anyhow!("commit_from_file: {e}"))?;

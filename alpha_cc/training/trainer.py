@@ -415,20 +415,20 @@ class Trainer:
         kl_divs, td_errors = self._compute_sample_errors_batched(dataset)
         return kl_divs, td_errors
 
-    _PARAM_GROUPS = ("encoder", "global_encoder", "local_encoder", "policy_head", "value_head")
+    _PARAM_GROUPS = ("encoder", "global-encoder", "local-encoder", "policy-head", "value-head")
 
     def _get_param_group_modules(self) -> dict[str, torch.nn.Module]:
         return {
             "encoder": self._nn._encoder,
-            "global_encoder": self._nn._global_encoder,
-            "local_encoder": self._nn._local_encoder,
-            "policy_head": self._nn._policy_head,
-            "value_head": self._nn._value_combined,
+            "global-encoder": self._nn._global_encoder,
+            "local-encoder": self._nn._local_encoder,
+            "policy-head": self._nn._policy_head,
+            "value-head": self._nn._value_combined,
         }
 
     def _reset_gradient_stats(self) -> None:
         self._grad_stats: dict[str, dict[str, float]] = {
-            name: {"grad_norm": 0.0, "grad_max": 0.0, "grad_min": float("inf"), "weight_norm": 0.0, "weight_max": 0.0}
+            name: {"grad-norm-sq": 0.0, "grad-max": 0.0, "grad-min": float("inf"), "weight-norm-sq": 0.0, "weight-max": 0.0}
             for name in self._PARAM_GROUPS
         }
 
@@ -438,15 +438,17 @@ class Trainer:
             self._reset_gradient_stats()
         for name, module in self._get_param_group_modules().items():
             stats = self._grad_stats[name]
+            w_norm_sq = 0.0
+            g_norm_sq = 0.0
             for p in module.parameters():
-                w_abs_max = p.data.abs().max().item()
-                stats["weight_norm"] = max(stats["weight_norm"], p.data.norm().item())
-                stats["weight_max"] = max(stats["weight_max"], w_abs_max)
+                w_norm_sq += p.data.norm().item() ** 2
+                stats["weight-max"] = max(stats["weight-max"], p.data.abs().max().item())
                 if p.grad is not None:
-                    g_abs = p.grad.abs()
-                    stats["grad_norm"] = max(stats["grad_norm"], p.grad.norm().item())
-                    stats["grad_max"] = max(stats["grad_max"], g_abs.max().item())
-                    stats["grad_min"] = min(stats["grad_min"], g_abs.min().item())
+                    g_norm_sq += p.grad.norm().item() ** 2
+                    stats["grad-max"] = max(stats["grad-max"], p.grad.abs().max().item())
+                    stats["grad-min"] = min(stats["grad-min"], p.grad.abs().min().item())
+            stats["grad-norm-sq"] = max(stats["grad-norm-sq"], g_norm_sq)
+            stats["weight-norm-sq"] = max(stats["weight-norm-sq"], w_norm_sq)
 
     def _flush_gradient_stats(self) -> None:
         if self._summary_writer is None or not hasattr(self, "_grad_stats"):
@@ -454,7 +456,10 @@ class Trainer:
         step = self._global_step
         for name, stats in self._grad_stats.items():
             for key, val in stats.items():
-                if key == "grad_min" and val == float("inf"):
+                if key == "grad-min" and val == float("inf"):
                     continue
+                if key.endswith("-norm-sq"):
+                    val = val ** 0.5
+                    key = key.removesuffix("-sq")
                 self._summary_writer.add_scalar(f"gradients/{name}/{key}", val, global_step=step)
         self._reset_gradient_stats()
