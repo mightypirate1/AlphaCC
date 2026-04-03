@@ -6,7 +6,7 @@ use crate::cc::dtypes;
 
 
 #[cfg_attr(feature = "extension-module", pyo3::prelude::pyclass(module="alpha_cc_engine", from_py_object))]
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct HexCoord {
     pub x: dtypes::BoardSize,
     pub y: dtypes::BoardSize,

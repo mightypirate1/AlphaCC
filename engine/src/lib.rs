@@ -2,6 +2,9 @@ pub mod cc;
 pub mod db;
 pub mod nn;
 
+#[cfg(feature = "tui")]
+pub mod tui;
+
 #[cfg(feature = "extension-module")]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;

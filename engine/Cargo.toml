@@ -39,14 +39,24 @@ clap = { version = "4.6.0", features = ["derive"] }
 redis = "1.1.0"
 ort = { version = "2.0.0-rc.12", features = ["load-dynamic", "cuda", "tensorrt"] }
 
+# TUI (optional — only for the interactive game client)
+ratatui = { version = "0.29", optional = true }
+crossterm = { version = "0.28", optional = true }
+
 [features]
 default = []
 extension-module = ["dep:pyo3", "pyo3/extension-module", "pyo3/multiple-pymethods", "dep:numpy", "dep:mimalloc"]
 jemalloc = ["dep:tikv-jemallocator"]
+tui = ["dep:ratatui", "dep:crossterm"]
 
 [[bin]]
 name = "nn-service"
 path = "src/bin/nn_service/main.rs"
+
+[[bin]]
+name = "tui"
+path = "src/bin/tui/main.rs"
+required-features = ["tui"]
 
 [build-dependencies]
 tonic-prost-build = "0.14.5"

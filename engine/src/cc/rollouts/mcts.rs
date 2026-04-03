@@ -183,8 +183,12 @@ impl MCTS {
                 .collect();
             if temperature != 1.0 {
                 let inv_temp = 1.0 / temperature;
-                for w in weights.iter_mut() {
-                    *w = w.powf(inv_temp);
+                let max_w = weights.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                if max_w > 0.0 {
+                    for w in weights.iter_mut() {
+                        // Divide by max before exponentiating to prevent overflow
+                        *w = (*w / max_w).powf(inv_temp);
+                    }
                 }
             }
             let sum: f32 = weights.iter().sum();
