@@ -4,7 +4,9 @@ use std::sync::atomic::AtomicU64;
 use tokio::sync::mpsc;
 use crate::nn::backends::Backend;
 use crate::nn::proto::prediction_service_server::PredictionServiceServer;
+use crate::nn::proto::management_service_server::ManagementServiceServer;
 use crate::nn::server::config::ServerConfig;
+use crate::nn::server::management::ManagementServiceImpl;
 use crate::nn::server::stages;
 use crate::nn::server::service::NNService;
 use crate::nn::server::types::{PendingPrediction, PipelineItem, StateBytes};
@@ -18,14 +20,16 @@ use crate::nn::server::types::{PendingPrediction, PipelineItem, StateBytes};
 pub struct PredictServer<B: Backend> {
     config: ServerConfig,
     backend: Arc<B>,
+    static_mode: bool,
 }
 
 impl<B: Backend> PredictServer<B> {
     /// Create a new server with the given backend.
-    pub fn new(config: ServerConfig, backend: B) -> Self {
+    pub fn new(config: ServerConfig, backend: B, static_mode: bool) -> Self {
         Self {
             config,
             backend: Arc::new(backend),
+            static_mode,
         }
     }
 
@@ -79,10 +83,17 @@ impl<B: Backend> PredictServer<B> {
             },
         };
 
+        let mgmt_svc = ManagementServiceImpl::new(
+            self.backend.clone(),
+            self.config.clone(),
+            self.static_mode,
+        );
+
         log::info!("PredictServer listening on {addr}");
 
         tonic::transport::Server::builder()
             .add_service(PredictionServiceServer::new(svc))
+            .add_service(ManagementServiceServer::new(mgmt_svc).max_decoding_message_size(256 * 1024 * 1024))
             .serve(addr)
             .await?;
 

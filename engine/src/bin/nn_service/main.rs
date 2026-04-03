@@ -181,7 +181,7 @@ fn main() -> anyhow::Result<()> {
             }
         }
         Command::ServeStatic { mut common } => {
-            common.max_models = common.nn_path.len().max(1);
+            common.max_models = common.max_models.max(common.nn_path.len().max(1));
             let config = build_server_config(&common);
             let rt = tokio::runtime::Runtime::new()?;
             if common.cpu {
@@ -223,7 +223,7 @@ async fn run_server_gpu(
     log::info!("Loaded {n_models} onnx model(s) (GPU)");
     let reloader_trt_cache_path = args.trt_cache_path.clone();
     let backend = OnnxBackend::new(models, config.game_size as i64, args.verbose, args.max_models, args.trt_cache_path, args.trt);
-    let server = PredictServer::new(config, backend);
+    let server = PredictServer::new(config, backend, false);
 
     let source = alpha_cc_engine::db::TrainingDBRs::from_host(&redis_host)
         .expect("failed to connect to Redis for model reloading");
@@ -255,7 +255,7 @@ async fn run_server_cpu(
     }).collect();
     log::info!("Loaded {n_models} onnx model(s) (CPU)");
     let backend = CpuBackend::new(models, config.game_size as i64, args.verbose, args.max_models);
-    let server = PredictServer::new(config, backend);
+    let server = PredictServer::new(config, backend, false);
 
     let source = alpha_cc_engine::db::TrainingDBRs::from_host(&redis_host)
         .expect("failed to connect to Redis for model reloading");
@@ -285,7 +285,7 @@ async fn run_static_gpu(
     }).collect();
     log::info!("Loaded {n_models} onnx model(s) (GPU, static)");
     let backend = OnnxBackend::new(models, config.game_size as i64, args.verbose, args.max_models, args.trt_cache_path, args.trt);
-    let server = PredictServer::new(config, backend);
+    let server = PredictServer::new(config, backend, true);
 
     // Write health file immediately — no reloader to gate on.
     let _ = std::fs::write("/tmp/healthy", "ok");
@@ -311,7 +311,7 @@ async fn run_static_cpu(
     }).collect();
     log::info!("Loaded {n_models} onnx model(s) (CPU, static)");
     let backend = CpuBackend::new(models, config.game_size as i64, args.verbose, args.max_models);
-    let server = PredictServer::new(config, backend);
+    let server = PredictServer::new(config, backend, true);
 
     let _ = std::fs::write("/tmp/healthy", "ok");
     log::info!("Serving {n_models} static model(s) (no reloader)");

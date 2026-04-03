@@ -5,10 +5,10 @@ and the opponent's are 2.
 
 This may lead to some confusion, but I think its faster
 and less bug prone
-     
+
 */
 
-use std::collections::{HashMap, hash_map::DefaultHasher};
+use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 #[cfg(feature = "extension-module")]
@@ -80,11 +80,11 @@ impl Board {
     pub fn coord_is_empty(&self, coord: &HexCoord) -> bool {
         self.get_content(coord) == 0
     }
-    
+
     pub fn coord_is_player1(&self, coord: &HexCoord) -> bool {
         self.get_content(coord) == 1
     }
-    
+
     pub fn coord_is_player2(&self, coord: &HexCoord) -> bool {
         self.get_content(coord) == 2
     }
@@ -119,7 +119,7 @@ impl Board {
         let flipped_to_y = flipped_to_coord.y as usize;
         let flipped_from_x = flipped_from_coord.x as usize;
         let flipped_from_y = flipped_from_coord.y as usize;
-        let to_coord_content = matrix[flipped_to_x][flipped_to_y];  
+        let to_coord_content = matrix[flipped_to_x][flipped_to_y];
 
         matrix[flipped_from_x][flipped_from_y] = to_coord_content;
         matrix[flipped_to_x][flipped_to_y] = 2;  // 2 is the current player (since the board is flipped)
@@ -142,7 +142,7 @@ impl Board {
     pub fn compute_reward_and_winner(&self) -> (f32, i8) {
         /*
         compute the reward for a board that may or may not be terminal.
-        
+
         for terminal states:
             the reward is 1 if the current player wins, -1 if the opponent wins.
 
@@ -154,7 +154,7 @@ impl Board {
          */
         let s = self.size;
         let hs = self.home_size;
-        
+
         let mut n_p1_stones_in_p2_home = 0;
         let mut goal_is_full: bool = true;
         for x in (s-hs)..s {
@@ -198,7 +198,7 @@ impl Board {
             return (-1.0, 3 - self.current_player);
         }
 
-        // non-terminal state        
+        // non-terminal state
         let reward = (n_p1_stones_in_p2_home - n_p2_stones_in_p1_home) as f32 / self.home_capacity as f32;
         (reward, 0)
     }
@@ -210,7 +210,7 @@ impl Board {
          */
         let mut matrix = Board::empty_matrix();
         // manual version for now
-        
+
         for x in 0..self.size {
             for y in 0..self.size {
                 let coord = HexCoord::new(x, y, self.size);
@@ -223,7 +223,7 @@ impl Board {
                         unreachable!("invalid value on board: {flipped_content}")
                     }
                 };
-            } 
+            }
         }
         matrix
     }

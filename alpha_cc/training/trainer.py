@@ -189,6 +189,10 @@ class Trainer:
             game_ended_early.mean(),
             global_step=self._global_step,
         )
+        winners = np.array([data.winner for data in training_datas])
+        self._summary_writer.add_histogram(
+            "train-rollouts/winners", winners, global_step=self._global_step
+        )
 
         #######
         ### internal nodes

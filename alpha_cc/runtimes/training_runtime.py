@@ -83,6 +83,7 @@ class TrainingRunTime:
             trajectory=self._value_assignment_strategy(trajectory, final_board=board),
             internal_nodes=internal_nodes,
             worker_stats=agent.get_worker_stats(),
+            winner=board.info.winner,
         )
         agent.on_game_end()
         return training_data

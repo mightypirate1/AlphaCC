@@ -13,6 +13,7 @@ class TrainingData:
     trajectory: list[MCTSExperience]
     internal_nodes: dict[GameState, MCTSNodePy]
     worker_stats: WorkerStats = field(default_factory=WorkerStats.empty)
+    winner: int = 0  # 0 = draw/early, 1 = P1, 2 = P2
 
     def __bool__(self) -> bool:
         return bool(self.trajectory)

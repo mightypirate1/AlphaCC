@@ -20,7 +20,13 @@ class RunTime:
         board = self._board.reset()
         self._agents_on_game_start()
 
+        max_len = self._config.max_game_length
         while not board.info.game_over:
+            if max_len is not None and board.info.duration >= max_len:
+                if self._config.verbose:
+                    print(f"Draw! Max game length ({max_len}) reached.")  # noqa
+                self._agents_on_game_end()
+                return 0
             agent = self._agent_dict[board.info.current_player]
             agent_index = agent.choose_move(board, training=training)
             move = board.get_moves()[agent_index]
