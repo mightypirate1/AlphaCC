@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from itertools import permutations
@@ -178,25 +179,35 @@ class TournamentResults:
 # Display helpers
 # ---------------------------------------------------------------------------
 
-def _display_pairwise(console: Console, results: TournamentResults) -> None:
-    table = Table(title="Pairwise Win Rates (row as White vs col as Black)")
+def _display_pairwise_table(
+    console: Console, results: TournamentResults, title: str, extract: Callable[[int, int, int], tuple[int, int]]
+) -> None:
+    table = Table(title=title)
     table.add_column("", style="bold")
     for ch in results.channels:
         table.add_column(f"ch{ch}", justify="center")
 
-    for white in results.channels:
+    for row_ch in results.channels:
         cells: list[str] = []
-        for black in results.channels:
-            if white == black:
+        for col_ch in results.channels:
+            if row_ch == col_ch:
                 cells.append("---")
             else:
-                w, l, d = results.pairwise_record(white, black)
-                total = w + l + d
-                pct = w / total * 100 if total else 0
-                cells.append(f"{pct:.0f}% ({w}/{total})")
-        table.add_row(f"ch{white}", *cells)
+                w, l, d = results.pairwise_record(row_ch, col_ch)
+                count, total = extract(w, l, d)
+                pct = count / total * 100 if total else 0
+                cells.append(f"{pct:.0f}% ({count}/{total})")
+        table.add_row(f"ch{row_ch}", *cells)
 
     console.print(table)
+
+
+def _display_pairwise(console: Console, results: TournamentResults) -> None:
+    _display_pairwise_table(console, results, "White Win Rate (row as White vs col as Black)", lambda w, l, d: (w, w + l + d))
+    console.print()
+    _display_pairwise_table(console, results, "Black Win Rate (row as Black vs col as White)", lambda w, l, d: (l, w + l + d))
+    console.print()
+    _display_pairwise_table(console, results, "Draw Rate (row as White vs col as Black)", lambda w, l, d: (d, w + l + d))
 
 
 def _display_aggregate(console: Console, results: TournamentResults) -> None:

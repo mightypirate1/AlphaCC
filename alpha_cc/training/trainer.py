@@ -190,8 +190,18 @@ class Trainer:
             global_step=self._global_step,
         )
         winners = np.array([data.winner for data in training_datas])
+        n_games = max(len(winners), 1)
         self._summary_writer.add_histogram(
             "train-rollouts/winners", winners, global_step=self._global_step
+        )
+        self._summary_writer.add_scalar(
+            "train-rollouts/frac-p1-wins", (winners == 1).sum() / n_games, global_step=self._global_step
+        )
+        self._summary_writer.add_scalar(
+            "train-rollouts/frac-p2-wins", (winners == 2).sum() / n_games, global_step=self._global_step
+        )
+        self._summary_writer.add_scalar(
+            "train-rollouts/frac-draws", (winners == 0).sum() / n_games, global_step=self._global_step
         )
 
         #######
