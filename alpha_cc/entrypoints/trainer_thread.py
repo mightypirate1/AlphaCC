@@ -92,20 +92,25 @@ def main(
     )
 
     curr_index, champion_index, existing_checkpoint = initialize_training(
-        run_id, size, db, trainer, init_run_id, init_weights_index, init_champion_weight_index,
+        run_id,
+        size,
+        db,
+        trainer,
+        init_run_id,
+        init_weights_index,
+        init_champion_weight_index,
         onnx_compiled_batch_size,
     )
     if existing_checkpoint is None:
         db.flush_db()  # safe fresh start
-        curr_index, _ = publish_weights(trainer.nn, db, size, onnx_compiled_batch_size)
+        curr_index, onnx_payload = publish_weights(trainer.nn, db, size, onnx_compiled_batch_size)
+        save_weights(run_id, curr_index, trainer.nn.state_dict(), onnx_payload)
         champion_index = curr_index
         replay_buffer = TrainingDataset(
             max_size=replay_buffer_size,
             gamma=per_gamma,
             rank_mode=per_rank_mode,
             visits_threshold=per_visits_threshold,
-            expected_num_samples_per_update=n_train_samples,
-            summary_writer=summary_writer,
         )
     else:
         replay_buffer = existing_checkpoint.replay_buffer
@@ -126,6 +131,7 @@ def main(
         db,
         tournament_manager,
         replay_buffer,
+        onnx_compiled_batch_size,
     )
     db.model_set_current(0, curr_index)
     if gpu:
@@ -136,11 +142,17 @@ def main(
         # wait until we have enough new samples
         training_datas = await_samples(db, n_train_samples)
         trainer.report_rollout_stats(training_datas, limit=n_train_samples)
-        replay_buffer.add_datas(training_datas, global_step=curr_index)
+        replay_buffer.add_datas(
+            training_datas,
+            summary_writer=summary_writer,
+            global_step=curr_index,
+            expected_num_samples=n_train_samples,
+        )
 
         # prioritized sampling
         sampled_indices, sampled_dataset = replay_buffer.prioritized_sample(
             train_size,
+            summary_writer=summary_writer,
             global_step=curr_index,
         )
 
@@ -226,6 +238,7 @@ def publish_weights(
     curr_idx = db.weights_incr_weights_index()
     db.weights_publish(payload, curr_idx, batch_size=compiled_batch_size, set_latest=True)
     db.model_set_current(0, curr_idx)
+    logger.info(f"published weights {curr_idx} (batch_size={compiled_batch_size})")
     return curr_idx, payload
 
 
@@ -315,6 +328,7 @@ def create_and_register_signal_handler(
     training_db: TrainingDB,
     tournament_manager: TournamentManager,
     replay_buffer: TrainingDataset,
+    onnx_compiled_batch_size: int | None = None,
 ) -> None:
     """
     Creates a signal handler that saves the training checkpoint and
@@ -328,7 +342,9 @@ def create_and_register_signal_handler(
         checkpoint = TrainingCheckpoint(
             run_id,
             model_state_dict=trainer.nn.state_dict(),
-            champion_payload=training_db.weights_fetch(tournament_manager.champion_index),
+            champion_payload=training_db.weights_fetch(
+                tournament_manager.champion_index, batch_size=onnx_compiled_batch_size
+            ),
             optimizer_state_dict=trainer.optimizer.state_dict(),
             current_index=current_index,
             champion_index=tournament_manager.champion_index,

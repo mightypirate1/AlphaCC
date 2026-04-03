@@ -101,7 +101,7 @@ RUN cargo fetch || true
 COPY engine/src ./src
 COPY engine/build.rs ./build.rs
 COPY engine/proto ./proto
-RUN cargo build --release --bin nn-service
+RUN cargo build --release --bin nn-service --features jemalloc
 
 # nn-service runtime: just the binary + CUDA/TRT libs + onnxruntime
 FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04 AS nn-service

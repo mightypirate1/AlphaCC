@@ -1,15 +1,15 @@
 use std::time::Instant;
 
 use alpha_cc_engine::nn::backends::{Backend, VersionedModel};
-use alpha_cc_engine::nn::backends::onnx::{OnnxBackend, OnnxSession};
+use alpha_cc_engine::nn::backends::onnx::OnnxBackend;
 
 type CudaDeviceSyncFn = unsafe extern "C" fn() -> i32;
 
 fn load_cuda_device_sync() -> CudaDeviceSyncFn {
     unsafe {
-        let handle = libc::dlopen(b"libcudart.so.12\0".as_ptr().cast(), libc::RTLD_NOW | libc::RTLD_GLOBAL);
+        let handle = libc::dlopen(c"libcudart.so.12".as_ptr().cast(), libc::RTLD_NOW | libc::RTLD_GLOBAL);
         assert!(!handle.is_null(), "failed to dlopen libcudart.so.12");
-        let sym = libc::dlsym(handle, b"cudaDeviceSynchronize\0".as_ptr().cast());
+        let sym = libc::dlsym(handle, c"cudaDeviceSynchronize".as_ptr().cast());
         assert!(!sym.is_null(), "failed to dlsym cudaDeviceSynchronize");
         std::mem::transmute(sym)
     }
@@ -121,7 +121,7 @@ pub fn run_benchmarks(
     println!();
 
     println!("=== ONNX (ort + TensorRT/CUDA EP) ===");
-    let model = OnnxBackend::load_session_from_file(nn_path, None)
+    let model = OnnxBackend::load_session_from_file(nn_path, None, true)
         .unwrap_or_else(|e| panic!("failed to load ONNX model: {e}"));
     let backend = OnnxBackend::new(
         vec![VersionedModel { model, version: 0 }], game_size_i64, false, 1, None, true,

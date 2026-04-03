@@ -3,6 +3,10 @@ pub mod db;
 pub mod nn;
 
 #[cfg(feature = "extension-module")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+#[cfg(feature = "extension-module")]
 use pyo3::prelude::*;
 #[cfg(feature = "extension-module")]
 use crate::cc::{Board, BoardInfo, HexCoord, Move};

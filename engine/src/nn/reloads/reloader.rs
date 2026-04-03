@@ -15,9 +15,9 @@ fn mark_healthy(health_file: &Option<String>) {
     }
     if let Some(path) = health_file {
         if let Err(e) = std::fs::write(path, "ok") {
-            eprintln!("[reloader] warning: failed to write health file {path}: {e}");
+            log::error!("[reloader] failed to write health file {path}: {e}");
         } else {
-            eprintln!("[reloader] health file written: {path}");
+            log::info!("[reloader] health file written: {path}");
         }
     }
 }
@@ -49,7 +49,7 @@ fn reload_cycle<B: Backend>(backend: &Arc<B>, source: &impl ModelSource, health_
     let desired = match source.desired_versions() {
         Some(d) => d,
         None => {
-            eprintln!("[reloader] warning: source unavailable, skipping cycle");
+            log::warn!("[reloader] source unavailable, skipping cycle");
             return;
         }
     };
@@ -61,7 +61,7 @@ fn reload_cycle<B: Backend>(backend: &Arc<B>, source: &impl ModelSource, health_
     for &id in current.keys() {
         if !desired.contains_key(&id) {
             backend.model_store().drop_model(id);
-            eprintln!("[reloader] dropped model_id={id}");
+            log::info!("[reloader] dropped model_id={id}");
         }
     }
 
@@ -77,8 +77,8 @@ fn reload_cycle<B: Backend>(backend: &Arc<B>, source: &impl ModelSource, health_
         let bytes = match source.load_bytes(desired_version, batch_size) {
             Ok(b) => b,
             Err(e) => {
-                eprintln!(
-                    "[reloader] error loading bytes for model_id={model_id} version={desired_version}: {e}"
+                log::error!(
+                    "[reloader] error loading bytes for model_id={model_id} version={desired_version} batch_size={batch_size:?}: {e}"
                 );
                 continue;
             }
@@ -94,18 +94,18 @@ fn reload_cycle<B: Backend>(backend: &Arc<B>, source: &impl ModelSource, health_
             let builder = lock_position == 1;
             if builder {
                 if let Some(path) = trt_cache_path {
-                    eprintln!("[reloader] wiping TRT cache at {path} for version={desired_version}");
+                    log::info!("[reloader] wiping TRT cache at {path} for version={desired_version}");
                     let _ = std::fs::remove_dir_all(path);
                     let _ = std::fs::create_dir_all(path);
                 }
             } else {
-                eprintln!(
+                log::info!(
                     "[reloader] waiting for another instance to build version={desired_version}..."
                 );
                 while !source.is_build_complete(desired_version) {
                     thread::sleep(Duration::from_secs(1));
                 }
-                eprintln!("[reloader] build complete for version={desired_version}, loading from cache");
+                log::info!("[reloader] build complete for version={desired_version}, loading from cache");
             }
             builder
         } else {
@@ -115,24 +115,24 @@ fn reload_cycle<B: Backend>(backend: &Arc<B>, source: &impl ModelSource, health_
         let model = match backend.model_from_bytes(&bytes) {
             Ok(m) => m,
             Err(e) => {
-                eprintln!(
-                    "[reloader] model_from_bytes failed for model_id={model_id} version={desired_version}: {e}"
-                );
                 if is_builder {
                     source.release_build_lock(desired_version);
                 }
+                log::error!(
+                    "[reloader] model_from_bytes failed for model_id={model_id} version={desired_version}: {e}"
+                );
                 continue;
             }
         };
         let model = match backend.compile_model(model) {
             Ok(m) => m,
             Err(e) => {
-                eprintln!(
-                    "[reloader] compile_model failed for model_id={model_id} version={desired_version}: {e}"
-                );
                 if is_builder {
                     source.release_build_lock(desired_version);
                 }
+                log::error!(
+                    "[reloader] compile_model failed for model_id={model_id} version={desired_version}: {e}"
+                );
                 continue;
             }
         };
@@ -147,7 +147,7 @@ fn reload_cycle<B: Backend>(backend: &Arc<B>, source: &impl ModelSource, health_
             model_id,
             VersionedModel { model, version: desired_version },
         );
-        eprintln!(
+        log::info!(
             "[reloader] loaded model_id={model_id} version={desired_version} (was {:?})",
             current_version,
         );

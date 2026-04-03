@@ -18,6 +18,7 @@ DEV_REQUIRES = [
     "ruff",
     "standard-imghdr",
     #"standard-imwdb",  # local tensorboard needed this after py313 upgrade
+    "grpcio-tools",
 ]
 
 
@@ -28,9 +29,15 @@ API_REQUIRES = [
 ]
 
 
+ONNX_REQUIRES = [
+    "onnxruntime-gpu",
+    "onnxscript",
+]
+
 ALL_REQUIRES = [
     *DEV_REQUIRES,
     *API_REQUIRES,
+    *ONNX_REQUIRES,
 ]
 
 
@@ -41,10 +48,13 @@ setup(
         "click",
         "dill",
         "einops",
+        "grpcio",
         "maturin[patchelf]",
         "numpy",
+        "protobuf",
         "python-dotenv",
         "redis",
+        "rich",
         "scipy",
         "tensorboard",
         "torch",
@@ -54,6 +64,7 @@ setup(
     extras_require={
         "api": API_REQUIRES,
         "dev": DEV_REQUIRES,
+        "onnx": ONNX_REQUIRES,
         "all": ALL_REQUIRES,
     },
     entry_points = {
@@ -65,6 +76,7 @@ setup(
             "alphacc-eval-weights = alpha_cc.entrypoints.eval_weights:main",
             "alphacc-param-schedule-eval = alpha_cc.entrypoints.param_schedule_eval:main",
             "alphacc-db-game-inspection = alpha_cc.entrypoints.db_game_inspection:main",
+            "alphacc-tournament = alpha_cc.entrypoints.tournament:main",
         ],
     }
 )

@@ -102,8 +102,7 @@ class MCTSNode:
     def pi(self) -> list[float]: ...
     @property
     def v(self) -> float: ...
-    @property
-    def moves(self) -> list[Move]: ...
+    def get_moves(self, board: Board) -> list[Move]: ...
 
 class MCTS:
     def __init__(
@@ -116,8 +115,9 @@ class MCTS:
         dirichlet_alpha: float,
         c_puct_init: float,
         c_puct_base: float,
-        game_size: int,
         n_threads: int = 1,
+        pruning_tree: bool = False,
+        debug_prints: bool = False,
     ) -> None: ...
     def clear_nodes(self) -> None: ...
     def get_node(self, board: Board) -> MCTSNode | None: ...
@@ -134,11 +134,6 @@ class MCTS:
 
         pi is the temperature-weighted visit count distribution.
         """
-        ...
-
-    def advance_root(self, action: int) -> None:
-        """Advance the tree root to the child reached by `action`.
-        Prunes sibling subtrees."""
         ...
 
     def get_fetch_stats(self) -> FetchStats:

@@ -35,7 +35,7 @@ impl ModelSource for TrainingDBRs {
         let raw: HashMap<String, String> = match conn.hgetall("update-models") {
             Ok(r) => r,
             Err(e) => {
-                eprintln!("[TrainingDBRs] hgetall failed: {e}");
+                log::warn!("[TrainingDBRs] hgetall failed: {e}");
                 return None;
             }
         };

@@ -2,8 +2,6 @@ import logging
 
 import numpy as np
 import torch
-
-logger = logging.getLogger(__name__)
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm_loggable.auto import tqdm
@@ -13,6 +11,8 @@ from alpha_cc.agents.mcts.worker_stats import WorkerStats
 from alpha_cc.nn.blocks import PolicyLogSoftmax, PolicySoftmax
 from alpha_cc.nn.nets import DefaultNet
 from alpha_cc.training.training_dataset import TrainingDataset
+
+logger = logging.getLogger(__name__)
 
 
 class Trainer:
@@ -60,9 +60,9 @@ class Trainer:
         is preserved at `self.nn` for ONNX export and state_dict access."""
         logger.info(f"Compiling model with torch.compile(mode={mode!r})...")
         torch.set_float32_matmul_precision("high")
-        self._compiled_nn = torch.compile(self._nn, mode=mode)
+        self._compiled_nn = torch.compile(self._nn, mode=mode)  # type: ignore
         # Warmup: run a dummy forward+backward to trigger compilation
-        dummy = torch.zeros(1, 2, board_size, board_size, device=self._device)
+        dummy = torch.zeros(self._batch_size, 2, board_size, board_size, device=self._device)
         out_pi, out_v = self._compiled_nn(dummy)
         (out_pi.sum() + out_v.sum()).backward()
         self._optimizer.zero_grad()
@@ -189,6 +189,10 @@ class Trainer:
             game_ended_early.mean(),
             global_step=self._global_step,
         )
+        winners = np.array([data.winner for data in training_datas])
+        self._summary_writer.add_histogram(
+            "train-rollouts/winners", winners, global_step=self._global_step
+        )
 
         #######
         ### internal nodes
@@ -271,6 +275,8 @@ class Trainer:
             )
 
     def _update_nn(self, dataset: TrainingDataset) -> tuple[np.ndarray, np.ndarray]:
+        self._reset_gradient_stats()
+
         def train_epoch(dataloader: DataLoader) -> tuple[float, float, float]:
             self._nn.train()
             # accumulator of: value_loss, policy_loss, entropy_loss
@@ -291,6 +297,7 @@ class Trainer:
                     + self._entropy_weight * entropy_loss
                 )
                 loss.backward()
+                self._accumulate_gradient_stats()
                 self._optimizer.step()
                 batch_size = x.shape[0]
                 samples_seen += batch_size
@@ -406,6 +413,57 @@ class Trainer:
             self._summary_writer.add_scalar("trainer/value-loss", total_value_loss, global_step=self._global_step)
             self._summary_writer.add_scalar("trainer/entropy-loss", total_entropy_loss, global_step=self._global_step)
 
+        self._flush_gradient_stats()
+
         # Final batched eval pass over full dataset for PER priority updates
         kl_divs, td_errors = self._compute_sample_errors_batched(dataset)
         return kl_divs, td_errors
+
+    _PARAM_GROUPS = ("encoder", "global-encoder", "local-encoder", "policy-head", "value-head")
+
+    def _get_param_group_modules(self) -> dict[str, torch.nn.Module]:
+        return {
+            "encoder": self._nn._encoder,
+            "global-encoder": self._nn._global_encoder,
+            "local-encoder": self._nn._local_encoder,
+            "policy-head": self._nn._policy_head,
+            "value-head": self._nn._value_combined,
+        }
+
+    def _reset_gradient_stats(self) -> None:
+        self._grad_stats: dict[str, dict[str, float]] = {
+            name: {"grad-norm-sq": 0.0, "grad-max": 0.0, "grad-min": float("inf"), "weight-norm-sq": 0.0, "weight-max": 0.0}
+            for name in self._PARAM_GROUPS
+        }
+
+    @torch.no_grad()
+    def _accumulate_gradient_stats(self) -> None:
+        if not hasattr(self, "_grad_stats"):
+            self._reset_gradient_stats()
+        for name, module in self._get_param_group_modules().items():
+            stats = self._grad_stats[name]
+            w_norm_sq = 0.0
+            g_norm_sq = 0.0
+            for p in module.parameters():
+                w_norm_sq += p.data.norm().item() ** 2
+                stats["weight-max"] = max(stats["weight-max"], p.data.abs().max().item())
+                if p.grad is not None:
+                    g_norm_sq += p.grad.norm().item() ** 2
+                    stats["grad-max"] = max(stats["grad-max"], p.grad.abs().max().item())
+                    stats["grad-min"] = min(stats["grad-min"], p.grad.abs().min().item())
+            stats["grad-norm-sq"] = max(stats["grad-norm-sq"], g_norm_sq)
+            stats["weight-norm-sq"] = max(stats["weight-norm-sq"], w_norm_sq)
+
+    def _flush_gradient_stats(self) -> None:
+        if self._summary_writer is None or not hasattr(self, "_grad_stats"):
+            return
+        step = self._global_step
+        for name, stats in self._grad_stats.items():
+            for key, val in stats.items():
+                if key == "grad-min" and val == float("inf"):
+                    continue
+                if key.endswith("-norm-sq"):
+                    val = val ** 0.5
+                    key = key.removesuffix("-sq")
+                self._summary_writer.add_scalar(f"gradients/{name}/{key}", val, global_step=step)
+        self._reset_gradient_stats()

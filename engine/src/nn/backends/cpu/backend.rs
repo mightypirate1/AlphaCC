@@ -32,7 +32,7 @@ impl CpuBackend {
     }
 
     fn build_session(bytes: &[u8]) -> anyhow::Result<CpuSession> {
-        eprintln!("[cpu] building session from {} bytes", bytes.len());
+        log::info!("[cpu] building session from {} bytes", bytes.len());
         let session = Session::builder()
             .map_err(|e| anyhow::anyhow!("session builder: {e}"))?
             .commit_from_memory(bytes)
@@ -82,7 +82,7 @@ impl Backend for CpuBackend {
         let s = input.game_size;
         let n = input.batch_size;
         if self.verbose {
-            eprintln!("Inference model_id={model_id} batch_size={n}");
+            log::debug!("Inference model_id={model_id} batch_size={n}");
         }
 
         loop {
@@ -111,7 +111,7 @@ impl Backend for CpuBackend {
                 };
             }
             drop(guard);
-            eprintln!("model_id={model_id} not loaded yet, waiting...");
+            log::warn!("model_id={model_id} not loaded yet, waiting...");
             std::thread::sleep(std::time::Duration::from_secs(1));
         }
     }

@@ -1,4 +1,3 @@
-use ort::AsPointer;
 use ort::value::DynTensor;
 
 use super::backend::cuda_memcpy_d2h;

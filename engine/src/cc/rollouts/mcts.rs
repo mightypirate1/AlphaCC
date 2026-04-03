@@ -10,12 +10,12 @@ use pyo3::prelude::*;
 
 use crate::cc::dtypes::NNQuantizedPi;
 use crate::cc::game::board::Board;
+use crate::cc::game::moves::find_all_moves;
 #[cfg(feature = "extension-module")]
 use crate::cc::predictions::FetchStats;
-#[cfg(feature = "extension-module")]
 use crate::cc::rollouts::mcts_node::MCTSNode;
 use crate::cc::rollouts::noise;
-use crate::cc::rollouts::tree::{NodeData, Tree};
+use crate::cc::rollouts::tree::Tree;
 use crate::cc::predictions::nn_remote::NNRemote;
 
 #[cfg_attr(feature = "extension-module", pyo3::prelude::pyclass(module="alpha_cc_engine"))]
@@ -43,12 +43,15 @@ impl MCTS {
         model_id: u32,
         mcts_params: MCTSParams,
         n_threads: usize,
+        pruning_tree: bool,
+        debug_prints: bool,
     ) -> Self {
-        let services = (0..n_threads.max(1))
+        let n = n_threads.max(1);
+        let services = (0..n)
             .map(|_| NNRemote::connect(nn_service_addr))
             .collect();
         MCTS {
-            tree: Arc::new(Tree::new()),
+            tree: Arc::new(Tree::new(n, pruning_tree, debug_prints)),
             services,
             model_id,
             mcts_params,
@@ -64,25 +67,27 @@ impl MCTS {
         remaining_depth: usize,
         params: &MCTSParams,
         root_noise: &Option<Vec<f32>>,
+        thread_id: usize,
     ) -> f32 {
         let info = board.get_info();
         if info.game_over {
             return -info.reward;
         }
 
-        // Check if we have data for this board
-        if let Some(data) = tree.get_data(board) {
+        if let Some(data) = tree.visit(board, thread_id) {
             if remaining_depth == 0 {
                 return -data.get_v();
             }
 
             let a = find_best_action(&data, params.c_puct_init, params.c_puct_base, root_noise, params);
-            let s_prime = board.apply(&data.moves[a]);
+            let moves = find_all_moves(board);
+            let s_prime = board.apply(&moves[a]);
+            tree.record_action(thread_id, &s_prime, a);
 
             data.apply_virtual_loss(a);
             drop(data);
 
-            let v = MCTS::rollout(tree, service, model_id, &s_prime, remaining_depth - 1, params, &None);
+            let v = MCTS::rollout(tree, service, model_id, &s_prime, remaining_depth - 1, params, &None, thread_id);
 
             let data = tree.get_data(board)
                 .expect("node data disappeared mid-rollout");
@@ -93,20 +98,30 @@ impl MCTS {
 
         let node = MCTS::new_leaf_for(board, service, model_id, params);
         let v = node.v.dequantize();
-        tree.insert_data(board, node);
+        tree.insert(board, node);
         -v
     }
 
-    fn new_leaf_for(board: &Board, service: &NNRemote, model_id: u32, params: &MCTSParams) -> NodeData {
+    fn new_leaf_for(board: &Board, service: &NNRemote, model_id: u32, params: &MCTSParams) -> MCTSNode {
         let nn_pred = service.predict(board, model_id);
         let v = nn_pred.value();
         let mut pi = nn_pred.pi();
+        let num_actions = pi.len();
 
         if params.dirichlet_leaf_weight > 0.0 {
             noise::apply_dirichlet_noise(&mut pi, params);
         }
 
-        NodeData::new(pi, v, board)
+        MCTSNode::new(pi, v, num_actions)
+    }
+
+    pub fn notify_move_applied(&self, board: &Board) {
+        if let Some(action) = self.tree.maybe_prune(board) {
+            if self.tree.debug_prints() {
+                let report = self.tree.memory_report();
+                log::debug!("[mcts] pruned action={action}: {report}");
+            }
+        }
     }
 
     pub fn run_rollouts_inner(
@@ -130,7 +145,7 @@ impl MCTS {
         } else {
             let node = MCTS::new_leaf_for(board, &self.services[0], model_id, params);
             let pi = NNQuantizedPi::dequantize_vec(&node.pi);
-            tree.insert_data(board, node);
+            tree.insert(board, node);
             noise::generate_dirichlet_noise(&pi, params).ok()
         };
 
@@ -143,7 +158,8 @@ impl MCTS {
                 s.spawn(move || {
                     let mut local_sum = 0.0f64;
                     for _ in 0..count {
-                        let v = MCTS::rollout(tree, svc, model_id, &board, rollout_depth, params, &noise);
+                        tree.begin_rollout(i);
+                        let v = MCTS::rollout(tree, svc, model_id, &board, rollout_depth, params, &noise, i);
                         local_sum += (-v) as f64;
                     }
                     local_sum
@@ -154,6 +170,9 @@ impl MCTS {
                 .map(|h| h.join().unwrap())
                 .sum()
         });
+
+        // Merge thread paths into the tracking tree.
+        tree.finalize_rollouts(board);
 
         let mean_value = (value_sum / n_rollouts as f64) as f32;
 
@@ -176,7 +195,7 @@ impl MCTS {
                 vec![1.0 / n as f32; n]
             }
         } else {
-            let moves = crate::cc::game::moves::find_all_moves(board);
+            let moves = find_all_moves(board);
             let n = moves.len();
             vec![1.0 / n as f32; n]
         };
@@ -186,7 +205,7 @@ impl MCTS {
 }
 
 
-fn find_best_action(data: &NodeData, c_puct_init: f32, c_puct_base: f32, root_noise: &Option<Vec<f32>>, params: &MCTSParams) -> usize {
+fn find_best_action(data: &MCTSNode, c_puct_init: f32, c_puct_base: f32, root_noise: &Option<Vec<f32>>, params: &MCTSParams) -> usize {
     let sum_n_f = data.total_visits() as f32;
     let c_puct = c_puct_init + ((sum_n_f + c_puct_base + 1.0) / c_puct_base).ln();
 
@@ -218,7 +237,7 @@ fn find_best_action(data: &NodeData, c_puct_init: f32, c_puct_base: f32, root_no
 impl MCTS {
     #[allow(clippy::too_many_arguments)]
     #[new]
-    #[pyo3(signature = (nn_service_addr, channel, gamma, dirichlet_weight, dirichlet_leaf_weight, dirichlet_alpha, c_puct_init, c_puct_base, n_threads=1))]
+    #[pyo3(signature = (nn_service_addr, channel, gamma, dirichlet_weight, dirichlet_leaf_weight, dirichlet_alpha, c_puct_init, c_puct_base, n_threads=1, pruning_tree=false, debug_prints=false))]
     fn create(
         nn_service_addr: String,
         channel: u32,
@@ -229,6 +248,8 @@ impl MCTS {
         c_puct_init: f32,
         c_puct_base: f32,
         n_threads: usize,
+        pruning_tree: bool,
+        debug_prints: bool,
     ) -> MCTS {
         MCTS::new(
             &nn_service_addr,
@@ -242,6 +263,8 @@ impl MCTS {
                 c_puct_base,
             },
             n_threads,
+            pruning_tree,
+            debug_prints,
         )
     }
 
@@ -267,13 +290,17 @@ impl MCTS {
     }
 
     pub fn get_node(&self, board: &Board) -> Option<MCTSNode> {
-        self.tree.get_data(board).map(|data| MCTSNode::from_node_data(&data))
+        self.tree.get_data(board).map(|data| data.snapshot())
     }
 
     pub fn get_nodes(&self) -> HashMap<Board, MCTSNode> {
         self.tree.iter_data()
-            .map(|entry| (entry.key().clone(), MCTSNode::from_node_data(entry.value())))
+            .map(|entry| (entry.key().clone(), entry.value().snapshot()))
             .collect()
+    }
+
+    pub fn on_move_applied(&self, board: &Board) {
+        self.notify_move_applied(board);
     }
 
     pub fn clear_nodes(&self) {

@@ -33,8 +33,8 @@ pub fn nn_inference(
         let policy_name = CString::new("policy").unwrap();
         let value_name = CString::new("value").unwrap();
         let bind_output = ort::api().BindOutput;
-        bind_output(binding.ptr_mut(), policy_name.as_ptr(), policy_out.ptr());
-        bind_output(binding.ptr_mut(), value_name.as_ptr(), value_out.ptr());
+        let _ = bind_output(binding.ptr_mut(), policy_name.as_ptr(), policy_out.ptr());
+        let _ = bind_output(binding.ptr_mut(), value_name.as_ptr(), value_out.ptr());
     }
 
     session.run_binding(&binding).expect("onnx run_binding failed");

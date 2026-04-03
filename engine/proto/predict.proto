@@ -20,3 +20,36 @@ message PredictResponse {
   bytes pi_logits = 2;
   float value = 3;
 }
+
+// --- Management service (info + model hot-loading) ---
+
+service ManagementService {
+  rpc GetServerInfo(ServerInfoRequest) returns (ServerInfoResponse);
+  rpc LoadModel(LoadModelRequest) returns (LoadModelResponse);
+}
+
+message ServerInfoRequest {}
+
+message ChannelInfo {
+  uint32 channel_id = 1;
+  bool model_loaded = 2;
+  uint32 model_version = 3;
+}
+
+message ServerInfoResponse {
+  uint32 game_size = 1;
+  repeated ChannelInfo channels = 2;
+  repeated uint32 batch_sizes = 3;
+  bool static_mode = 4;
+}
+
+message LoadModelRequest {
+  uint32 channel_id = 1;
+  bytes onnx_bytes = 2;
+  uint32 version = 3;
+}
+
+message LoadModelResponse {
+  bool success = 1;
+  string error = 2;
+}

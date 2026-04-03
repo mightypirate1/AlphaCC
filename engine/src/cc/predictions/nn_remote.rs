@@ -54,10 +54,10 @@ impl NNRemote {
                 Ok(resp) => {
                     let elapsed = start.elapsed();
                     if elapsed.as_millis() > 500 {
-                        eprintln!("[NNRemote] slow predict: {}ms", elapsed.as_millis());
+                        log::warn!("[NNRemote] slow predict: {}ms", elapsed.as_millis());
                     }
                     if attempt >= WARN_THRESHOLD {
-                        eprintln!("[NNRemote] recovered after {attempt} retries (model_id={model_id})");
+                        log::info!("[NNRemote] recovered after {attempt} retries (model_id={model_id})");
                     }
                     let (logits, value) = io::decode_response(&resp);
                     let pi = softmax(&logits);
@@ -66,8 +66,8 @@ impl NNRemote {
                 Err(e) => {
                     attempt += 1;
                     if attempt == WARN_THRESHOLD {
-                        eprintln!(
-                            "[NNRemote] warning: {attempt} consecutive failures (model_id={model_id}): {e}, still retrying {}...",
+                        log::warn!(
+                            "[NNRemote] {attempt} consecutive failures (model_id={model_id}): {e}, still retrying {}...",
                             self.addr,
                         );
                     }
