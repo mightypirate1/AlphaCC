@@ -62,14 +62,9 @@ FROM python-deps AS builder-main
 RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
 ENV PATH="/root/.cargo/bin:$PATH"
 ENV LIBTORCH_USE_PYTORCH=1
-RUN mkdir -p ${WORKDIR}/engine
-COPY engine/pyproject.toml engine/Cargo.toml engine/Cargo.lock ${WORKDIR}/engine/
-COPY engine/core ${WORKDIR}/engine/core
-COPY engine/nn ${WORKDIR}/engine/nn
-COPY engine/mcts ${WORKDIR}/engine/mcts
-COPY engine/python ${WORKDIR}/engine/python
+COPY engine ${WORKDIR}/engine
 RUN bash -c 'cd $WORKDIR/engine && cargo fetch || true'
-RUN bash -c 'cd $WORKDIR/engine && maturin develop --release -m python/Cargo.toml'
+RUN bash -c 'cd $WORKDIR/engine/python && maturin develop --release'
 COPY alpha_cc ${WORKDIR}/alpha_cc
 RUN pip install --no-deps .
 
@@ -97,10 +92,7 @@ FROM base-nnservice AS builder-nnservice
 RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
 ENV PATH="/root/.cargo/bin:$PATH"
 WORKDIR /code/engine
-COPY engine/Cargo.toml engine/Cargo.lock ./
-COPY engine/core ./core
-COPY engine/nn ./nn
-COPY engine/nn-service ./nn-service
+COPY engine/ ./
 RUN cargo fetch || true
 RUN cargo build --release -p alpha-cc-nn-service --bin nn-service --features alpha-cc-nn-service/jemalloc
 

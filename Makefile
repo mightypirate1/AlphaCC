@@ -49,8 +49,16 @@ install: develop build-engine install-webapp
 build-engine:
 	@bash -c " \
 		source .venv/bin/activate && \
+		cd engine/python && \
+		maturin develop --release \
+	"
+
+generate-stubs:
+	@bash -c " \
+		source .venv/bin/activate && \
 		cd engine && \
-		maturin develop --release -m python/Cargo.toml \
+		LD_LIBRARY_PATH=\$$(python3 -c \"import sysconfig; print(sysconfig.get_config_var('LIBDIR'))\"):\$$LD_LIBRARY_PATH \
+		cargo run -p alpha-cc-python --bin stub_gen \
 	"
 
 install-webapp:
