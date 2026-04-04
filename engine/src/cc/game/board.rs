@@ -24,7 +24,7 @@ use crate::cc::dtypes;
 
 pub const MAX_SIZE: usize = 9;
 
-type BoardMatrix = [[dtypes::BoardContent; MAX_SIZE]; MAX_SIZE];
+pub type BoardMatrix = [[dtypes::BoardContent; MAX_SIZE]; MAX_SIZE];
 
 
 #[cfg_attr(feature = "extension-module", pyo3::prelude::pyclass(module="alpha_cc_engine", from_py_object))]
@@ -330,9 +330,9 @@ impl Board {
             }
             for val in row[0..self.size as usize].iter() {
                 let (r, g, b, ch) = match val {
-                    1 => (Self::COLOR_P1.0, Self::COLOR_P1.1, Self::COLOR_P1.2, "⬣"),
-                    2 => (Self::COLOR_P2.0, Self::COLOR_P2.1, Self::COLOR_P2.2, "⬣"),
-                    _ => (Self::COLOR_EMPTY.0, Self::COLOR_EMPTY.1, Self::COLOR_EMPTY.2, "⎔"),
+                    1 => (Self::COLOR_P1.0, Self::COLOR_P1.1, Self::COLOR_P1.2, "⬢"),
+                    2 => (Self::COLOR_P2.0, Self::COLOR_P2.1, Self::COLOR_P2.2, "⬢"),
+                    _ => (Self::COLOR_EMPTY.0, Self::COLOR_EMPTY.1, Self::COLOR_EMPTY.2, "⬡"),
                 };
                 print!("\x1b[38;2;{r};{g};{b}m{ch}\x1b[0m ");
             }
@@ -343,7 +343,7 @@ impl Board {
             1 => Self::COLOR_P1,
             _ => Self::COLOR_P2,
         };
-        println!("current player: \x1b[38;2;{cr};{cg};{cb}m⬣\x1b[0m ({})", self.current_player);
+        println!("current player: \x1b[38;2;{cr};{cg};{cb}m⬢\x1b[0m ({})", self.current_player);
     }
 
 }

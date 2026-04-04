@@ -124,6 +124,11 @@ impl MCTS {
         }
     }
 
+    /// Get a snapshot of the MCTS node for a board position (if it exists in the tree).
+    pub fn get_node_snapshot(&self, board: &Board) -> Option<MCTSNode> {
+        self.tree.get_data(board).map(|data| data.snapshot())
+    }
+
     pub fn run_rollouts_inner(
         &self,
         board: &Board,
@@ -183,8 +188,12 @@ impl MCTS {
                 .collect();
             if temperature != 1.0 {
                 let inv_temp = 1.0 / temperature;
-                for w in weights.iter_mut() {
-                    *w = w.powf(inv_temp);
+                let max_w = weights.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                if max_w > 0.0 {
+                    for w in weights.iter_mut() {
+                        // Divide by max before exponentiating to prevent overflow
+                        *w = (*w / max_w).powf(inv_temp);
+                    }
                 }
             }
             let sum: f32 = weights.iter().sum();
