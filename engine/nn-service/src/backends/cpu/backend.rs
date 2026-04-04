@@ -4,7 +4,7 @@ use ort::session::Session;
 use ort::value::Tensor;
 
 use crate::backends::{Backend, ModelStore, VersionedModel};
-use alpha_cc_nn::io;
+use crate::io;
 use crate::server::types::StateBytes;
 
 /// Thread-safe wrapper around `ort::Session` (same as OnnxSession but without CUDA).

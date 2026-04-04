@@ -1,7 +1,7 @@
 use ort::memory::Allocator;
 use ort::value::{DynTensor, DynValue, TensorElementType};
 
-use alpha_cc_nn::io;
+use crate::io;
 use super::backend::copy_to_gpu_tensor;
 
 /// Encode a batch of state bytes into a GPU tensor.

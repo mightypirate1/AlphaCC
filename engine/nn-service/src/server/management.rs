@@ -3,8 +3,8 @@ use std::sync::Arc;
 use tonic::{Request, Response, Status};
 
 use crate::backends::{Backend, VersionedModel};
-use alpha_cc_nn::proto::management_service_server::ManagementService;
-use alpha_cc_nn::proto::{
+use crate::proto::management_service_server::ManagementService;
+use crate::proto::{
     ChannelInfo, LoadModelRequest, LoadModelResponse, ServerInfoRequest, ServerInfoResponse,
 };
 use crate::server::config::ServerConfig;

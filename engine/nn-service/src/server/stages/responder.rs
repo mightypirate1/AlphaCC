@@ -5,7 +5,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 use crate::backends::Backend;
-use alpha_cc_nn::proto::PredictResponse;
+use crate::proto::PredictResponse;
 use crate::server::types::PipelineItem;
 
 

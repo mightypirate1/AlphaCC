@@ -3,7 +3,7 @@
 //! # Usage
 //!
 //! ```rust,no_run
-//! use alpha_cc_nn::client::PredictClient;
+//! use alpha_cc_nn_service::client::PredictClient;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let client = PredictClient::connect("http://[::1]:50051").await?;

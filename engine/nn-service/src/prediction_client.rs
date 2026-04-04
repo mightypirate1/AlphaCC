@@ -2,11 +2,11 @@ use std::io::Error;
 use std::time::Instant;
 
 use alpha_cc_core::Board;
-use crate::nn_pred::NNPred;
+use alpha_cc_nn::NNPred;
 use crate::client::PredictClient;
 use crate::io;
 
-use crate::inference_utils::softmax;
+use alpha_cc_nn::inference_utils::softmax;
 
 #[derive(Default)]
 pub struct FetchStatsAccumulator {
@@ -30,11 +30,7 @@ impl FetchStatsAccumulator {
     }
 }
 
-#[cfg_attr(feature = "extension-module", pyo3::prelude::pyclass(module="alpha_cc_engine", get_all))]
-pub struct FetchStats {
-    pub total_fetch_time_us: u64,
-    pub total_fetches: u32,
-}
+pub use alpha_cc_nn::FetchStats;
 
 pub struct PredictionClient {
     rt: tokio::runtime::Runtime,

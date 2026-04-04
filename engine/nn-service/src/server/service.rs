@@ -6,8 +6,8 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status, Streaming};
 
-use alpha_cc_nn::proto::prediction_service_server::PredictionService;
-use alpha_cc_nn::proto::{PredictRequest, PredictResponse};
+use crate::proto::prediction_service_server::PredictionService;
+use crate::proto::{PredictRequest, PredictResponse};
 use crate::server::types::PendingPrediction;
 
 

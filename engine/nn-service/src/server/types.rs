@@ -1,5 +1,5 @@
 use tokio::sync::oneshot;
-use alpha_cc_nn::proto::{PredictRequest, PredictResponse};
+use crate::proto::{PredictRequest, PredictResponse};
 
 
 pub struct PendingPrediction {

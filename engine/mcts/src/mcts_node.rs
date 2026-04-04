@@ -1,13 +1,6 @@
-#[cfg(feature = "extension-module")]
-extern crate pyo3;
-
 use std::sync::atomic::{AtomicI32, AtomicU32, Ordering::Relaxed};
 
 use alpha_cc_nn::{NNQuantizedPi, NNQuantizedValue};
-#[cfg(feature = "extension-module")]
-use alpha_cc_core::Board;
-#[cfg(feature = "extension-module")]
-use alpha_cc_core::moves::find_all_moves;
 
 /// Fixed-point scale for cumulative value sums (Q16.16).
 const W_SCALE: f32 = 65536.0;
@@ -15,7 +8,6 @@ const W_SCALE: f32 = 65536.0;
 /// Statistics for a board position, shared across transpositions.
 /// Used directly in the DashMap tree and exposed to Python via PyO3 getters.
 /// Moves are not stored — regenerate via `find_all_moves(board)` when needed.
-#[cfg_attr(feature = "extension-module", pyo3::prelude::pyclass(module="alpha_cc_engine", from_py_object))]
 pub struct MCTSNode {
 
     pub pi: Vec<NNQuantizedPi>,
@@ -107,33 +99,3 @@ impl MCTSNode {
     }
 }
 
-// ── Python interface ──
-
-#[cfg(feature = "extension-module")]
-#[pyo3::prelude::pymethods]
-impl MCTSNode {
-    #[getter(n)]
-    fn get_n_py(&self) -> Vec<u32> {
-        self.n.iter().map(|n| n.load(Relaxed)).collect()
-    }
-
-    #[getter(q)]
-    fn get_q_py(&self) -> Vec<f32> {
-        (0..self.num_actions()).map(|a| self.get_q(a)).collect()
-    }
-
-    #[getter(pi)]
-    fn get_pi_py(&self) -> Vec<f32> {
-        NNQuantizedPi::dequantize_vec(&self.pi)
-    }
-
-    #[getter(v)]
-    fn get_v_py(&self) -> f32 {
-        self.v.dequantize()
-    }
-
-    /// Get moves for a board position. Not a getter — requires the board as argument.
-    fn get_moves(&self, board: &Board) -> Vec<alpha_cc_core::Move> {
-        find_all_moves(board)
-    }
-}

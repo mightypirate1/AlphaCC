@@ -10,6 +10,4 @@ pub use board::{Board, BoardMatrix, MAX_SIZE};
 pub use board_info::BoardInfo;
 pub use hexcoord::HexCoord;
 pub use game_move::Move;
-
-#[cfg(feature = "extension-module")]
 pub use moves::{create_move_mask, create_move_index_map};

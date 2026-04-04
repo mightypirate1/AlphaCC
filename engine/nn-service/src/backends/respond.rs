@@ -1,4 +1,4 @@
-use alpha_cc_nn::io;
+use crate::io;
 
 pub fn respond(pi_bytes: &[u8], value: f32, move_bytes: &[u8], game_size: usize) -> (Vec<u8>, f32) {
     let s = game_size;

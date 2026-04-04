@@ -11,13 +11,6 @@ and less bug prone
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-#[cfg(feature = "extension-module")]
-extern crate pyo3;
-#[cfg(feature = "extension-module")]
-use pyo3::prelude::*;
-#[cfg(feature = "extension-module")]
-use pyo3::types::{PyTuple, PyBytes};
-
 use crate::{BoardInfo, HexCoord, Move};
 use crate::moves::find_all_moves;
 use crate::dtypes;
@@ -27,7 +20,6 @@ pub const MAX_SIZE: usize = 9;
 pub type BoardMatrix = [[dtypes::BoardContent; MAX_SIZE]; MAX_SIZE];
 
 
-#[cfg_attr(feature = "extension-module", pyo3::prelude::pyclass(module="alpha_cc_engine", from_py_object))]
 #[derive(Clone, bitcode::Encode, bitcode::Decode)]
 pub struct Board {
     size: dtypes::BoardSize,
@@ -278,9 +270,6 @@ impl Board {
 }
 
 
-/// Methods used from both Rust and Python.
-/// When the `extension-module` feature is active, pyo3 exposes them to Python.
-#[cfg_attr(feature = "extension-module", pyo3::prelude::pymethods)]
 impl Board {
     pub fn reset(&self) -> Board {
         Board::create(self.size as usize)
@@ -363,55 +352,3 @@ impl Board {
 }
 
 
-#[cfg(feature = "extension-module")]
-#[pymethods]
-impl Board {
-    #[getter]
-    pub fn info(&self) -> BoardInfo {
-        self.get_info()
-    }
-
-    #[new]
-    #[pyo3(signature = (*py_args))]
-    fn new(py_args: &Bound<'_, PyTuple>) -> Self {
-        // complicated constructor to allow pickling (allows call to __new__ with empty args)
-        match py_args.len() {
-            1 => {
-                if let Ok(size) = py_args.get_item(0).unwrap().extract::<usize>() {
-                    return Board::create(size)
-                }
-                panic!("expected a single int as input");
-            },
-            0 => {
-                Board::create(9)
-            },
-            _ => {unreachable!()}
-        }
-
-    }
-
-    pub fn __setstate__(&mut self, py: Python, state: Py<PyAny>) -> PyResult<()> {
-        let py_bytes = state.extract::<Bound<'_, PyBytes>>(py)?;
-        let bytes = py_bytes.as_bytes();
-        let board = Board::deserialize_rs(bytes);
-        self.size = board.size;
-        self.duration = board.duration;
-        self.home_size = board.home_size;
-        self.home_capacity = board.home_capacity;
-        self.matrix = board.matrix;
-        self.current_player = board.current_player;
-        Ok(())
-    }
-
-    pub fn __getstate__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
-        Ok(PyBytes::new(py, &self.serialize_rs()))
-    }
-
-    pub fn __hash__(&self) -> u64 {
-        self.compute_hash()
-    }
-
-    pub fn __eq__(&self, other: &Board) -> bool {
-        self == other
-    }
-}

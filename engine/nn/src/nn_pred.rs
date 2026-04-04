@@ -1,9 +1,5 @@
-#[cfg(feature = "extension-module")]
-extern crate pyo3;
-
 use crate::nn_dtypes::{NNQuantizedPi, NNQuantizedValue};
 
-#[cfg_attr(feature = "extension-module", pyo3::prelude::pyclass(module="alpha_cc_engine", from_py_object))]
 #[derive(Clone, bitcode::Encode, bitcode::Decode)]
 pub struct NNPred {
     quant_pi: Vec<NNQuantizedPi>,
@@ -38,25 +34,3 @@ impl NNPred {
     }
 }
 
-#[cfg(feature = "extension-module")]
-#[pyo3::prelude::pymethods]
-impl NNPred {
-    #[new]
-    fn py_new(pi: Vec<f32>, value: f32) -> Self {
-        NNPred::new(pi, value)
-    }
-
-    #[getter]
-    fn get_pi(&self) -> Vec<f32> {
-        self.quant_pi.iter().map(|qp|qp.dequantize()).collect()
-    }
-
-    #[getter]
-    fn get_value(&self) -> f32 {
-        self.quant_value.dequantize()
-    }
-
-    fn __repr__(&self) -> String {
-        format!("NNPred[val={}, pi={:?}]", self.get_value(), self.get_pi())
-    }
-}

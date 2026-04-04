@@ -125,7 +125,11 @@ fn ai_thread(
     shared: Arc<SharedState>,
     update_tx: std::sync::mpsc::Sender<AiUpdate>,
 ) {
-    let mcts = MCTS::new(nn_addr, model_id, params, n_threads, pruning_tree, false);
+    let n = n_threads.max(1);
+    let services: Vec<_> = (0..n)
+        .map(|_| alpha_cc_nn_service::NNRemote::connect(nn_addr))
+        .collect();
+    let mcts = MCTS::new(services, model_id, params, pruning_tree, false);
     let rollouts_per_batch = n_threads.max(1);
     let mut last_board_hash: u64 = 0;
     let mut total_rollouts: usize = 0;

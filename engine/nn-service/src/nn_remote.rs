@@ -3,8 +3,8 @@ use std::sync::Mutex;
 use rand::RngExt;
 
 use alpha_cc_core::Board;
-use crate::inference_utils::softmax;
-use crate::nn_pred::NNPred;
+use alpha_cc_nn::inference_utils::softmax;
+use alpha_cc_nn::NNPred;
 use crate::client::PredictClient;
 use crate::io;
 
@@ -20,6 +20,12 @@ pub struct NNRemote {
     addr: String,
     rt: tokio::runtime::Runtime,
     client: Mutex<PredictClient>,
+}
+
+impl alpha_cc_nn::PredictionSource for NNRemote {
+    fn predict(&self, board: &Board, model_id: u32) -> NNPred {
+        self.predict(board, model_id)
+    }
 }
 
 impl NNRemote {

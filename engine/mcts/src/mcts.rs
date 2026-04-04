@@ -1,27 +1,16 @@
-#[cfg(feature = "extension-module")]
-extern crate pyo3;
-
 use std::sync::Arc;
-#[cfg(feature = "extension-module")]
-use std::collections::HashMap;
-
-#[cfg(feature = "extension-module")]
-use pyo3::prelude::*;
 
 use alpha_cc_nn::NNQuantizedPi;
+use alpha_cc_nn::PredictionSource;
 use alpha_cc_core::Board;
 use alpha_cc_core::moves::find_all_moves;
-#[cfg(feature = "extension-module")]
-use alpha_cc_nn::FetchStats;
 use crate::mcts_node::MCTSNode;
 use crate::noise;
 use crate::tree::Tree;
-use alpha_cc_nn::nn_remote::NNRemote;
 
-#[cfg_attr(feature = "extension-module", pyo3::prelude::pyclass(module="alpha_cc_engine"))]
-pub struct MCTS {
+pub struct MCTS<T: PredictionSource> {
     tree: Arc<Tree>,
-    services: Vec<NNRemote>,
+    services: Vec<T>,
     model_id: u32,
     mcts_params: MCTSParams,
 }
@@ -37,19 +26,15 @@ pub struct MCTSParams {
 }
 
 
-impl MCTS {
+impl<T: PredictionSource> MCTS<T> {
     pub fn new(
-        nn_service_addr: &str,
+        services: Vec<T>,
         model_id: u32,
         mcts_params: MCTSParams,
-        n_threads: usize,
         pruning_tree: bool,
         debug_prints: bool,
     ) -> Self {
-        let n = n_threads.max(1);
-        let services = (0..n)
-            .map(|_| NNRemote::connect(nn_service_addr))
-            .collect();
+        let n = services.len().max(1);
         MCTS {
             tree: Arc::new(Tree::new(n, pruning_tree, debug_prints)),
             services,
@@ -61,7 +46,7 @@ impl MCTS {
     /// Perform a single rollout from `board` down the tree.
     fn rollout(
         tree: &Tree,
-        service: &NNRemote,
+        service: &T,
         model_id: u32,
         board: &Board,
         remaining_depth: usize,
@@ -87,7 +72,7 @@ impl MCTS {
             data.apply_virtual_loss(a);
             drop(data);
 
-            let v = MCTS::rollout(tree, service, model_id, &s_prime, remaining_depth - 1, params, &None, thread_id);
+            let v = MCTS::<T>::rollout(tree, service, model_id, &s_prime, remaining_depth - 1, params, &None, thread_id);
 
             let data = tree.get_data(board)
                 .expect("node data disappeared mid-rollout");
@@ -96,13 +81,13 @@ impl MCTS {
             return -(params.gamma * v);
         }
 
-        let node = MCTS::new_leaf_for(board, service, model_id, params);
+        let node = MCTS::<T>::new_leaf_for(board, service, model_id, params);
         let v = node.v.dequantize();
         tree.insert(board, node);
         -v
     }
 
-    fn new_leaf_for(board: &Board, service: &NNRemote, model_id: u32, params: &MCTSParams) -> MCTSNode {
+    fn new_leaf_for(board: &Board, service: &T, model_id: u32, params: &MCTSParams) -> MCTSNode {
         let nn_pred = service.predict(board, model_id);
         let v = nn_pred.value();
         let mut pi = nn_pred.pi();
@@ -129,6 +114,18 @@ impl MCTS {
         self.tree.get_data(board).map(|data| data.snapshot())
     }
 
+    /// Clear all tree nodes and tracking state.
+    pub fn clear_tree(&self) {
+        self.tree.clear();
+    }
+
+    /// Get snapshots of all nodes in the tree.
+    pub fn get_all_nodes(&self) -> std::collections::HashMap<Board, MCTSNode> {
+        self.tree.iter_data()
+            .map(|entry| (entry.key().clone(), entry.value().snapshot()))
+            .collect()
+    }
+
     pub fn run_rollouts_inner(
         &self,
         board: &Board,
@@ -148,7 +145,7 @@ impl MCTS {
             let pi = NNQuantizedPi::dequantize_vec(&node.pi);
             noise::generate_dirichlet_noise(&pi, params).ok()
         } else {
-            let node = MCTS::new_leaf_for(board, &self.services[0], model_id, params);
+            let node = MCTS::<T>::new_leaf_for(board, &self.services[0], model_id, params);
             let pi = NNQuantizedPi::dequantize_vec(&node.pi);
             tree.insert(board, node);
             noise::generate_dirichlet_noise(&pi, params).ok()
@@ -164,7 +161,7 @@ impl MCTS {
                     let mut local_sum = 0.0f64;
                     for _ in 0..count {
                         tree.begin_rollout(i);
-                        let v = MCTS::rollout(tree, svc, model_id, &board, rollout_depth, params, &noise, i);
+                        let v = MCTS::<T>::rollout(tree, svc, model_id, &board, rollout_depth, params, &noise, i);
                         local_sum += (-v) as f64;
                     }
                     local_sum
@@ -239,87 +236,3 @@ fn find_best_action(data: &MCTSNode, c_puct_init: f32, c_puct_base: f32, root_no
 }
 
 
-// ── Python interface ──
-
-#[cfg(feature = "extension-module")]
-#[pymethods]
-impl MCTS {
-    #[allow(clippy::too_many_arguments)]
-    #[new]
-    #[pyo3(signature = (nn_service_addr, channel, gamma, dirichlet_weight, dirichlet_leaf_weight, dirichlet_alpha, c_puct_init, c_puct_base, n_threads=1, pruning_tree=false, debug_prints=false))]
-    fn create(
-        nn_service_addr: String,
-        channel: u32,
-        gamma: f32,
-        dirichlet_weight: f32,
-        dirichlet_leaf_weight: f32,
-        dirichlet_alpha: f32,
-        c_puct_init: f32,
-        c_puct_base: f32,
-        n_threads: usize,
-        pruning_tree: bool,
-        debug_prints: bool,
-    ) -> MCTS {
-        MCTS::new(
-            &nn_service_addr,
-            channel,
-            MCTSParams {
-                gamma,
-                dirichlet_weight,
-                dirichlet_leaf_weight,
-                dirichlet_alpha,
-                c_puct_init,
-                c_puct_base,
-            },
-            n_threads,
-            pruning_tree,
-            debug_prints,
-        )
-    }
-
-    pub fn run(&self, board: &Board, rollout_depth: usize) -> f32 {
-        let (_, value) = self.run_rollouts_inner(board, 1, rollout_depth, 1.0);
-        value
-    }
-
-    #[pyo3(signature = (board, n_rollouts, rollout_depth, temperature=1.0))]
-    pub fn run_rollouts<'py>(
-        &self,
-        py: Python<'py>,
-        board: &Board,
-        n_rollouts: usize,
-        rollout_depth: usize,
-        temperature: f32,
-    ) -> (Bound<'py, numpy::PyArray1<f32>>, f32) {
-        let (pi, mean_value) = self.run_rollouts_inner(board, n_rollouts, rollout_depth, temperature);
-        let pi_arr = numpy::IntoPyArray::into_pyarray(
-            numpy::ndarray::Array1::from_vec(pi), py,
-        );
-        (pi_arr, mean_value)
-    }
-
-    pub fn get_node(&self, board: &Board) -> Option<MCTSNode> {
-        self.tree.get_data(board).map(|data| data.snapshot())
-    }
-
-    pub fn get_nodes(&self) -> HashMap<Board, MCTSNode> {
-        self.tree.iter_data()
-            .map(|entry| (entry.key().clone(), entry.value().snapshot()))
-            .collect()
-    }
-
-    pub fn on_move_applied(&self, board: &Board) {
-        self.notify_move_applied(board);
-    }
-
-    pub fn clear_nodes(&self) {
-        self.tree.clear();
-    }
-
-    pub fn get_fetch_stats(&self) -> FetchStats {
-        FetchStats {
-            total_fetch_time_us: 0,
-            total_fetches: 0,
-        }
-    }
-}
