@@ -61,11 +61,16 @@ impl<'a> BoardWidget<'a> {
             return (Style::default().fg(color), glyph);
         }
 
-        // Last move highlight — brighter version of the player's color
+        // Last move highlight — bright for destination, dim for origin
         if let Some((from, to, player)) = self.overlays.last_move {
-            if coord == from || coord == to {
+            if coord == to {
                 let glyph = if content == 0 { theme::GLYPH_EMPTY } else { theme::GLYPH_PIECE };
                 return (Style::default().fg(theme::last_move_color(player)), glyph);
+            } else if coord == from {
+                let base = if player == 1 { theme::P1 } else { theme::P2 };
+                let dim = theme::policy_color(base, 0.3);
+                let glyph = if content == 0 { theme::GLYPH_EMPTY } else { theme::GLYPH_PIECE };
+                return (Style::default().fg(dim), glyph);
             }
         }
 

@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use clap::Parser;
 
-use alpha_cc_engine::tui::app::{App, AppConfig, PlayerConfig};
+use alpha_cc_engine::tui::app::{App, AppConfig, PlayerConfig, RendererKind};
 
 /// Interactive AlphaCC game client.
 ///
@@ -29,6 +29,10 @@ struct Cli {
     /// Board size (3, 5, 7, or 9)
     #[arg(long, default_value = "7")]
     board_size: u8,
+
+    /// Renderer: "glyph" (classic characters) or "pixel" (half-block graphics)
+    #[arg(long, default_value = "glyph")]
+    renderer: String,
 
     /// nn-service gRPC address
     #[arg(long, default_value = "http://localhost:50055")]
@@ -84,10 +88,16 @@ fn main() -> anyhow::Result<()> {
     env_logger::init();
     let cli = Cli::parse();
 
+    let renderer = match cli.renderer.as_str() {
+        "glyph" | "g" => RendererKind::Glyph,
+        other => anyhow::bail!("Unknown renderer: {other}. Use 'glyph'"),
+    };
+
     let config = AppConfig {
         p1: parse_player(&cli.p1)?,
         p2: parse_player(&cli.p2)?,
         board_size: cli.board_size,
+        renderer,
         nn_addr: cli.nn_addr,
         think_time: Duration::from_secs_f64(cli.think_time),
         n_threads: cli.n_threads,

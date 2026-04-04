@@ -31,6 +31,10 @@ pub const GLYPH_EMPTY: &str = "\u{2B21}";  // ⬡ outlined pointy-top
 // Borders — thin rounded (╭─╮ / │ / ╰─╯)
 pub const BORDER: border::Set = border::ROUNDED;
 
+/// Hex draw scale: fraction of hex_radius used for drawing vertices.
+/// 1.0 = hexes touch edge-to-edge, 0.85 = visible gap between hexes.
+pub const HEX_DRAW_SCALE: f32 = 0.85;
+
 /// Brighten a color by lerping each channel toward 255.
 pub fn brighten(color: Color, amount: f32) -> Color {
     let a = amount.clamp(0.0, 1.0);
@@ -42,11 +46,12 @@ pub fn brighten(color: Color, amount: f32) -> Color {
     }
 }
 
-/// Policy heatmap: lerp from dim to vivid in the given player color.
+/// Policy heatmap: lerp from a dim floor to vivid in the given player color.
+/// The floor is high enough that low-probability cells remain clearly visible.
 pub fn policy_color(base: Color, weight: f32) -> Color {
     let w = weight.clamp(0.0, 1.0);
     if let Color::Rgb(r, g, b) = base {
-        let dim = 0.15_f32;
+        let dim = 0.45_f32; // floor: cells are never darker than 45% of base color
         let lerp = |c: u8| ((c as f32) * (dim + (1.0 - dim) * w)) as u8;
         Color::Rgb(lerp(r), lerp(g), lerp(b))
     } else {

@@ -2,6 +2,7 @@ pub mod app;
 pub mod agent;
 pub mod board_widget;
 pub mod game;
+pub mod hex;
 pub mod input;
 pub mod modal;
 pub mod sidebar;

@@ -1,43 +1,58 @@
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+use crate::cc::dtypes::NNQuantizedPi;
 use crate::cc::game::board::Board;
 use crate::cc::rollouts::mcts::{MCTS, MCTSParams};
 
-// ── Channel types ──
-
-pub enum AiCommand {
-    /// temperature=None means argmax, Some(t) means sample with that temperature
-    Think { board: Board, time_budget: Duration, temperature: Option<f32> },
-    MoveApplied { board: Board },
-    Cancel,
-    Shutdown,
+/// Raw NN output for a position.
+#[derive(Clone, Default)]
+pub struct NNData {
+    pub pi: Vec<f32>,
+    pub value: f32,
 }
 
+/// Progress update sent from AI thread to the app.
+#[derive(Clone)]
 pub struct AiProgress {
-    pub pi: Vec<f32>,
-    pub value: f32,
+    pub board_hash: u64,
+    pub mcts_pi: Vec<f32>,
+    pub mcts_value: f32,
+    pub nn: NNData,
     pub total_rollouts: usize,
 }
 
-pub struct AiResult {
+/// Move decision sent from AI thread to the app.
+pub struct AiMove {
+    pub board_hash: u64,
     pub action_index: usize,
-    pub pi: Vec<f32>,
-    pub value: f32,
-    pub total_rollouts: usize,
 }
 
 pub enum AiUpdate {
     Progress(AiProgress),
-    Done(AiResult),
+    Move(AiMove),
 }
 
-// ── Handle held by the main (TUI) thread ──
+/// Shared state between the app and one AI thread.
+struct SharedState {
+    /// The board the AI should think about.
+    board: Mutex<Board>,
+    /// Whether the AI should be doing rollouts.
+    should_think: AtomicBool,
+    /// Whether the AI should pick a move (set by app when deadline hits).
+    should_move: AtomicBool,
+    /// Whether to sample (true) or argmax (false) when picking a move.
+    sample: AtomicBool,
+    /// Signal to shut down the thread.
+    shutdown: AtomicBool,
+}
 
+/// Handle held by the app to control one AI player.
 pub struct AiHandle {
-    cmd_tx: mpsc::Sender<AiCommand>,
-    update_rx: mpsc::Receiver<AiUpdate>,
+    shared: Arc<SharedState>,
+    update_rx: std::sync::mpsc::Receiver<AiUpdate>,
     _thread: thread::JoinHandle<()>,
 }
 
@@ -49,124 +64,126 @@ impl AiHandle {
         n_threads: usize,
         rollout_depth: usize,
         pruning_tree: bool,
+        initial_board: Board,
     ) -> Self {
-        let (cmd_tx, cmd_rx) = mpsc::channel();
-        let (update_tx, update_rx) = mpsc::channel();
+        let shared = Arc::new(SharedState {
+            board: Mutex::new(initial_board),
+            should_think: AtomicBool::new(false),
+            should_move: AtomicBool::new(false),
+            sample: AtomicBool::new(false),
+            shutdown: AtomicBool::new(false),
+        });
+        let (update_tx, update_rx) = std::sync::mpsc::channel();
+        let shared_clone = shared.clone();
 
         let handle = thread::spawn(move || {
-            ai_thread_main(&nn_addr, model_id, params, n_threads, rollout_depth, pruning_tree, cmd_rx, update_tx);
+            ai_thread(
+                &nn_addr, model_id, params, n_threads, rollout_depth, pruning_tree,
+                shared_clone, update_tx,
+            );
         });
 
-        Self {
-            cmd_tx,
-            update_rx,
-            _thread: handle,
-        }
+        Self { shared, update_rx, _thread: handle }
     }
 
-    pub fn start_thinking(&self, board: Board, time_budget: Duration, temperature: Option<f32>) {
-        let _ = self.cmd_tx.send(AiCommand::Think { board, time_budget, temperature });
+    /// Update the board the AI is thinking about.
+    pub fn set_board(&self, board: &Board) {
+        *self.shared.board.lock().unwrap() = board.clone();
     }
 
-    pub fn notify_move_applied(&self, board: &Board) {
-        let _ = self.cmd_tx.send(AiCommand::MoveApplied { board: board.clone() });
+    /// Tell the AI to start/stop thinking.
+    pub fn set_thinking(&self, on: bool) {
+        self.shared.should_think.store(on, Ordering::Relaxed);
     }
 
-    pub fn cancel(&self) {
-        let _ = self.cmd_tx.send(AiCommand::Cancel);
+    /// Tell the AI to pick a move from its current analysis.
+    pub fn request_move(&self, sample: bool) {
+        self.shared.sample.store(sample, Ordering::Relaxed);
+        self.shared.should_move.store(true, Ordering::Release);
     }
 
+    /// Poll for updates (non-blocking).
     pub fn try_recv(&self) -> Option<AiUpdate> {
         self.update_rx.try_recv().ok()
     }
 
     pub fn shutdown(self) {
-        let _ = self.cmd_tx.send(AiCommand::Shutdown);
+        self.shared.shutdown.store(true, Ordering::Relaxed);
+        self.shared.should_think.store(false, Ordering::Relaxed);
     }
 }
 
-// ── Background thread ──
+// ── AI thread ──
 
-fn ai_thread_main(
+fn ai_thread(
     nn_addr: &str,
     model_id: u32,
     params: MCTSParams,
     n_threads: usize,
     rollout_depth: usize,
     pruning_tree: bool,
-    cmd_rx: mpsc::Receiver<AiCommand>,
-    update_tx: mpsc::Sender<AiUpdate>,
+    shared: Arc<SharedState>,
+    update_tx: std::sync::mpsc::Sender<AiUpdate>,
 ) {
     let mcts = MCTS::new(nn_addr, model_id, params, n_threads, pruning_tree, false);
     let rollouts_per_batch = n_threads.max(1);
+    let mut last_board_hash: u64 = 0;
+    let mut total_rollouts: usize = 0;
 
     loop {
-        let cmd = match cmd_rx.recv() {
-            Ok(cmd) => cmd,
-            Err(_) => return,
-        };
-
-        match cmd {
-            AiCommand::Think { board, time_budget, temperature } => {
-                think(&mcts, &board, time_budget, rollouts_per_batch, rollout_depth, temperature, &cmd_rx, &update_tx);
-            }
-            AiCommand::MoveApplied { board } => {
-                mcts.notify_move_applied(&board);
-            }
-            AiCommand::Cancel => {}
-            AiCommand::Shutdown => return,
-        }
-    }
-}
-
-fn think(
-    mcts: &MCTS,
-    board: &Board,
-    time_budget: Duration,
-    rollouts_per_batch: usize,
-    rollout_depth: usize,
-    temperature: Option<f32>,
-    cmd_rx: &mpsc::Receiver<AiCommand>,
-    update_tx: &mpsc::Sender<AiUpdate>,
-) {
-    let start = Instant::now();
-    let mut total_rollouts = 0;
-    // For the MCTS pi computation: use the temperature if sampling, otherwise 1.0
-    // (the overflow-safe normalization in run_rollouts_inner handles any value now)
-    let mcts_temperature = temperature.unwrap_or(1.0);
-
-    loop {
-        if let Ok(AiCommand::Cancel | AiCommand::Shutdown) = cmd_rx.try_recv() {
-            break;
+        if shared.shutdown.load(Ordering::Relaxed) {
+            return;
         }
 
-        let (pi, value) = mcts.run_rollouts_inner(board, rollouts_per_batch, rollout_depth, mcts_temperature);
+        if !shared.should_think.load(Ordering::Relaxed) {
+            thread::sleep(Duration::from_millis(10));
+            continue;
+        }
+
+        // Get the current board
+        let board = shared.board.lock().unwrap().clone();
+        let board_hash = board.compute_hash();
+
+        // If the board changed, notify MCTS for tree pruning and reset rollout count
+        if board_hash != last_board_hash {
+            mcts.notify_move_applied(&board);
+            last_board_hash = board_hash;
+            total_rollouts = 0;
+        }
+
+        // Do one batch of rollouts
+        let (pi, value) = mcts.run_rollouts_inner(&board, rollouts_per_batch, rollout_depth, 1.0);
         total_rollouts += rollouts_per_batch;
 
+        // Extract NN data from the root node
+        let nn = match mcts.get_node_snapshot(&board) {
+            Some(node) => NNData {
+                pi: NNQuantizedPi::dequantize_vec(&node.pi),
+                value: node.v.dequantize(),
+            },
+            None => NNData::default(),
+        };
+
+        // Send progress
         let _ = update_tx.send(AiUpdate::Progress(AiProgress {
-            pi: pi.clone(),
-            value,
+            board_hash,
+            mcts_pi: pi.clone(),
+            mcts_value: value,
+            nn,
             total_rollouts,
         }));
 
-        if start.elapsed() >= time_budget {
-            let action_index = match temperature {
-                Some(_) => sample_from_pi(&pi),
-                None => argmax(&pi),
-            };
-
-            let _ = update_tx.send(AiUpdate::Done(AiResult {
-                action_index,
-                pi,
-                value,
-                total_rollouts,
-            }));
-            return;
+        // Check if we should pick a move
+        if shared.should_move.load(Ordering::Acquire) {
+            let sample = shared.sample.load(Ordering::Relaxed);
+            let action_index = if sample { sample_from_pi(&pi) } else { argmax(&pi) };
+            let _ = update_tx.send(AiUpdate::Move(AiMove { board_hash, action_index }));
+            shared.should_move.store(false, Ordering::Relaxed);
         }
     }
 }
 
-fn argmax(pi: &[f32]) -> usize {
+pub fn argmax(pi: &[f32]) -> usize {
     pi.iter()
         .enumerate()
         .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
@@ -174,7 +191,7 @@ fn argmax(pi: &[f32]) -> usize {
         .unwrap_or(0)
 }
 
-fn sample_from_pi(pi: &[f32]) -> usize {
+pub fn sample_from_pi(pi: &[f32]) -> usize {
     use rand::RngExt;
     let r: f32 = rand::rng().random_range(0.0..1.0);
     let mut cumulative = 0.0;

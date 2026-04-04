@@ -124,6 +124,11 @@ impl MCTS {
         }
     }
 
+    /// Get a snapshot of the MCTS node for a board position (if it exists in the tree).
+    pub fn get_node_snapshot(&self, board: &Board) -> Option<MCTSNode> {
+        self.tree.get_data(board).map(|data| data.snapshot())
+    }
+
     pub fn run_rollouts_inner(
         &self,
         board: &Board,
