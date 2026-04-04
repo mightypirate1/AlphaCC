@@ -1,0 +1,55 @@
+syntax = "proto3";
+package predict;
+
+service PredictionService {
+  // Bidirectional stream: workers send board states, server returns predictions.
+  // One persistent stream per worker — no per-request overhead.
+  rpc Predict(stream PredictRequest) returns (stream PredictResponse);
+}
+
+message PredictRequest {
+  uint64 request_id = 1;
+  bytes state_tensor = 2;
+  bytes moves = 3;
+  uint32 model_id = 4;
+}
+
+message PredictResponse {
+  uint64 request_id = 1;
+  // Workers have to compute their own softmax.
+  bytes pi_logits = 2;
+  float value = 3;
+}
+
+// --- Management service (info + model hot-loading) ---
+
+service ManagementService {
+  rpc GetServerInfo(ServerInfoRequest) returns (ServerInfoResponse);
+  rpc LoadModel(LoadModelRequest) returns (LoadModelResponse);
+}
+
+message ServerInfoRequest {}
+
+message ChannelInfo {
+  uint32 channel_id = 1;
+  bool model_loaded = 2;
+  uint32 model_version = 3;
+}
+
+message ServerInfoResponse {
+  uint32 game_size = 1;
+  repeated ChannelInfo channels = 2;
+  repeated uint32 batch_sizes = 3;
+  bool static_mode = 4;
+}
+
+message LoadModelRequest {
+  uint32 channel_id = 1;
+  bytes onnx_bytes = 2;
+  uint32 version = 3;
+}
+
+message LoadModelResponse {
+  bool success = 1;
+  string error = 2;
+}

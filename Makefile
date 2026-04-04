@@ -50,7 +50,7 @@ build-engine:
 	@bash -c " \
 		source .venv/bin/activate && \
 		cd engine && \
-		maturin develop --release --features extension-module \
+		maturin develop --release -m python/Cargo.toml \
 	"
 
 install-webapp:
@@ -67,7 +67,7 @@ lint-py:
 	@mypy alpha_cc tests
 
 lint-rs:
-	@bash -c "cd engine && cargo clippy -- -D warnings"
+	@bash -c "cd engine && cargo clippy --workspace --exclude alpha-cc-python -- -D warnings"
 
 lint-webapp:
 	@bash -c "cd webapp && ng lint"
@@ -81,7 +81,7 @@ reformat:
 
 test: ## run tests quickly with the default Python
 	@pytest
-	@bash -c "cd engine && cargo test"
+	@bash -c "cd engine && cargo test --workspace --exclude alpha-cc-python"
 
 venv:
 	@$(PYTHON3) -m venv .venv --prompt alpha-cc

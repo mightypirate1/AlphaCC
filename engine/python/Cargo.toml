@@ -1,0 +1,15 @@
+[package]
+name = "alpha-cc-python"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "alpha_cc_engine"
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+alpha-cc-core = { path = "../core", features = ["extension-module"] }
+alpha-cc-nn = { path = "../nn", features = ["extension-module"] }
+alpha-cc-mcts = { path = "../mcts", features = ["extension-module"] }
+pyo3 = { version = "0.28.3", features = ["auto-initialize", "extension-module", "multiple-pymethods"] }
+mimalloc = "0.1.48"

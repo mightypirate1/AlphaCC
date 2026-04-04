@@ -1,0 +1,16 @@
+[package]
+name = "alpha-cc-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bitcode = "0.6"
+indexmap = "2.13.0"
+rand = "0.10.0"
+log = "0.4"
+
+pyo3 = { version = "0.28.3", features = ["auto-initialize"], optional = true }
+
+[features]
+default = []
+extension-module = ["dep:pyo3", "pyo3/extension-module", "pyo3/multiple-pymethods"]

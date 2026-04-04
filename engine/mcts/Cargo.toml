@@ -1,0 +1,20 @@
+[package]
+name = "alpha-cc-mcts"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+alpha-cc-core = { path = "../core" }
+alpha-cc-nn = { path = "../nn" }
+dashmap = "6"
+rand = "0.10.0"
+rand_distr = "0.6.0"
+anyhow = "1.0.102"
+log = "0.4"
+
+pyo3 = { version = "0.28.3", features = ["auto-initialize"], optional = true }
+numpy = { version = "0.28", optional = true }
+
+[features]
+default = []
+extension-module = ["dep:pyo3", "pyo3/extension-module", "pyo3/multiple-pymethods", "dep:numpy", "alpha-cc-core/extension-module", "alpha-cc-nn/extension-module"]
