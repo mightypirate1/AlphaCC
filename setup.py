@@ -4,7 +4,6 @@ from setuptools import find_packages, setup
 DEV_REQUIRES = [
     "black",
     "build",
-    "cookiecutter-project-upgrader",
     "coverage",
     "ipykernel",
     "ipython",
@@ -17,7 +16,6 @@ DEV_REQUIRES = [
     "pytest",
     "ruff",
     "standard-imghdr",
-    #"standard-imwdb",  # local tensorboard needed this after py313 upgrade
     "grpcio-tools",
 ]
 
