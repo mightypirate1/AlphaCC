@@ -1,0 +1,173 @@
+services:
+  trainer:
+    image: alphacc/main
+    build:
+      dockerfile: Dockerfile.main
+      target: main
+    init: true
+    stop_grace_period: 30s
+    shm_size: '8gb'
+    cpu_shares: 4096
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    depends_on:
+      keydb:
+        condition: service_healthy
+    volumes:
+      - local:/mnt:rw
+    env_file:
+      - .env.docker
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/healthy"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 10s
+    command: [
+      "alphacc-trainer",
+      "--run-id=april-v8-size7-forza@5925067:per-min-shortrefrun",
+      "--size=7",
+      "--tournament-freq=100",
+      "--n-train-samples=1000",
+      "--replay-buffer-size=100000",
+      "--train-size=15000",
+      "--epochs-per-update=1",
+      "--per-gamma=0.5",
+      "--per-visits-threshold=100",
+      "--per-rank-mode=min",
+      "--onnx-compiled-batch-size=192",
+      "--onnx-compiled-batch-size-secondary=16",
+      "--policy-weight=1.0",
+      "--value-weight=1.0",
+      "--entropy-weight=0.01",
+      "--l2-reg=3e-4",
+      "--batch-size=128",
+      "--lr=1e-4",
+      "--gpu",
+    ]
+
+  worker:
+    image: alphacc/main
+    #cpu_shares: 256
+    init: true
+    deploy:
+      replicas: 160
+    depends_on:
+      nn-service:
+        condition: service_healthy
+    env_file:
+      - .env.docker
+    restart: on-failure
+    command: [
+      "alphacc-worker",
+      "--size=7",
+      "--n-threads=10",
+      "--n-rollouts=init=300,step=2,max=3000",
+      "--rollout-depth=init=-100,step=1,min=10,max=100",
+      "--action-temperature=init=1.3,step=-0.0002,min=0.01,max=1.0",
+      "--max-game-length=init=150,random_add=50",
+      # "--internal-nodes-fraction=0.5",  ## <-- don't forget!
+      "--internal-nodes-min-visits=init=100,step=0.1,max=1000",
+      "--rollout-gamma=0.99",
+      "--dirichlet-noise-weight=0.10",
+      "--dirichlet-leaf-noise-weight=init=0.15,step=-0.001,min=0",
+      "--pruning-tree",
+    ]
+
+  nn-service:
+    image: alphacc/nn-service
+    build:
+      dockerfile: Dockerfile.main
+      target: nn-service
+    cpu_shares: 8192
+    runtime: nvidia
+    ports:
+      - '50055-50057:50055'
+    volumes:
+      - trt-cache:/tmp/trt-cache
+    deploy:
+      replicas: 2
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    depends_on:
+      keydb:
+        condition: service_healthy
+      trainer:
+        condition: service_healthy
+    env_file:
+      - .env.docker
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/healthy"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 10s
+    command: [
+      "/app/nn-service", "server",
+      "--game-size=7",
+      "--batch-size=192",
+      "--fixed-batch-size",
+      "--reload-freq=3",
+      "--max-models=3",
+      "--half-life=0.2",
+      "--secondary-batch-size=16",
+      "--secondary-max-wait=50",
+      "--redis-host=keydb",
+      "--trt",
+      "--trt-cache-path=/tmp/trt-cache",
+    ]
+
+  tensorboard:
+    image: tensorflow/tensorflow
+    network_mode: host
+    volumes:
+      - local:/mnt:ro
+    command:
+      - "tensorboard"
+      - "--logdir=/mnt/logdir"
+
+  keydb:
+    image: eqalpha/keydb
+    cpu_shares: 256
+    ports:
+      - '6379:6379'
+    command: [
+      "keydb-server",
+      "--appendonly", "no",
+      "--save", "",
+      "--server-threads", "2",
+      "--tcp-backlog", "511",
+      "--tcp-keepalive", "60",
+      "--client-output-buffer-limit", "normal", "0", "0", "0",
+      "--client-output-buffer-limit", "pubsub", "32mb", "8mb", "60",
+    ]
+    healthcheck:
+      test: [ "CMD", "redis-cli", "-h", "keydb", "--raw", "incr", "ping" ]
+      interval: 5s
+      timeout: 30s
+      retries: 15
+      start_period: 5s
+
+volumes:
+  trt-cache:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+  local:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: "./data"

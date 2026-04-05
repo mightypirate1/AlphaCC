@@ -1,0 +1,12 @@
+[package]
+name = "alpha-cc-nn"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+alpha-cc-core = { path = "../core" }
+bitcode = "0.6"
+bytemuck = { version = "1.25.0", features = ["derive"] }
+
+[dev-dependencies]
+rand = "0.10.0"

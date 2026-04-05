@@ -1,0 +1,13 @@
+[package]
+name = "alpha-cc-mcts"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+alpha-cc-core = { path = "../core" }
+alpha-cc-nn = { path = "../nn" }
+dashmap = "6"
+rand = "0.10.0"
+rand_distr = "0.6.0"
+anyhow = "1.0.102"
+log = "0.4"

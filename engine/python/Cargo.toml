@@ -1,0 +1,23 @@
+[package]
+name = "alpha-cc-python"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "alpha_cc_engine"
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+alpha-cc-core = { path = "../core" }
+alpha-cc-nn = { path = "../nn" }
+alpha-cc-mcts = { path = "../mcts" }
+alpha-cc-nn-service = { path = "../nn-service" }
+pyo3 = { version = "0.28.3", features = ["auto-initialize", "multiple-pymethods"] }
+pyo3-stub-gen = "0.21"
+pyo3-stub-gen-derive = "0.21"
+numpy = "0.28"
+mimalloc = "0.1.48"
+
+[features]
+default = []
+extension-module = ["pyo3/extension-module"]

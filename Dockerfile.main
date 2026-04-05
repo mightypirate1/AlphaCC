@@ -1,28 +1,5 @@
-# Build Python 3.13 from source (for trainer + workers)
-FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04 AS python-builder
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential curl ca-certificates \
-        libffi-dev libssl-dev zlib1g-dev libbz2-dev \
-        libreadline-dev libsqlite3-dev liblzma-dev \
-    && rm -rf /var/lib/apt/lists/*
-ARG PYTHON_VERSION=3.13.5
-RUN curl -fSL "https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz" -o python.tgz \
-    && tar xzf python.tgz \
-    && cd "Python-${PYTHON_VERSION}" \
-    && ./configure \
-        --prefix=/opt/python3 \
-        --enable-shared \
-        --with-ensurepip=install \
-        LDFLAGS="-Wl,-rpath,/opt/python3/lib" \
-    && make -j"$(nproc)" \
-    && make install \
-    && cd / && rm -rf "Python-${PYTHON_VERSION}" python.tgz
-RUN ln -sf python3 /opt/python3/bin/python \
-    && ln -sf pip3   /opt/python3/bin/pip
-
-
 # ══════════════════════════════════════════════════════════════════════
-# Trainer / worker build chain (Python 3.13 + PyTorch + Rust extension)
+# Trainer / worker (Python 3.13 + PyTorch + Rust extension)
 # ══════════════════════════════════════════════════════════════════════
 
 FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04 AS base-main
@@ -32,25 +9,29 @@ ENV PYTHONUNBUFFERED=1               \
     PIP_DISABLE_PIP_VERSION_CHECK=on \
     PIP_DEFAULT_TIMEOUT=100          \
     WORKDIR=/code
-COPY --from=python-builder /opt/python3 /opt/python3
-ENV PATH="/opt/python3/bin:$PATH"
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
+# Install Python 3.13 from deadsnakes PPA (native Ubuntu, proper SSL)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        software-properties-common curl ca-certificates \
+    && add-apt-repository -y ppa:deadsnakes/ppa \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        python3.13 python3.13-venv python3.13-dev \
+    && curl -sS https://bootstrap.pypa.io/get-pip.py | python3.13 \
+    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.13 1 \
     && apt-get clean && rm -rf /var/lib/apt/lists/* \
     && mkdir -p ${WORKDIR}
 WORKDIR ${WORKDIR}
 
-FROM base-main AS base-torch
+# Install PyTorch (CUDA build) and Python deps
+FROM base-main AS python-deps
 RUN python3 -m venv .venv --prompt alpha-cc
 ENV PATH="$WORKDIR/.venv/bin:$PATH"
 RUN pip install torch --index-url https://pypi.org/simple --extra-index-url https://download.pytorch.org/whl/cu128
-
-FROM base-torch AS python-deps
 RUN apt-get update                                \
     && apt-get install -y --no-install-recommends \
         clang libssl-dev make pkg-config gcc g++ protobuf-compiler git \
-    && apt-get clean                              \
-    && rm -rf /var/lib/apt/lists/*
-COPY setup.py pyproject.toml setup.cfg ${WORKDIR}/
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+COPY pyproject.toml ${WORKDIR}/
 RUN mkdir -p alpha_cc \
     && echo '__version__ = "0.0.0"' > alpha_cc/_version.py \
     && touch alpha_cc/__init__.py \
@@ -58,23 +39,22 @@ RUN mkdir -p alpha_cc \
     && pip install onnxscript \
     && pip uninstall -y alpha-cc
 
+# Build Rust extension + install Python package
 FROM python-deps AS builder-main
 RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
 ENV PATH="/root/.cargo/bin:$PATH"
 ENV LIBTORCH_USE_PYTORCH=1
-RUN mkdir -p ${WORKDIR}/engine
-COPY engine/pyproject.toml engine/Cargo.toml engine/Cargo.lock ${WORKDIR}/engine/
+COPY engine ${WORKDIR}/engine
 RUN bash -c 'cd $WORKDIR/engine && cargo fetch || true'
-COPY engine/src ${WORKDIR}/engine/src
-COPY engine/build.rs ${WORKDIR}/engine/build.rs
-COPY engine/proto ${WORKDIR}/engine/proto
-RUN bash -c 'cd $WORKDIR/engine && maturin develop --release --features extension-module'
+RUN bash -c 'cd $WORKDIR/engine/python && maturin build --release -o /tmp/wheels' \
+    && pip install /tmp/wheels/*.whl \
+    && rm -rf /tmp/wheels
 COPY alpha_cc ${WORKDIR}/alpha_cc
 RUN pip install --no-deps .
 
 # Trainer / worker runtime
 FROM base-main AS main
-RUN apt-get update && apt-get install -y --no-install-recommends gcc libc-dev \
+RUN apt-get update && apt-get install -y --no-install-recommends gcc g++ libc-dev \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 ENV PATH="$WORKDIR/.venv/bin:$PATH"
 WORKDIR ${WORKDIR}
@@ -83,27 +63,22 @@ CMD ["bash"]
 
 
 # ══════════════════════════════════════════════════════════════════════
-# nn-service build chain (pure Rust, no Python, no libtorch)
+# nn-service (pure Rust binary — no Python, no CUDA at build time)
 # ══════════════════════════════════════════════════════════════════════
 
-FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04 AS base-nnservice
+# Build: lightweight image, just needs Rust + protobuf
+FROM ubuntu:24.04 AS builder-nnservice
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        curl build-essential pkg-config libssl-dev protobuf-compiler \
-        libnvinfer10 libnvinfer-plugin10 libnvonnxparsers10 \
+        curl ca-certificates build-essential pkg-config libssl-dev protobuf-compiler \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
-
-FROM base-nnservice AS builder-nnservice
 RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
 ENV PATH="/root/.cargo/bin:$PATH"
 WORKDIR /code/engine
-COPY engine/Cargo.toml engine/Cargo.lock ./
+COPY engine/ ./
 RUN cargo fetch || true
-COPY engine/src ./src
-COPY engine/build.rs ./build.rs
-COPY engine/proto ./proto
-RUN cargo build --release --bin nn-service --features jemalloc
+RUN cargo build --release -p alpha-cc-nn-service --bin nn-service --features alpha-cc-nn-service/jemalloc
 
-# nn-service runtime: just the binary + CUDA/TRT libs + onnxruntime
+# Runtime: CUDA + TRT + onnxruntime (loaded dynamically)
 FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04 AS nn-service
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libnvinfer10 libnvinfer-plugin10 libnvonnxparsers10 \
@@ -113,7 +88,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get autoremove -y \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 COPY --from=builder-nnservice /code/engine/target/release/nn-service /app/nn-service
-# Register onnxruntime libs in ldconfig so ort's dlopen("libonnxruntime.so") finds them
+# Register onnxruntime libs so ort's dlopen("libonnxruntime.so") finds them
 RUN ORT_CAPI=$(python3 -c "import onnxruntime, os; print(os.path.join(os.path.dirname(onnxruntime.__file__), 'capi'))") \
     && ln -sf "$ORT_CAPI"/libonnxruntime.so.* "$ORT_CAPI/libonnxruntime.so" \
     && echo "$ORT_CAPI" > /etc/ld.so.conf.d/onnxruntime.conf \

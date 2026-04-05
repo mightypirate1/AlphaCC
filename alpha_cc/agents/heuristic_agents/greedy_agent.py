@@ -20,6 +20,9 @@ class GreedyAgent(Agent):
     def on_game_end(self) -> None:
         pass
 
+    def on_move_applied(self, board: Board) -> None:
+        pass
+
     def _evaluation(self, board: Board) -> np.ndarray:
         def heur(sp: GameState) -> float:
             # important we specify player, since we want the value for

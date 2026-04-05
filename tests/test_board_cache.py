@@ -23,7 +23,7 @@ def _fresh_reward_and_winner(board: Board) -> tuple[float, int]:
     """
     raw = board.__getstate__()
     fresh = Board.__new__(Board)
-    fresh.__setstate__(raw)  # type: ignore[attr-defined]
+    fresh.__setstate__(raw)
     return fresh.info.reward, fresh.info.winner
 
 
@@ -31,7 +31,7 @@ def _fresh_hash(board: Board) -> int:
     """Get the hash of a board reconstructed from serialized bytes."""
     raw = board.__getstate__()
     fresh = Board.__new__(Board)
-    fresh.__setstate__(raw)  # type: ignore[attr-defined]
+    fresh.__setstate__(raw)
     return hash(fresh)
 
 

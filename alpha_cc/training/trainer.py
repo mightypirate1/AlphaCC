@@ -191,9 +191,7 @@ class Trainer:
         )
         winners = np.array([data.winner for data in training_datas])
         n_games = max(len(winners), 1)
-        self._summary_writer.add_histogram(
-            "train-rollouts/winners", winners, global_step=self._global_step
-        )
+        self._summary_writer.add_histogram("train-rollouts/winners", winners, global_step=self._global_step)
         self._summary_writer.add_scalar(
             "train-rollouts/frac-p1-wins", (winners == 1).sum() / n_games, global_step=self._global_step
         )
@@ -442,7 +440,13 @@ class Trainer:
 
     def _reset_gradient_stats(self) -> None:
         self._grad_stats: dict[str, dict[str, float]] = {
-            name: {"grad-norm-sq": 0.0, "grad-max": 0.0, "grad-min": float("inf"), "weight-norm-sq": 0.0, "weight-max": 0.0}
+            name: {
+                "grad-norm-sq": 0.0,
+                "grad-max": 0.0,
+                "grad-min": float("inf"),
+                "weight-norm-sq": 0.0,
+                "weight-max": 0.0,
+            }
             for name in self._PARAM_GROUPS
         }
 
@@ -473,7 +477,7 @@ class Trainer:
                 if key == "grad-min" and val == float("inf"):
                     continue
                 if key.endswith("-norm-sq"):
-                    val = val ** 0.5
+                    val = val**0.5
                     key = key.removesuffix("-sq")
                 self._summary_writer.add_scalar(f"gradients/{name}/{key}", val, global_step=step)
         self._reset_gradient_stats()

@@ -2,8 +2,77 @@
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
+[project]
+name = "alpha-cc"
+version = "0.3.0"
+requires-python = ">=3.13"
+dependencies = [
+    "apscheduler",
+    "click",
+    "dill",
+    "einops",
+    "grpcio",
+    "maturin[patchelf]",
+    "numpy",
+    "protobuf",
+    "python-dotenv",
+    "redis",
+    "rich",
+    "scipy",
+    "tensorboard",
+    "torch",
+    "tqdm-loggable",
+]
+
+[project.optional-dependencies]
+api = [
+    "fastapi",
+    "pydantic",
+    "uvicorn",
+]
+dev = [
+    "black",
+    "build",
+    "coverage",
+    "ipykernel",
+    "ipython",
+    "isort",
+    "mypy",
+    "nbformat>4.2.0",
+    "pandas",
+    "plotext",
+    "plotly-express",
+    "pytest",
+    "ruff",
+    "standard-imghdr",
+    "grpcio-tools",
+]
+onnx = [
+    "onnxruntime-gpu",
+    "onnxscript",
+]
+all = [
+    "alpha-cc[api]",
+    "alpha-cc[dev]",
+    "alpha-cc[onnx]",
+]
+
+[project.scripts]
+alphacc-trainer = "alpha_cc.entrypoints.trainer_thread:main"
+alphacc-worker = "alpha_cc.entrypoints.worker_thread:main"
+alphacc-nn-service = "alpha_cc.entrypoints.nn_service_thread:main"
+alphacc-singlethread-training = "alpha_cc.entrypoints.singlethread_training:main"
+alphacc-eval-weights = "alpha_cc.entrypoints.eval_weights:main"
+alphacc-param-schedule-eval = "alpha_cc.entrypoints.param_schedule_eval:main"
+alphacc-db-game-inspection = "alpha_cc.entrypoints.db_game_inspection:main"
+alphacc-tournament = "alpha_cc.entrypoints.tournament:main"
+
+[tool.setuptools.packages.find]
+include = ["alpha_cc*"]
+
 [tool.black]
 line-length = 120
+extend-exclude = "alpha_cc/proto"
 
 [tool.isort]
 profile = "black"
@@ -16,7 +85,7 @@ skip = "package"
 
 [tool.mypy]
 disallow_untyped_defs = true
-exclude = "package"
+exclude = "(package|alpha_cc/proto|proto)"
 follow_imports_for_stubs = true
 ignore_missing_imports = true
 no_implicit_optional = false
@@ -25,6 +94,10 @@ show_column_numbers = true
 strict_optional = true
 warn_unused_configs = true
 warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = "alpha_cc.proto.*"
+ignore_errors = true
 
 [tool.ruff]
 target-version = "py314"
@@ -43,12 +116,12 @@ lint.select = [
     "PD",   # pandas rules
     "Q",    # flake8-quotes
     "RET",  # flake8-return
-    "RUF",  # Ruff-specific rules (unicode checkig, and check for redundant "noqa: ...")
+    "RUF",  # Ruff-specific rules (unicode checking, and check for redundant "noqa: ...")
     "S",    # flake8-bandit
     "SIM",  # flake8-simplify
     "T",    # flake8-print
     "UP",   # pyupgrade
-    "W",    # newline at end of file, disallow bad excape sequences
+    "W",    # newline at end of file, disallow bad escape sequences
 ]
 lint.ignore = [
     "ANN401",  # Dynamically typed expressions in args/kwargs
@@ -65,3 +138,4 @@ lint.unfixable = [
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # allow unused imports in __init__.py files
 "tests/**/*.py" = ["D", "S101"]  # drop all docs reqs and allow assert statements
+"alpha_cc/proto/**" = ["ALL"]  # auto-generated proto code

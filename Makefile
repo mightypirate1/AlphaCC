@@ -7,7 +7,7 @@ clean-build:
 	@rm -rf dist/
 	@rm -rf .eggs/
 	@find . -name '*.egg-info' -exec rm -fr {} +
-	@find . -name '*.egg' -exec rm -f {} +
+	@find . -name '*.egg' -exec rm -fr {} +
 
 clean-pyc:
 	@find . -name '*.pyc' -exec rm -f {} +
@@ -49,8 +49,27 @@ install: develop build-engine install-webapp
 build-engine:
 	@bash -c " \
 		source .venv/bin/activate && \
+		cd engine/python && \
+		maturin develop --release \
+	"
+
+generate-proto:
+	@bash -c " \
+		source .venv/bin/activate && \
+		python3 -m grpc_tools.protoc \
+			-I engine/nn-service/proto \
+			--python_out=alpha_cc/proto \
+			--grpc_python_out=alpha_cc/proto \
+			--pyi_out=alpha_cc/proto \
+			engine/nn-service/proto/predict.proto \
+	"
+
+generate-stubs:
+	@bash -c " \
+		source .venv/bin/activate && \
 		cd engine && \
-		maturin develop --release --features extension-module \
+		LD_LIBRARY_PATH=\$$(python3 -c \"import sysconfig; print(sysconfig.get_config_var('LIBDIR'))\"):\$$LD_LIBRARY_PATH \
+		cargo run -p alpha-cc-python --bin stub_gen \
 	"
 
 install-webapp:
@@ -64,10 +83,10 @@ lint: lint-py lint-rs lint-webapp
 lint-py:
 	@ruff check alpha_cc tests
 	@black --check alpha_cc tests
-	@mypy alpha_cc tests
+	@mypy alpha_cc tests --exclude "alpha_cc/proto/"
 
 lint-rs:
-	@bash -c "cd engine && cargo clippy -- -D warnings"
+	@bash -c "cd engine && cargo clippy --workspace --exclude alpha-cc-python -- -D warnings"
 
 lint-webapp:
 	@bash -c "cd webapp && ng lint"
@@ -81,7 +100,7 @@ reformat:
 
 test: ## run tests quickly with the default Python
 	@pytest
-	@bash -c "cd engine && cargo test"
+	@bash -c "cd engine && cargo test --workspace --exclude alpha-cc-python"
 
 venv:
 	@$(PYTHON3) -m venv .venv --prompt alpha-cc
