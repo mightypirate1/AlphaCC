@@ -85,5 +85,10 @@ pub trait Backend: Send + Sync + 'static {
     fn respond(&self, pi_bytes: Vec<u8>, value: f32, move_bytes: Vec<u8>) -> DecodedPrediction;
     fn compile_model(&self, model: Self::Model) -> anyhow::Result<Self::Model>;
     fn model_from_bytes(&self, bytes: &[u8]) -> anyhow::Result<Self::Model>;
+    /// Like model_from_bytes, but uses a specific TRT cache path override.
+    /// Default implementation ignores the override.
+    fn model_from_bytes_with_cache(&self, bytes: &[u8], _trt_cache_override: Option<&str>) -> anyhow::Result<Self::Model> {
+        self.model_from_bytes(bytes)
+    }
     fn model_store(&self) -> &ModelStore<Self::Model>;
 }

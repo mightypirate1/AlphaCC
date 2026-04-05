@@ -15,7 +15,7 @@ webapp/.nx
 webapp/.angular
 # rust
 **/*.rs.bk files *.db
-engine/target
+**/target
 docker-compose.*.yaml
 
 

@@ -85,6 +85,14 @@ fn reload_cycle<B: Backend>(backend: &Arc<B>, source: &impl ModelSource, health_
         };
 
         // --- TRT: coordinated build (one replica compiles, others load from cache) ---
+        // Use a batch-size-specific subdirectory to avoid cache collisions between
+        // pipelines with different batch sizes (e.g. primary=192, secondary=16).
+        let trt_cache_subdir = trt_cache_path.as_ref().map(|base| {
+            match batch_size {
+                Some(bs) => format!("{base}/bs{bs}"),
+                None => base.clone(),
+            }
+        });
         let is_builder = if use_trt {
             let lock_position = if source.is_build_complete(desired_version) {
                 0 // already built, skip straight to loading
@@ -93,7 +101,7 @@ fn reload_cycle<B: Backend>(backend: &Arc<B>, source: &impl ModelSource, health_
             };
             let builder = lock_position == 1;
             if builder {
-                if let Some(path) = trt_cache_path {
+                if let Some(path) = &trt_cache_subdir {
                     log::info!("[reloader] wiping TRT cache at {path} for version={desired_version}");
                     let _ = std::fs::remove_dir_all(path);
                     let _ = std::fs::create_dir_all(path);
@@ -112,7 +120,7 @@ fn reload_cycle<B: Backend>(backend: &Arc<B>, source: &impl ModelSource, health_
             false
         };
 
-        let model = match backend.model_from_bytes(&bytes) {
+        let model = match backend.model_from_bytes_with_cache(&bytes, trt_cache_subdir.as_deref()) {
             Ok(m) => m,
             Err(e) => {
                 if is_builder {
