@@ -54,6 +54,7 @@ impl Widget for MoveListWidget<'_> {
 
 pub struct EvalBarWidget {
     pub value: f32,
+    #[allow(dead_code)]
     pub rollouts: usize,
     pub visible: bool,
     pub braille: bool,
@@ -186,9 +187,9 @@ impl EvalBarWidget {
                 let base_dot_col = col_idx as usize * 2;
                 let mut bits: u8 = 0;
 
-                for dot_row in 0..4usize {
+                for (dot_row, row_bits) in DOT_BITS.iter().enumerate() {
                     let dy = base_dot_row + dot_row;
-                    for dot_col in 0..2usize {
+                    for (dot_col, &bit) in row_bits.iter().enumerate() {
                         let dx = base_dot_col + dot_col;
                         let is_p1 = if dy < p1_dot_rows {
                             true
@@ -199,7 +200,7 @@ impl EvalBarWidget {
                         };
 
                         if is_p1 {
-                            bits |= DOT_BITS[dot_row][dot_col];
+                            bits |= bit;
                         }
                     }
                 }

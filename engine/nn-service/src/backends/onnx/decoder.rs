@@ -5,7 +5,7 @@ use super::backend::cuda_memcpy_d2h;
 /// Decode GPU-resident output tensors to (pi_bytes, value) pairs.
 /// This is where D2H transfer happens — run in the decoder thread
 /// so the inference thread can immediately process the next batch.
-pub fn decode((pis, vs): (DynTensor, DynTensor), game_size: i64) -> Vec<(Vec<u8>, f32)> {
+pub fn decode((pis, vs): (DynTensor, DynTensor), game_size: i64) -> Vec<crate::backends::DecodedPrediction> {
     let s4 = (game_size * game_size * game_size * game_size) as usize;
 
     // Get shapes from metadata (no D2H needed)

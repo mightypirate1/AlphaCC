@@ -3,7 +3,7 @@ use std::sync::Mutex;
 use ort::session::Session;
 use ort::value::Tensor;
 
-use crate::backends::{Backend, ModelStore, VersionedModel};
+use crate::backends::{Backend, DecodedPrediction, ModelStore, VersionedModel};
 use crate::io;
 use crate::server::types::StateBytes;
 
@@ -116,7 +116,7 @@ impl Backend for CpuBackend {
         }
     }
 
-    fn decode(&self, output: CpuInferred) -> Vec<(Vec<u8>, f32)> {
+    fn decode(&self, output: CpuInferred) -> Vec<DecodedPrediction> {
         let s4 = output.game_size.pow(4);
         let mut decoded = Vec::with_capacity(output.batch_size);
         for i in 0..output.batch_size {
@@ -128,7 +128,7 @@ impl Backend for CpuBackend {
         decoded
     }
 
-    fn respond(&self, pi_bytes: Vec<u8>, value: f32, move_bytes: Vec<u8>) -> (Vec<u8>, f32) {
+    fn respond(&self, pi_bytes: Vec<u8>, value: f32, move_bytes: Vec<u8>) -> DecodedPrediction {
         crate::backends::respond::respond(&pi_bytes, value, &move_bytes, self.game_size as usize)
     }
 

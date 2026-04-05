@@ -8,6 +8,7 @@ pub struct GameState {
     board_size: u8,
 }
 
+#[allow(dead_code)]
 pub struct MoveRecord {
     pub action_index: usize,
     pub mv: Move,
@@ -55,10 +56,12 @@ impl GameState {
         self.current_board().get_info().game_over
     }
 
+    #[allow(dead_code)]
     pub fn winner(&self) -> i8 {
         self.current_board().get_info().winner
     }
 
+    #[allow(dead_code)]
     pub fn board_size(&self) -> u8 {
         self.board_size
     }

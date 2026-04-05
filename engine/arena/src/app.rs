@@ -319,8 +319,10 @@ impl App {
             }
             AppEvent::ToggleBrailleBars => self.toggles.braille_bars = !self.toggles.braille_bars,
             AppEvent::OpenTemperatureModal => {
-                let mut modal = TemperatureModal::default();
-                modal.value = self.toggles.sampling_temperature;
+                let modal = TemperatureModal {
+                    value: self.toggles.sampling_temperature,
+                    ..Default::default()
+                };
                 self.temperature_modal = Some(modal);
             }
             AppEvent::HistoryBack => {
@@ -353,7 +355,6 @@ impl App {
                 self.analysis_p2 = LatestAnalysis::default();
                 self.advance_turn();
             }
-            AppEvent::CellClicked(_) => {} // handled via MouseDown → backend hex detection
             AppEvent::MouseDown(col, row) => self.handle_mouse_down(col, row),
             AppEvent::MouseDrag(col, row) => self.handle_mouse_drag(col, row),
             AppEvent::MouseUp => self.dragging = None,
@@ -393,7 +394,6 @@ impl App {
         let pv = self.pv_area;
         if pv.width > 0 && row.abs_diff(pv.y) <= 1 && col >= pv.x && col < pv.x + pv.width {
             self.dragging = Some(DragTarget::PvTop);
-            return;
         }
     }
 
@@ -528,7 +528,7 @@ impl App {
                 let info = board.get_info();
                 let matrix = board.get_unflipped_matrix();
                 let content = matrix[display_coord.x as usize][display_coord.y as usize];
-                if content == info.current_player as i8 {
+                if content == info.current_player {
                     self.select_piece(display_coord);
                 }
             }
@@ -545,7 +545,7 @@ impl App {
                     let info = board.get_info();
                     let matrix = board.get_unflipped_matrix();
                     let content = matrix[display_coord.x as usize][display_coord.y as usize];
-                    if content == info.current_player as i8 {
+                    if content == info.current_player {
                         self.select_piece(display_coord);
                     } else {
                         self.phase = Phase::HumanTurn;

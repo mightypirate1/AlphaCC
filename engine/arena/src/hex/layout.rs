@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use alpha_cc_core::HexCoord;
 
 /// Hex grid geometry in floating-point "world" coordinates.

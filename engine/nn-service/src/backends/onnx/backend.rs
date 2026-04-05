@@ -5,7 +5,7 @@ use ort::memory::{Allocator, AllocationDevice, AllocatorType, MemoryInfo, Memory
 use ort::session::Session;
 use ort::value::{DynTensor, DynValue};
 
-use crate::backends::{Backend, ModelStore, VersionedModel};
+use crate::backends::{Backend, DecodedPrediction, ModelStore, VersionedModel};
 use crate::server::types::StateBytes;
 use super::{encoder, inference, decoder};
 
@@ -23,9 +23,9 @@ type CudaMemcpyFn = unsafe extern "C" fn(
 
 fn load_cuda_memcpy() -> CudaMemcpyFn {
     unsafe {
-        let handle = libc::dlopen(b"libcudart.so.12\0".as_ptr().cast(), libc::RTLD_NOW | libc::RTLD_GLOBAL);
+        let handle = libc::dlopen(c"libcudart.so.12".as_ptr().cast(), libc::RTLD_NOW | libc::RTLD_GLOBAL);
         assert!(!handle.is_null(), "failed to dlopen libcudart.so");
-        let sym = libc::dlsym(handle, b"cudaMemcpy\0".as_ptr().cast());
+        let sym = libc::dlsym(handle, c"cudaMemcpy".as_ptr().cast());
         assert!(!sym.is_null(), "failed to dlsym cudaMemcpy");
         std::mem::transmute(sym)
     }
@@ -42,7 +42,7 @@ fn cuda_memcpy() -> CudaMemcpyFn {
 /// `tensor` must have been allocated on a CUDA device with enough capacity for `data`.
 pub(crate) unsafe fn copy_to_gpu_tensor(tensor: &mut DynTensor, data: &[f32]) {
     let gpu_ptr = tensor.data_ptr_mut();
-    let size_bytes = data.len() * std::mem::size_of::<f32>();
+    let size_bytes = std::mem::size_of_val(data);
     let ret = cuda_memcpy()(gpu_ptr, data.as_ptr().cast(), size_bytes, CUDA_MEMCPY_HOST_TO_DEVICE);
     assert!(ret == 0, "cudaMemcpy H2D failed with error code {ret}");
 }
@@ -51,7 +51,7 @@ pub(crate) unsafe fn copy_to_gpu_tensor(tensor: &mut DynTensor, data: &[f32]) {
 /// # Safety
 /// `gpu_ptr` must point to GPU memory with at least `dst.len() * size_of::<f32>()` bytes.
 pub(crate) unsafe fn cuda_memcpy_d2h(dst: &mut [f32], gpu_ptr: *const std::ffi::c_void) {
-    let size_bytes = dst.len() * std::mem::size_of::<f32>();
+    let size_bytes = std::mem::size_of_val(dst);
     let ret = cuda_memcpy()(dst.as_mut_ptr().cast(), gpu_ptr, size_bytes, CUDA_MEMCPY_DEVICE_TO_HOST);
     assert!(ret == 0, "cudaMemcpy D2H failed with error code {ret}");
 }
@@ -218,11 +218,11 @@ impl Backend for OnnxBackend {
         }
     }
 
-    fn decode(&self, output: (DynTensor, DynTensor)) -> Vec<(Vec<u8>, f32)> {
+    fn decode(&self, output: (DynTensor, DynTensor)) -> Vec<DecodedPrediction> {
         decoder::decode(output, self.game_size)
     }
 
-    fn respond(&self, pi_bytes: Vec<u8>, value: f32, move_bytes: Vec<u8>) -> (Vec<u8>, f32) {
+    fn respond(&self, pi_bytes: Vec<u8>, value: f32, move_bytes: Vec<u8>) -> DecodedPrediction {
         crate::backends::respond::respond(&pi_bytes, value, &move_bytes, self.game_size as usize)
     }
 

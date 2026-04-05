@@ -3,13 +3,9 @@ use std::time::Duration;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 
-use alpha_cc_core::HexCoord;
-
 #[derive(Debug)]
+#[allow(dead_code)] // Resize fields are structural
 pub enum AppEvent {
-    // Mouse
-    CellClicked(HexCoord),
-
     // Navigation
     Quit,
     HistoryBack,
@@ -132,29 +128,3 @@ fn translate_mouse(mouse: MouseEvent, _board_area: Rect, _board_size: u8) -> App
     }
 }
 
-/// Map terminal (column, row) to hex board coordinate.
-///
-/// The board renders with row x indented by x spaces, each cell taking 2 columns (glyph + space).
-pub fn screen_to_hex(col: u16, row: u16, board_area: Rect, board_size: u8) -> Option<HexCoord> {
-    let rel_row = row.checked_sub(board_area.y)?;
-    let x = rel_row as u8;
-    if x >= board_size {
-        return None;
-    }
-
-    let indent = x as u16;
-    let rel_col = col.checked_sub(board_area.x + indent)?;
-    let y = (rel_col / 2) as u8;
-    if y >= board_size {
-        return None;
-    }
-
-    Some(HexCoord::new(x, y, board_size))
-}
-
-/// Map hex coordinate to terminal (column, row) within the board area.
-pub fn hex_to_screen(x: u8, y: u8, board_area: Rect) -> (u16, u16) {
-    let col = board_area.x + (x as u16) + (y as u16) * 2;
-    let row = board_area.y + x as u16;
-    (col, row)
-}

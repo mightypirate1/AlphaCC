@@ -1,6 +1,5 @@
 mod app;
 mod agent;
-mod board_widget;
 mod game;
 mod hex;
 mod input;

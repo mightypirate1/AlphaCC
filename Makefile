@@ -53,6 +53,17 @@ build-engine:
 		maturin develop --release \
 	"
 
+generate-proto:
+	@bash -c " \
+		source .venv/bin/activate && \
+		python3 -m grpc_tools.protoc \
+			-I engine/nn-service/proto \
+			--python_out=alpha_cc/proto \
+			--grpc_python_out=alpha_cc/proto \
+			--pyi_out=alpha_cc/proto \
+			engine/nn-service/proto/predict.proto \
+	"
+
 generate-stubs:
 	@bash -c " \
 		source .venv/bin/activate && \

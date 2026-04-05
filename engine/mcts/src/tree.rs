@@ -62,10 +62,14 @@ impl CheapNode {
 
 // ── PruningTree state ──
 
+/// Path format: [(child_hash, action), ...] — each entry is the board reached
+/// and the action from its parent that led there.
+type RolloutPath = Vec<(u64, usize)>;
+
 struct PruningTree {
     board_lookup: HashMap<u64, Board>,
     /// Per-thread list of rollout paths. Each inner vec is one rollout's path.
-    thread_paths: Vec<Mutex<Vec<Vec<(u64, usize)>>>>,
+    thread_paths: Vec<Mutex<Vec<RolloutPath>>>,
     root: Option<CheapNode>,
 }
 
@@ -158,7 +162,7 @@ impl Tree {
         let mut tracking = tracking_mutex.lock().unwrap();
 
         // Collect and clear thread paths first (flatten per-thread Vec<Vec<...>> into one list).
-        let mut collected_paths: Vec<Vec<(u64, usize)>> = Vec::new();
+        let mut collected_paths: Vec<RolloutPath> = Vec::new();
         for path_mutex in &tracking.thread_paths {
             let mut thread_paths = path_mutex.lock().unwrap();
             for path in thread_paths.drain(..) {
@@ -177,8 +181,6 @@ impl Tree {
         }
 
         // Ensure root exists and merge paths.
-        // Path format: [(child_hash, action), ...] — each entry is the board reached
-        // and the action from its parent that led there.
         let root = tracking.root.get_or_insert_with(|| CheapNode::new(root_hash));
         for path in &collected_paths {
             let actions: Vec<usize> = path.iter().map(|&(_, a)| a).collect();
@@ -226,9 +228,9 @@ impl Tree {
     /// Detect board change, prune, and return the played action.
     /// Panics if tracking is enabled and board is not a child of the root.
     pub fn maybe_prune(&self, board: &Board) -> Option<usize> {
-        let Some(ref tracking_mutex) = self.tracking else { return None };
+        let tracking_mutex = self.tracking.as_ref()?;
         let tracking = tracking_mutex.lock().unwrap();
-        let Some(ref root) = tracking.root else { return None };
+        let root = tracking.root.as_ref()?;
 
         let board_hash = board.compute_hash();
         if root.board_hash == board_hash {
@@ -278,6 +280,11 @@ impl Tree {
     pub fn len(&self) -> usize {
         self.data.len()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+
 
     /// Read-only lookup (no refcount increment, no tracking).
     pub fn get_data(&self, board: &Board) -> Option<dashmap::mapref::one::Ref<'_, Board, MCTSNode>> {

@@ -45,12 +45,10 @@ impl<T: PredictionSource> MCTS<T> {
 
     /// Perform a single rollout from `board` down the tree.
     fn rollout(
-        tree: &Tree,
-        service: &T,
+        &self,
         model_id: u32,
         board: &Board,
         remaining_depth: usize,
-        params: &MCTSParams,
         root_noise: &Option<Vec<f32>>,
         thread_id: usize,
     ) -> f32 {
@@ -59,42 +57,42 @@ impl<T: PredictionSource> MCTS<T> {
             return -info.reward;
         }
 
-        if let Some(data) = tree.visit(board, thread_id) {
+        if let Some(data) = self.tree.visit(board, thread_id) {
             if remaining_depth == 0 {
                 return -data.get_v();
             }
 
-            let a = find_best_action(&data, params.c_puct_init, params.c_puct_base, root_noise, params);
+            let a = self.find_best_action(&data, root_noise);
             let moves = find_all_moves(board);
             let s_prime = board.apply(&moves[a]);
-            tree.record_action(thread_id, &s_prime, a);
+            self.tree.record_action(thread_id, &s_prime, a);
 
             data.apply_virtual_loss(a);
             drop(data);
 
-            let v = MCTS::<T>::rollout(tree, service, model_id, &s_prime, remaining_depth - 1, params, &None, thread_id);
+            let v = self.rollout(model_id, &s_prime, remaining_depth - 1, &None, thread_id);
 
-            let data = tree.get_data(board)
+            let data = self.tree.get_data(board)
                 .expect("node data disappeared mid-rollout");
-            data.resolve_virtual_loss(a, params.gamma * v);
+            data.resolve_virtual_loss(a, self.mcts_params.gamma * v);
 
-            return -(params.gamma * v);
+            return -(self.mcts_params.gamma * v);
         }
 
-        let node = MCTS::<T>::new_leaf_for(board, service, model_id, params);
+        let node = self.new_leaf_for(board, &self.services[thread_id], model_id);
         let v = node.v.dequantize();
-        tree.insert(board, node);
+        self.tree.insert(board, node);
         -v
     }
 
-    fn new_leaf_for(board: &Board, service: &T, model_id: u32, params: &MCTSParams) -> MCTSNode {
+    fn new_leaf_for(&self, board: &Board, service: &T, model_id: u32) -> MCTSNode {
         let nn_pred = service.predict(board, model_id);
         let v = nn_pred.value();
         let mut pi = nn_pred.pi();
         let num_actions = pi.len();
 
-        if params.dirichlet_leaf_weight > 0.0 {
-            noise::apply_dirichlet_noise(&mut pi, params);
+        if self.mcts_params.dirichlet_leaf_weight > 0.0 {
+            noise::apply_dirichlet_noise(&mut pi, &self.mcts_params);
         }
 
         MCTSNode::new(pi, v, num_actions)
@@ -126,7 +124,7 @@ impl<T: PredictionSource> MCTS<T> {
             .collect()
     }
 
-    pub fn run_rollouts_inner(
+    pub fn run_rollout_threads(
         &self,
         board: &Board,
         n_rollouts: usize,
@@ -145,23 +143,23 @@ impl<T: PredictionSource> MCTS<T> {
             let pi = NNQuantizedPi::dequantize_vec(&node.pi);
             noise::generate_dirichlet_noise(&pi, params).ok()
         } else {
-            let node = MCTS::<T>::new_leaf_for(board, &self.services[0], model_id, params);
+            let node = self.new_leaf_for(board, &self.services[0], model_id);
             let pi = NNQuantizedPi::dequantize_vec(&node.pi);
             tree.insert(board, node);
             noise::generate_dirichlet_noise(&pi, params).ok()
         };
 
         let value_sum: f64 = std::thread::scope(|s| {
-            let handles: Vec<_> = self.services[..n_threads].iter().enumerate().map(|(i, svc)| {
+            let handles: Vec<_> = (0..n_threads).map(|thread_id| {
                 let board = board.clone();
-                let extra = if i < remainder { 1 } else { 0 };
+                let extra = if thread_id < remainder { 1 } else { 0 };
                 let count = rollouts_per_thread + extra;
                 let noise = noise.clone();
                 s.spawn(move || {
                     let mut local_sum = 0.0f64;
                     for _ in 0..count {
-                        tree.begin_rollout(i);
-                        let v = MCTS::<T>::rollout(tree, svc, model_id, &board, rollout_depth, params, &noise, i);
+                        self.tree.begin_rollout(thread_id);
+                        let v = self.rollout(model_id, &board, rollout_depth, &noise, thread_id);
                         local_sum += (-v) as f64;
                     }
                     local_sum
@@ -208,31 +206,28 @@ impl<T: PredictionSource> MCTS<T> {
 
         (pi, mean_value)
     }
-}
 
+    fn find_best_action(&self, data: &MCTSNode, root_noise: &Option<Vec<f32>>) -> usize {
+        let prm = &self.mcts_params;
+        let sum_n_f = data.total_visits() as f32;
+        let c_puct = prm.c_puct_init + ((sum_n_f + prm.c_puct_base + 1.0) / prm.c_puct_base).ln();
 
-fn find_best_action(data: &MCTSNode, c_puct_init: f32, c_puct_base: f32, root_noise: &Option<Vec<f32>>, params: &MCTSParams) -> usize {
-    let sum_n_f = data.total_visits() as f32;
-    let c_puct = c_puct_init + ((sum_n_f + c_puct_base + 1.0) / c_puct_base).ln();
-
-    let mut best_action = 0;
-    let mut best_u = f32::MIN;
-    let mut pi = NNQuantizedPi::dequantize_vec(&data.pi);
-    if let Some(noise) = root_noise {
-        noise::blend_with_noise(&mut pi, noise, params.dirichlet_weight);
-    }
-    for i in 0..data.num_actions() {
-        let pi_a = pi[i];
-        let n_a = data.get_n(i) as f32;
-        let prior_weight = c_puct * sum_n_f.sqrt() / (1.0 + n_a);
-
-        let u = data.get_q(i) + prior_weight * pi_a;
-        if u > best_u {
-            best_u = u;
-            best_action = i;
+        let mut best_action = 0;
+        let mut best_u = f32::MIN;
+        let mut pi = NNQuantizedPi::dequantize_vec(&data.pi);
+        if let Some(noise) = root_noise {
+            noise::blend_with_noise(&mut pi, noise, prm.dirichlet_weight);
         }
+        for (i, pi_a) in pi.iter().enumerate() {
+            let n_a = data.get_n(i) as f32;
+            let prior_weight = c_puct * sum_n_f.sqrt() / (1.0 + n_a);
+
+            let u = data.get_q(i) + prior_weight * pi_a;
+            if u > best_u {
+                best_u = u;
+                best_action = i;
+            }
+        }
+        best_action
     }
-    best_action
 }
-
-

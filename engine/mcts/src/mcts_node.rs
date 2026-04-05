@@ -90,7 +90,7 @@ impl MCTSNode {
     #[inline]
     pub fn apply_virtual_loss(&self, action: usize) {
         self.n[action].fetch_add(1, Relaxed);
-        self.w[action].fetch_add((-1.0 * W_SCALE) as i32, Relaxed);
+        self.w[action].fetch_add((-W_SCALE) as i32, Relaxed);
     }
 
     #[inline]
@@ -98,4 +98,3 @@ impl MCTSNode {
         self.w[action].fetch_add(((value + 1.0) * W_SCALE) as i32, Relaxed);
     }
 }
-

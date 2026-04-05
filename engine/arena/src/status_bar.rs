@@ -385,16 +385,3 @@ impl Widget for PolicyBarsWidget<'_> {
     }
 }
 
-// ── Keep the old StatusBarWidget for backward compat but it's no longer primary ──
-
-pub struct StatusBarWidget<'a> {
-    pub toggles: &'a ToggleState,
-    pub game_over: bool,
-    pub current_player: i8,
-}
-
-impl Widget for StatusBarWidget<'_> {
-    fn render(self, _area: Rect, _buf: &mut Buffer) {
-        // No longer used — toggles panel replaces this
-    }
-}

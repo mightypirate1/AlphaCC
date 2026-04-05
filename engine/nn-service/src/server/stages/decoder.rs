@@ -12,7 +12,7 @@ use crate::server::types::PipelineItem;
 pub async fn run_decoder<B: Backend>(
     backend: Arc<B>,
     mut decoder_rx: mpsc::Receiver<PipelineItem<B::Inferred>>,
-    responder_tx: mpsc::Sender<PipelineItem<Vec<(Vec<u8>, f32)>>>,
+    responder_tx: mpsc::Sender<PipelineItem<Vec<crate::backends::DecodedPrediction>>>,
 ) {
     while let Some(item) = decoder_rx.recv().await {
         let backend = backend.clone();

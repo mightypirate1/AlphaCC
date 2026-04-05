@@ -53,7 +53,7 @@ impl<B: Backend> PredictServer<B> {
             let (encoder_tx, encoder_rx) = mpsc::channel::<PipelineItem<Vec<StateBytes>>>(intake);
             let (inference_tx, inference_rx) = mpsc::channel::<PipelineItem<B::Encoded>>(intake);
             let (decoder_tx, decoder_rx) = mpsc::channel::<PipelineItem<B::Inferred>>(outtake);
-            let (responder_tx, responder_rx) = mpsc::channel::<PipelineItem<Vec<(Vec<u8>, f32)>>>(outtake);
+            let (responder_tx, responder_rx) = mpsc::channel::<PipelineItem<Vec<crate::backends::DecodedPrediction>>>(outtake);
 
             let current_wait_us = Arc::new(AtomicU64::new(pipeline_cfg.batcher.max_wait.as_micros() as u64));
             tokio::spawn(stages::run_batcher(pipeline_cfg.batcher.clone(), submit_rx, encoder_tx, current_wait_us.clone()));

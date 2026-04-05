@@ -59,7 +59,7 @@ fn spawn_stats_printer<B: Backend>(stats: Arc<Stats>, interval: Duration, backen
 /// individual response is ready, not after the whole batch is processed.
 pub async fn run_responder<B: Backend>(
     backend: Arc<B>,
-    mut responder_rx: mpsc::Receiver<PipelineItem<Vec<(Vec<u8>, f32)>>>,
+    mut responder_rx: mpsc::Receiver<PipelineItem<Vec<crate::backends::DecodedPrediction>>>,
     model_ids: Vec<u32>,
     current_wait_us: Arc<AtomicU64>,
 ) {

@@ -115,6 +115,7 @@ impl AiHandle {
 
 // ── AI thread ──
 
+#[allow(clippy::too_many_arguments)]
 fn ai_thread(
     nn_addr: &str,
     model_id: u32,
@@ -156,7 +157,7 @@ fn ai_thread(
         }
 
         // Do one batch of rollouts
-        let (pi, value) = mcts.run_rollouts_inner(&board, rollouts_per_batch, rollout_depth, 1.0);
+        let (pi, value) = mcts.run_rollout_threads(&board, rollouts_per_batch, rollout_depth, 1.0);
         total_rollouts += rollouts_per_batch;
 
         // Extract NN data from the root node

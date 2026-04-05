@@ -47,7 +47,7 @@ class MCTSAgent(Agent):
 
     @property
     def internal_nodes(self) -> dict[Board, MCTSNodePy]:
-        return {board: MCTSNodePy.from_node(node) for board, node in self._mcts.get_nodes().items()}
+        return {board: MCTSNodePy.from_node(node) for board, node in self._mcts.get_nodes()}
 
     def on_game_start(self) -> None:
         self._steps_left_to_argmax = (self._argmax_delay or np.inf) + 1

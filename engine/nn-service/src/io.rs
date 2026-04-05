@@ -15,6 +15,7 @@ pub fn encode_request(board: &Board) -> (Vec<u8>, Vec<u8>) {
 
     // One-hot encode into [2, s, s] flattened f32s, then to bytes.
     let mut tensor_data = vec![0.0f32; 2 * s * s];
+    #[warn(clippy::needless_range_loop)]
     for x in 0..s {
         for y in 0..s {
             let idx = x * s + y;
