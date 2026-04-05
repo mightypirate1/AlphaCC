@@ -138,11 +138,14 @@ impl OnnxBackend {
         }
     }
 
-    fn execution_providers(&self) -> Vec<ort::execution_providers::ExecutionProviderDispatch> {
+    fn execution_providers(&self, cache_override: Option<&str>) -> Vec<ort::execution_providers::ExecutionProviderDispatch> {
         if !self.use_trt {
             return vec![CUDAExecutionProvider::default().build()];
         }
-        let trt = match &self.trt_cache_path {
+        let cache_path = cache_override
+            .map(String::from)
+            .or_else(|| self.trt_cache_path.clone());
+        let trt = match &cache_path {
             Some(path) => TensorRTExecutionProvider::default()
                 .with_engine_cache(true)
                 .with_engine_cache_path(path)
@@ -152,13 +155,13 @@ impl OnnxBackend {
         vec![trt, CUDAExecutionProvider::default().build()]
     }
 
-    fn build_session(&self, bytes: &[u8]) -> anyhow::Result<OnnxSession> {
-        log::info!("[onnx] building session from {} bytes", bytes.len());
+    fn build_session_with_cache(&self, bytes: &[u8], cache_override: Option<&str>) -> anyhow::Result<OnnxSession> {
+        log::info!("[onnx] building session from {} bytes (cache: {:?})", bytes.len(), cache_override.or(self.trt_cache_path.as_deref()));
         let session = Session::builder()
             .map_err(|e| anyhow::anyhow!("session builder: {e}"))?
             .with_log_level(ort::logging::LogLevel::Warning)
             .map_err(|e| anyhow::anyhow!("log level: {e}"))?
-            .with_execution_providers(self.execution_providers())
+            .with_execution_providers(self.execution_providers(cache_override))
             .map_err(|e| anyhow::anyhow!("execution providers: {e}"))?
             .commit_from_memory(bytes)
             .map_err(|e| anyhow::anyhow!("commit_from_memory: {e}"))?;
@@ -231,7 +234,11 @@ impl Backend for OnnxBackend {
     }
 
     fn model_from_bytes(&self, bytes: &[u8]) -> anyhow::Result<OnnxSession> {
-        let session = self.build_session(bytes)?;
+        self.model_from_bytes_with_cache(bytes, None)
+    }
+
+    fn model_from_bytes_with_cache(&self, bytes: &[u8], trt_cache_override: Option<&str>) -> anyhow::Result<OnnxSession> {
+        let session = self.build_session_with_cache(bytes, trt_cache_override)?;
         // Initialize the CUDA allocator on first model load
         if self.cuda_allocator.get().is_none() {
             let alloc = create_cuda_allocator(&session.lock());
