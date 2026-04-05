@@ -7,7 +7,7 @@ clean-build:
 	@rm -rf dist/
 	@rm -rf .eggs/
 	@find . -name '*.egg-info' -exec rm -fr {} +
-	@find . -name '*.egg' -exec rm -f {} +
+	@find . -name '*.egg' -exec rm -fr {} +
 
 clean-pyc:
 	@find . -name '*.pyc' -exec rm -f {} +
@@ -83,7 +83,7 @@ lint: lint-py lint-rs lint-webapp
 lint-py:
 	@ruff check alpha_cc tests
 	@black --check alpha_cc tests
-	@mypy alpha_cc tests
+	@mypy alpha_cc tests --exclude "alpha_cc/proto/"
 
 lint-rs:
 	@bash -c "cd engine && cargo clippy --workspace --exclude alpha-cc-python -- -D warnings"

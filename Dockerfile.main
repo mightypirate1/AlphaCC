@@ -31,7 +31,7 @@ RUN apt-get update                                \
     && apt-get install -y --no-install-recommends \
         clang libssl-dev make pkg-config gcc g++ protobuf-compiler git \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
-COPY setup.py pyproject.toml setup.cfg ${WORKDIR}/
+COPY pyproject.toml ${WORKDIR}/
 RUN mkdir -p alpha_cc \
     && echo '__version__ = "0.0.0"' > alpha_cc/_version.py \
     && touch alpha_cc/__init__.py \

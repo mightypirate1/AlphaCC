@@ -21,7 +21,6 @@ from alpha_cc.proto import predict_pb2, predict_pb2_grpc
 from alpha_cc.runtimes.runtime import RunTime
 from alpha_cc.runtimes.runtime_config import RunTimeConfig
 
-
 # ---------------------------------------------------------------------------
 # gRPC helpers
 # ---------------------------------------------------------------------------
@@ -42,10 +41,13 @@ def _tonic_addr(addr: str) -> str:
 
 
 def _management_stub(addr: str) -> predict_pb2_grpc.ManagementServiceStub:
-    channel = grpc.insecure_channel(_grpc_addr(addr), options=[
-        ("grpc.max_send_message_length", _MAX_MSG),
-        ("grpc.max_receive_message_length", _MAX_MSG),
-    ])
+    channel = grpc.insecure_channel(
+        _grpc_addr(addr),
+        options=[
+            ("grpc.max_send_message_length", _MAX_MSG),
+            ("grpc.max_receive_message_length", _MAX_MSG),
+        ],
+    )
     return predict_pb2_grpc.ManagementServiceStub(channel)
 
 
@@ -56,16 +58,19 @@ def _get_server_info(addr: str) -> predict_pb2.ServerInfoResponse:
 
 def _load_model(addr: str, channel_id: int, onnx_bytes: bytes, version: int = 0) -> predict_pb2.LoadModelResponse:
     stub = _management_stub(addr)
-    return stub.LoadModel(predict_pb2.LoadModelRequest(
-        channel_id=channel_id,
-        onnx_bytes=onnx_bytes,
-        version=version,
-    ))
+    return stub.LoadModel(
+        predict_pb2.LoadModelRequest(
+            channel_id=channel_id,
+            onnx_bytes=onnx_bytes,
+            version=version,
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
 # ONNX conversion helper
 # ---------------------------------------------------------------------------
+
 
 def _ensure_onnx_bytes(path: Path, game_size: int, batch_size: int | None) -> bytes:
     """Return ONNX bytes.  Auto-converts PyTorch state dicts (.pth/.pt)."""
@@ -111,6 +116,7 @@ def _ensure_onnx_bytes(path: Path, game_size: int, batch_size: int | None) -> by
 # ---------------------------------------------------------------------------
 # Tournament result types
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class MatchResult:
@@ -179,6 +185,7 @@ class TournamentResults:
 # Display helpers
 # ---------------------------------------------------------------------------
 
+
 def _display_pairwise_table(
     console: Console, results: TournamentResults, title: str, extract: Callable[[int, int, int], tuple[int, int]]
 ) -> None:
@@ -193,8 +200,8 @@ def _display_pairwise_table(
             if row_ch == col_ch:
                 cells.append("---")
             else:
-                w, l, d = results.pairwise_record(row_ch, col_ch)
-                count, total = extract(w, l, d)
+                wins, losses, draws = results.pairwise_record(row_ch, col_ch)
+                count, total = extract(wins, losses, draws)
                 pct = count / total * 100 if total else 0
                 cells.append(f"{pct:.0f}% ({count}/{total})")
         table.add_row(f"ch{row_ch}", *cells)
@@ -203,11 +210,26 @@ def _display_pairwise_table(
 
 
 def _display_pairwise(console: Console, results: TournamentResults) -> None:
-    _display_pairwise_table(console, results, "White Win Rate (row as White vs col as Black)", lambda w, l, d: (w, w + l + d))
+    _display_pairwise_table(
+        console,
+        results,
+        "White Win Rate (row as White vs col as Black)",
+        lambda wins, losses, draws: (wins, wins + losses + draws),
+    )
     console.print()
-    _display_pairwise_table(console, results, "Black Win Rate (row as Black vs col as White)", lambda w, l, d: (l, w + l + d))
+    _display_pairwise_table(
+        console,
+        results,
+        "Black Win Rate (row as Black vs col as White)",
+        lambda wins, losses, draws: (losses, wins + losses + draws),
+    )
     console.print()
-    _display_pairwise_table(console, results, "Draw Rate (row as White vs col as Black)", lambda w, l, d: (d, w + l + d))
+    _display_pairwise_table(
+        console,
+        results,
+        "Draw Rate (row as White vs col as Black)",
+        lambda wins, losses, draws: (draws, wins + losses + draws),
+    )
 
 
 def _display_aggregate(console: Console, results: TournamentResults) -> None:
@@ -234,6 +256,7 @@ def _display_aggregate(console: Console, results: TournamentResults) -> None:
 # ---------------------------------------------------------------------------
 # Game playing
 # ---------------------------------------------------------------------------
+
 
 def _play_one_game(
     nn_service_addr: str,
@@ -277,6 +300,7 @@ def _play_one_game(
 # CLI
 # ---------------------------------------------------------------------------
 
+
 @click.group("tournament")
 def main() -> None:
     """Tournament tool for comparing models served by nn-service."""
@@ -314,7 +338,12 @@ def info(nn_service_addr: str) -> None:
 
 @main.command("load-models")
 @click.option("--nn-service-addr", type=str, required=True, help="nn-service gRPC address")
-@click.option("--model", type=(int, click.Path(exists=True)), multiple=True, help="channel_id and path to weights file (.onnx, .pth, .pt)")
+@click.option(
+    "--model",
+    type=(int, click.Path(exists=True)),
+    multiple=True,
+    help="channel_id and path to weights file (.onnx, .pth, .pt)",
+)
 @click.option("--batch-size", type=int, default=None, help="Fixed batch size for ONNX export (PyTorch weights only)")
 def load_models(nn_service_addr: str, model: tuple[tuple[int, str], ...], batch_size: int | None) -> None:
     """Push ONNX models directly to nn-service channels."""
@@ -337,7 +366,12 @@ def load_models(nn_service_addr: str, model: tuple[tuple[int, str], ...], batch_
 
 @main.command("run")
 @click.option("--nn-service-addr", type=str, required=True, help="nn-service gRPC address")
-@click.option("--model", type=(int, click.Path(exists=True)), multiple=True, help="channel_id and path to weights file (.onnx, .pth, .pt)")
+@click.option(
+    "--model",
+    type=(int, click.Path(exists=True)),
+    multiple=True,
+    help="channel_id and path to weights file (.onnx, .pth, .pt)",
+)
 @click.option("--channels", type=str, default=None, help="Comma-separated channel IDs (if models already loaded)")
 @click.option("--n-rounds", type=int, default=5, help="Number of tournament rounds")
 @click.option("--n-rollouts", type=int, default=100, help="MCTS rollouts per move")
@@ -403,8 +437,7 @@ def run(
 
     game_size = server_info.game_size
     game_args = [
-        (nn_service_addr, w, b, game_size, n_rollouts, rollout_depth, n_threads, max_game_length)
-        for w, b in schedule
+        (nn_service_addr, w, b, game_size, n_rollouts, rollout_depth, n_threads, max_game_length) for w, b in schedule
     ]
 
     with ProcessPoolExecutor(max_workers=parallel_games) as pool:
