@@ -178,8 +178,8 @@ class Trainer:
             "trainer/pi/pi-target-logprobs", pi_targets_logprobs_raveled, global_step=self._global_step
         )
         wdl_pred_values = wdl_pred[:, 0] - wdl_pred[:, 2]  # expected value = W - L
-        self._summary_writer.add_histogram("trainer/wdl/value-pred", wdl_pred_values, global_step=self._global_step)
-        self._summary_writer.add_histogram("trainer/wdl/value-target", wdl_target_values, global_step=self._global_step)
+        self._summary_writer.add_histogram("trainer/value/v-pred", wdl_pred_values, global_step=self._global_step)
+        self._summary_writer.add_histogram("trainer/value/v-target", wdl_target_values, global_step=self._global_step)
         self._summary_writer.add_histogram("trainer/wdl/win-pred", wdl_pred[:, 0], global_step=self._global_step)
         self._summary_writer.add_histogram("trainer/wdl/draw-pred", wdl_pred[:, 1], global_step=self._global_step)
         self._summary_writer.add_histogram("trainer/wdl/loss-pred", wdl_pred[:, 2], global_step=self._global_step)
