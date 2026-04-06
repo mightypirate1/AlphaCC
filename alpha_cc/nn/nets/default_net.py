@@ -42,8 +42,7 @@ class DefaultNet(torch.nn.Module):
             torch.nn.Dropout(dropout),
             torch.nn.Linear(128 + 64, 64),  # 128 local + 64 global features
             torch.nn.ReLU(),
-            torch.nn.Linear(64, 1),
-            torch.nn.Tanh(),
+            torch.nn.Linear(64, 3),  # WDL logits: (win, draw, loss)
         )
         self._policy_softmax = PolicySoftmax(board_size)
 
@@ -67,16 +66,18 @@ class DefaultNet(torch.nn.Module):
             self._board_size,  # to_y
         )
 
-        # value head
-        x_value = self._value_combined(x_enc_combined).squeeze(1)  # shape (n,)
-        return x_pi, x_value
+        # value head — WDL logits, shape (n, 3)
+        x_wdl = self._value_combined(x_enc_combined)
+        return x_pi, x_wdl
 
     @torch.no_grad()
-    def evaluate_state(self, state: GameState) -> tuple[np.ndarray, np.floating]:
+    def evaluate_state(self, state: GameState) -> tuple[np.ndarray, np.ndarray]:
+        """Returns (pi_probs, wdl_probs) where wdl_probs is [win, draw, loss]."""
         self.eval()
         x = state_tensor(state).unsqueeze(0)
-        x_pi_all, x_value = self(x)
+        x_pi_all, x_wdl_logits = self(x)
         mask = torch.as_tensor(state.action_mask)
         x_pi = self._policy_softmax(x_pi_all, mask)
         x_pi_vec = x_pi[:, *action_indexer(state)]
-        return x_pi_vec.squeeze(0).cpu().numpy(), x_value.squeeze().cpu().numpy()
+        wdl_probs = torch.nn.functional.softmax(x_wdl_logits, dim=-1)
+        return x_pi_vec.squeeze(0).cpu().numpy(), wdl_probs.squeeze(0).cpu().numpy()

@@ -63,8 +63,8 @@ class Trainer:
         self._compiled_nn = torch.compile(self._nn, mode=mode)  # type: ignore
         # Warmup: run a dummy forward+backward to trigger compilation
         dummy = torch.zeros(self._batch_size, 2, board_size, board_size, device=self._device)
-        out_pi, out_v = self._compiled_nn(dummy)
-        (out_pi.sum() + out_v.sum()).backward()
+        out_pi, out_wdl = self._compiled_nn(dummy)
+        (out_pi.sum() + out_wdl.sum()).backward()
         self._optimizer.zero_grad()
         logger.info("Model compiled and warmed up")
 
@@ -122,13 +122,13 @@ class Trainer:
             pi_logprobs: list[torch.Tensor] = []  # log probs over legal moves
             pi_preds: list[torch.Tensor] = []  # probs over legal moves
             pi_targets: list[torch.Tensor] = []  # target probs over legal moves (masked & re-normalized)
-            vs = []
+            wdl_preds = []
             with tqdm(desc="nn-eval/epoch", total=len(eval_dataset)) as pbar:
                 processed = 0
                 for batch in dataloader:
                     x, pi_mask_batch, pi_target_batch, _, _, _ = (b.to(self._device) for b in batch)
-                    pi_tensor_batch, value_batch = self._compiled_nn(x)
-                    vs.append(value_batch.cpu())
+                    pi_tensor_batch, wdl_logits_batch = self._compiled_nn(x)
+                    wdl_preds.append(torch.nn.functional.softmax(wdl_logits_batch, dim=-1).cpu())
                     # iterate per sample
                     for pi_tensor_unsoftmaxed, pi_mask, pi_target_full in zip(
                         pi_tensor_batch, pi_mask_batch, pi_target_batch
@@ -154,14 +154,15 @@ class Trainer:
             # flatten (concatenate) for histograms
             pi_logprobs_raveled = torch.cat(pi_logprobs, dim=0)  # pred logprobs (legal)
             pi_targets_raveled = torch.cat(pi_targets, dim=0)  # target probs (legal)
-            v = torch.cat(vs, dim=0)
+            wdl_pred = torch.cat(wdl_preds, dim=0)  # (N, 3)
 
         #######
         ### trajectories
         #####
         game_lengths = np.array([len(traj) for traj in trajectories])
         game_ended_early = np.array([traj[-1].game_ended_early for traj in trajectories if traj])
-        v_targets = np.array([e.v_target for e in experiences])
+        wdl_targets = np.array([e.wdl_target for e in experiences])
+        wdl_target_values = wdl_targets[:, 0] - wdl_targets[:, 2]  # expected value = W - L
         pi_targets_logprobs_raveled = pi_targets_raveled.clamp(1e-6).log()
         pi_target_entropy = torch.as_tensor([entropy(pi_target) for pi_target in pi_targets])
         kl_divergences = torch.as_tensor(
@@ -176,8 +177,12 @@ class Trainer:
         self._summary_writer.add_histogram(
             "trainer/pi/pi-target-logprobs", pi_targets_logprobs_raveled, global_step=self._global_step
         )
-        self._summary_writer.add_histogram("trainer/value/v-pred", v, global_step=self._global_step)
-        self._summary_writer.add_histogram("trainer/value/v-target", v_targets, global_step=self._global_step)
+        wdl_pred_values = wdl_pred[:, 0] - wdl_pred[:, 2]  # expected value = W - L
+        self._summary_writer.add_histogram("trainer/wdl/value-pred", wdl_pred_values, global_step=self._global_step)
+        self._summary_writer.add_histogram("trainer/wdl/value-target", wdl_target_values, global_step=self._global_step)
+        self._summary_writer.add_histogram("trainer/wdl/win-pred", wdl_pred[:, 0], global_step=self._global_step)
+        self._summary_writer.add_histogram("trainer/wdl/draw-pred", wdl_pred[:, 1], global_step=self._global_step)
+        self._summary_writer.add_histogram("trainer/wdl/loss-pred", wdl_pred[:, 2], global_step=self._global_step)
         self._summary_writer.add_scalar(
             "trainer/pi/kl-divergence-mean", kl_divergences.mean(), global_step=self._global_step
         )
@@ -230,12 +235,13 @@ class Trainer:
         Batched forward pass over dataset to compute per-sample KL divergence and TD error.
         Used by PER to update priorities after training.
 
+        TD error is |v_pred - v_target| where v = W - L (expected value from WDL).
         Returns (kl_divs, td_errors) as float32 numpy arrays, one entry per sample.
-        Internal nodes get td_error=0 (value head is not trained on them).
+        Internal nodes get td_error=0 (WDL head is not trained on them).
         """
         self._nn.eval()
         kl_divs_list: list[torch.Tensor] = []
-        td_errors_list: list[torch.Tensor] = []
+        wdl_errors_list: list[torch.Tensor] = []
         dataloader = DataLoader(
             dataset,
             batch_size=self._batch_size,
@@ -247,15 +253,18 @@ class Trainer:
         )
 
         for batch in dataloader:
-            x, pi_mask_batch, pi_target_batch, target_value, weight, is_internal = (b.to(self._device) for b in batch)
-            pi_tensor_batch, value_batch = self._compiled_nn(x)
+            x, pi_mask_batch, pi_target_batch, target_wdl, weight, is_internal = (b.to(self._device) for b in batch)
+            pi_tensor_batch, wdl_logits_batch = self._compiled_nn(x)
 
-            # Per-sample TD error: |v_pred - v_target|, 0 for internal nodes,
-            # dampened by weight for unfinished games (unreliable v_targets).
-            td_err = torch.abs(value_batch.squeeze() - target_value.squeeze())
+            # Per-sample TD error from expected values: |v_pred - v_target| where v = W - L.
+            # 0 for internal nodes, dampened by weight for unfinished games.
+            wdl_probs = torch.nn.functional.softmax(wdl_logits_batch, dim=-1)
+            v_pred = wdl_probs[:, 0] - wdl_probs[:, 2]
+            v_target = target_wdl[:, 0] - target_wdl[:, 2]
+            td_err = torch.abs(v_pred - v_target)
             td_err = torch.where(is_internal.squeeze(), torch.zeros_like(td_err), td_err)
             td_err = td_err * weight.squeeze()
-            td_errors_list.append(td_err.cpu())
+            wdl_errors_list.append(td_err.cpu())
 
             # Per-sample KL divergence (batched): KL(pi_target || pi_pred) over legal moves
             log_pred = self._policy_log_softmax(pi_tensor_batch, pi_mask_batch)
@@ -266,8 +275,8 @@ class Trainer:
             kl_divs_list.append(kl_per_sample.cpu())
 
         kl_array = torch.cat(kl_divs_list).numpy().astype(np.float32)
-        td_array = torch.cat(td_errors_list).numpy().astype(np.float32)
-        return kl_array, td_array
+        wdl_array = torch.cat(wdl_errors_list).numpy().astype(np.float32)
+        return kl_array, wdl_array
 
     def _report_worker_stats(self, stats_list: list[WorkerStats]) -> None:
         if self._summary_writer is None:
@@ -287,21 +296,21 @@ class Trainer:
 
         def train_epoch(dataloader: DataLoader) -> tuple[float, float, float]:
             self._nn.train()
-            # accumulator of: value_loss, policy_loss, entropy_loss
+            # accumulator of: wdl_loss, policy_loss, entropy_loss
             loss_accumulator = torch.zeros(3, dtype=torch.float64, device="cpu")  # Higher precision for accumulation
             samples_seen = 0
             for data_tuple in dataloader:
-                x, pi_mask, target_pi, target_value, weight, is_internal = (
+                x, pi_mask, target_pi, target_wdl, weight, is_internal = (
                     data.to(self._device) for data in data_tuple
                 )
                 self._optimizer.zero_grad(set_to_none=True)
-                current_pi_unsoftmaxed, current_value = self._compiled_nn(x)
-                value_loss = compute_value_loss(current_value, target_value, weight, is_internal)
+                current_pi_unsoftmaxed, current_wdl_logits = self._compiled_nn(x)
+                wdl_loss = compute_wdl_loss(current_wdl_logits, target_wdl, weight, is_internal)
                 policy_loss = compute_policy_loss(current_pi_unsoftmaxed, pi_mask, target_pi, weight)
                 entropy_loss = compute_entropy_loss(current_pi_unsoftmaxed, pi_mask, weight)
                 loss = (
                     self._policy_weight * policy_loss
-                    + self._value_weight * value_loss
+                    + self._value_weight * wdl_loss
                     + self._entropy_weight * entropy_loss
                 )
                 loss.backward()
@@ -311,24 +320,26 @@ class Trainer:
                 samples_seen += batch_size
                 batch_losses = torch.tensor(
                     [
-                        value_loss.detach().cpu().item(),
+                        wdl_loss.detach().cpu().item(),
                         policy_loss.detach().cpu().item(),
                         entropy_loss.detach().cpu().item(),
                     ],
                     dtype=torch.float64,
                 )
                 loss_accumulator += batch_losses * batch_size
-            epoch_value_loss, epoch_policy_loss, epoch_entropy_loss = tuple((loss_accumulator / samples_seen).tolist())
-            return epoch_value_loss, epoch_policy_loss, epoch_entropy_loss
+            epoch_wdl_loss, epoch_policy_loss, epoch_entropy_loss = tuple((loss_accumulator / samples_seen).tolist())
+            return epoch_wdl_loss, epoch_policy_loss, epoch_entropy_loss
 
-        def compute_value_loss(
-            current_value: torch.Tensor, target_value: torch.Tensor, weight: torch.Tensor, is_internal: torch.Tensor
+        def compute_wdl_loss(
+            wdl_logits: torch.Tensor, target_wdl: torch.Tensor, weight: torch.Tensor, is_internal: torch.Tensor
         ) -> torch.Tensor:
+            """Cross-entropy between predicted WDL (from logits) and target WDL distribution."""
             mask = (~is_internal).float()
-            unweighted_loss = torch.nn.functional.mse_loss(current_value, target_value, reduction="none")
+            log_probs = torch.nn.functional.log_softmax(wdl_logits, dim=-1)
+            # Per-sample cross-entropy: -sum(target * log_pred)
+            ce = -(target_wdl * log_probs).sum(dim=-1)
             weight_masked = weight * mask
-            unweighted_loss_masked = unweighted_loss * mask
-            return (unweighted_loss_masked * weight_masked).sum() / weight_masked.sum().clamp_min(1e-8)
+            return (ce * weight_masked).sum() / weight_masked.sum().clamp_min(1e-8)
 
         def compute_policy_loss(
             pi_tensor_unsoftmaxed: torch.Tensor, pi_mask: torch.Tensor, target_pi: torch.Tensor, weight: torch.Tensor
@@ -353,31 +364,31 @@ class Trainer:
         @torch.no_grad()
         def epoch_eval() -> tuple[float, float, float]:
             self._nn.eval()
-            epoch_value_loss = 0.0
+            epoch_wdl_loss = 0.0
             epoch_policy_loss = 0.0
             epoch_entropy_loss = 0.0
             epoch_is_internal = 0.0
             for data_tuple in test_dataloader:
-                x, pi_mask, target_pi, target_value, weight, is_internal = (
+                x, pi_mask, target_pi, target_wdl, weight, is_internal = (
                     data.to(self._device) for data in data_tuple
                 )
-                current_pi_unsoftmaxed, current_value = self._compiled_nn(x)
-                value_loss = compute_value_loss(current_value, target_value, weight, is_internal)
+                current_pi_unsoftmaxed, current_wdl_logits = self._compiled_nn(x)
+                wdl_loss = compute_wdl_loss(current_wdl_logits, target_wdl, weight, is_internal)
                 policy_loss = compute_policy_loss(current_pi_unsoftmaxed, pi_mask, target_pi, weight)
                 entropy_loss = compute_entropy_loss(current_pi_unsoftmaxed, pi_mask, weight)
-                epoch_value_loss += value_loss.mean().cpu().item() / len(test_dataloader)
+                epoch_wdl_loss += wdl_loss.mean().cpu().item() / len(test_dataloader)
                 epoch_policy_loss += policy_loss.mean().cpu().item() / len(test_dataloader)
                 epoch_entropy_loss += entropy_loss.mean().cpu().item() / len(test_dataloader)
                 epoch_is_internal += is_internal.float().mean().cpu().item() / len(test_dataloader)
             if self._summary_writer is not None:
                 self._summary_writer.add_scalar("eval/policy-loss", epoch_policy_loss, global_step=self._eval_step)
-                self._summary_writer.add_scalar("eval/value-loss", epoch_value_loss, global_step=self._eval_step)
+                self._summary_writer.add_scalar("eval/wdl-loss", epoch_wdl_loss, global_step=self._eval_step)
                 self._summary_writer.add_scalar("eval/entropy-loss", epoch_entropy_loss, global_step=self._eval_step)
                 self._summary_writer.add_scalar(
                     "eval/effective-frac-internal", epoch_is_internal, global_step=self._eval_step
                 )
                 self._eval_step += 1
-            return epoch_value_loss, epoch_policy_loss, epoch_entropy_loss
+            return epoch_wdl_loss, epoch_policy_loss, epoch_entropy_loss
 
         train_data, test_data = dataset.split(0.9)
         test_dataloader = DataLoader(
@@ -389,7 +400,7 @@ class Trainer:
             prefetch_factor=3,
         )
 
-        total_value_loss = 0.0
+        total_wdl_loss = 0.0
         total_policy_loss = 0.0
         total_entropy_loss = 0.0
         with tqdm(desc="nn-update", total=self._epochs_per_update) as pbar:
@@ -404,21 +415,21 @@ class Trainer:
                     prefetch_factor=3,
                 )
                 train_epoch(train_dataloader)
-                epoch_test_value_loss, epoch_test_policy_loss, epoch_test_entropy_loss = epoch_eval()
-                total_value_loss += epoch_test_value_loss / self._epochs_per_update
+                epoch_test_wdl_loss, epoch_test_policy_loss, epoch_test_entropy_loss = epoch_eval()
+                total_wdl_loss += epoch_test_wdl_loss / self._epochs_per_update
                 total_policy_loss += epoch_test_policy_loss / self._epochs_per_update
                 total_entropy_loss += epoch_test_entropy_loss / self._epochs_per_update
                 pbar.set_postfix(
                     {
-                        "pi": round(epoch_test_value_loss, 5),
-                        "v": round(epoch_test_policy_loss, 5),
+                        "pi": round(epoch_test_policy_loss, 5),
+                        "wdl": round(epoch_test_wdl_loss, 5),
                         "e": round(epoch_test_entropy_loss, 5),
                     }
                 )
                 pbar.update(1)
         if self._summary_writer is not None:
             self._summary_writer.add_scalar("trainer/policy-loss", total_policy_loss, global_step=self._global_step)
-            self._summary_writer.add_scalar("trainer/value-loss", total_value_loss, global_step=self._global_step)
+            self._summary_writer.add_scalar("trainer/wdl-loss", total_wdl_loss, global_step=self._global_step)
             self._summary_writer.add_scalar("trainer/entropy-loss", total_entropy_loss, global_step=self._global_step)
 
         self._flush_gradient_stats()

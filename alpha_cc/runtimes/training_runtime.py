@@ -54,10 +54,12 @@ class TrainingRunTime:
                     rollout_depth=rollout_depth,
                     temperature=action_temperature,
                 )
+                # WDL placeholder — gets overwritten by value assignment strategy
+                wdl_placeholder = ((1 + value) / 2, 0.0, (1 - value) / 2)
                 experience = MCTSExperience(
                     state=GameState(board),
                     pi_target=pi,
-                    v_target=value,
+                    wdl_target=wdl_placeholder,
                 )
                 trajectory.append(experience)
 

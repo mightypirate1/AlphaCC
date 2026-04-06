@@ -54,7 +54,7 @@ impl<T: PredictionSource> MCTS<T> {
     ) -> f32 {
         let info = board.get_info();
         if info.game_over {
-            return -info.reward;
+            return -info.wdl.to_value();
         }
 
         if let Some(data) = self.tree.visit(board, thread_id) {
@@ -87,7 +87,7 @@ impl<T: PredictionSource> MCTS<T> {
 
     fn new_leaf_for(&self, board: &Board, service: &T, model_id: u32) -> MCTSNode {
         let nn_pred = service.predict(board, model_id);
-        let v = nn_pred.value();
+        let v = nn_pred.expected_value();
         let mut pi = nn_pred.pi();
         let num_actions = pi.len();
 

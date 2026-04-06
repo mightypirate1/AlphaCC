@@ -87,14 +87,14 @@ class TrainingDataset(Dataset):
         x = state_tensor(exp.state)
         pi_mask = torch.as_tensor(exp.state.action_mask)
         pi_target = self._create_pi_target_tensor(exp)
-        value_target = torch.as_tensor(exp.v_target)
+        wdl_target = torch.as_tensor(exp.wdl_target)
         weight = torch.as_tensor(exp.weight)
         is_internal_node = torch.as_tensor(exp.is_internal_node)
         return (
             x.float(),
             pi_mask.bool(),
             pi_target.float(),
-            value_target.float(),
+            wdl_target.float(),
             weight.float(),
             is_internal_node.bool(),
         )
@@ -154,11 +154,11 @@ class TrainingDataset(Dataset):
         kl: np.ndarray,
         td: np.ndarray,
     ) -> None:
-        v_targets = np.array([e.v_target for e in sampled_exps])
+        wdl_targets = np.array([e.wdl_target for e in sampled_exps])
         is_internal = np.array([e.is_internal_node for e in sampled_exps])
         is_terminal = np.array([e.weight == 1.0 and not e.is_internal_node for e in sampled_exps])
 
-        writer.add_histogram("per/v-target-sampled", v_targets, global_step=step)
+        writer.add_histogram("per/wdl-target-value-sampled", wdl_targets[:, 0] - wdl_targets[:, 2], global_step=step)
         writer.add_scalar("per/frac-internal-sampled", is_internal.mean(), global_step=step)
         writer.add_scalar("per/frac-terminal-sampled", is_terminal.mean(), global_step=step)
         writer.add_histogram("per/priority", priority, global_step=step)
@@ -219,7 +219,7 @@ class TrainingDataset(Dataset):
         exp = MCTSExperience(
             state=state,
             pi_target=pi_target,
-            v_target=0.0,
+            wdl_target=(0.0, 1.0, 0.0),  # pure uncertainty (draw) for internal nodes
             weight=self._weighter.weigh_internal_node(state, node) if self._weighter else 1.0,
             is_internal_node=True,
         )
@@ -231,7 +231,7 @@ class TrainingDataset(Dataset):
             self.add_internal_node(state, node)
 
     # Implausibly high init values so new samples rank highest until measured.
-    # td_error: values in [-1,1] so max error is 2.  kl_div: rarely exceeds ~10.
+    # wdl_error: cross-entropy typically in [0, 2].  kl_div: rarely exceeds ~10.
     _INIT_TD_ERROR = 2.0
     _INIT_KL_DIV = 10.0
 

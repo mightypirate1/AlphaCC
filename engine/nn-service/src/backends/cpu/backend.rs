@@ -58,7 +58,7 @@ pub struct CpuEncoded {
 
 pub struct CpuInferred {
     pub policy: Vec<f32>,
-    pub value: Vec<f32>,
+    pub wdl: Vec<f32>,
     pub batch_size: usize,
     pub game_size: usize,
 }
@@ -105,7 +105,7 @@ impl Backend for CpuBackend {
 
                 return CpuInferred {
                     policy: policy_slice.to_vec(),
-                    value: value_slice.to_vec(),
+                    wdl: value_slice.to_vec(),
                     batch_size: n,
                     game_size: s,
                 };
@@ -120,16 +120,17 @@ impl Backend for CpuBackend {
         let s4 = output.game_size.pow(4);
         let mut decoded = Vec::with_capacity(output.batch_size);
         for i in 0..output.batch_size {
-            let v = output.value[i];
             let pi_row = &output.policy[i * s4..(i + 1) * s4];
+            let wdl_row = &output.wdl[i * 3..(i + 1) * 3];
             let pi_bytes: Vec<u8> = bytemuck::cast_slice(pi_row).to_vec();
-            decoded.push((pi_bytes, v));
+            let wdl_bytes: Vec<u8> = bytemuck::cast_slice(wdl_row).to_vec();
+            decoded.push((pi_bytes, wdl_bytes));
         }
         decoded
     }
 
-    fn respond(&self, pi_bytes: Vec<u8>, value: f32, move_bytes: Vec<u8>) -> DecodedPrediction {
-        crate::backends::respond::respond(&pi_bytes, value, &move_bytes, self.game_size as usize)
+    fn respond(&self, pi_bytes: Vec<u8>, wdl_bytes: Vec<u8>, move_bytes: Vec<u8>) -> DecodedPrediction {
+        crate::backends::respond::respond(&pi_bytes, wdl_bytes, &move_bytes, self.game_size as usize)
     }
 
     fn compile_model(&self, model: CpuSession) -> anyhow::Result<CpuSession> {

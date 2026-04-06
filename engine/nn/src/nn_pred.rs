@@ -1,16 +1,16 @@
-use crate::nn_dtypes::{NNQuantizedPi, NNQuantizedValue};
+use crate::nn_dtypes::{NNQuantizedPi, NNQuantizedWDL};
 
 #[derive(Clone, bitcode::Encode, bitcode::Decode)]
 pub struct NNPred {
     quant_pi: Vec<NNQuantizedPi>,
-    quant_value: NNQuantizedValue,
+    quant_wdl: NNQuantizedWDL,
 }
 
 impl NNPred {
-    pub fn new(pi: Vec<f32>, value: f32) -> Self {
+    pub fn new(pi: Vec<f32>, wdl: [f32; 3]) -> Self {
         NNPred {
             quant_pi: NNQuantizedPi::quantize_vec(&pi),
-            quant_value: NNQuantizedValue::quantize(value),
+            quant_wdl: NNQuantizedWDL::quantize(wdl),
         }
     }
 
@@ -18,8 +18,18 @@ impl NNPred {
         self.quant_pi.iter().map(|q| q.dequantize()).collect()
     }
 
+    pub fn wdl(&self) -> [f32; 3] {
+        self.quant_wdl.dequantize()
+    }
+
+    /// Expected value = P(win) - P(loss), computed efficiently in quantized space.
+    pub fn expected_value(&self) -> f32 {
+        self.quant_wdl.expected_value()
+    }
+
+    /// Backward-compatible alias for expected_value().
     pub fn value(&self) -> f32 {
-        self.quant_value.dequantize()
+        self.expected_value()
     }
 
     pub fn serialize(&self) -> Vec<u8> {
@@ -33,4 +43,3 @@ impl NNPred {
             })
     }
 }
-

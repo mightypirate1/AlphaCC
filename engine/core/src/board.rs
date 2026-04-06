@@ -11,7 +11,7 @@ and less bug prone
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-use crate::{BoardInfo, HexCoord, Move};
+use crate::{BoardInfo, HexCoord, Move, WDL};
 use crate::moves::find_all_moves;
 use crate::dtypes;
 
@@ -131,23 +131,22 @@ impl Board {
         hasher.finish()
     }
 
-    pub fn compute_reward_and_winner(&self) -> (f32, i8) {
+    pub fn compute_wdl_and_winner(&self) -> (WDL, i8) {
         /*
-        compute the reward for a board that may or may not be terminal.
+        Compute WDL (win/draw/loss) and winner for a board state.
 
-        for terminal states:
-            the reward is 1 if the current player wins, -1 if the opponent wins.
+        For terminal states:
+            Winner determined, WDL is one-hot from current player's perspective.
 
-        for non-terminal states:
-            - let the score for a player be the number of stones they have in the opponents home.
-            - the reward is then the difference in score divided by the number of stones that fit
-                in a home region.
-
+        For non-terminal states:
+            P(win) and P(loss) scale with how many pieces each player has landed
+            in the goal. P(draw) scales with the unresolved portion.
          */
         let s = self.size;
         let hs = self.home_size;
+        let cap = self.home_capacity as f32;
 
-        let mut n_p1_stones_in_p2_home = 0;
+        let mut n_p1_stones_in_p2_home: i32 = 0;
         let mut goal_is_full: bool = true;
         for x in (s-hs)..s {
             for y in (s-hs)..s {
@@ -163,13 +162,12 @@ impl Board {
                 }
             }
         }
-        // p1 wins
+        // p1 wins (current player)
         if goal_is_full && n_p1_stones_in_p2_home > 0 {
-            return (1.0, self.current_player);
+            return (WDL::win(), self.current_player);
         }
 
-
-        let mut n_p2_stones_in_p1_home = 0;
+        let mut n_p2_stones_in_p1_home: i32 = 0;
         goal_is_full = true;
         for x in 0..hs {
             for y in 0..hs {
@@ -185,14 +183,24 @@ impl Board {
                 }
             }
         }
-        // p2 wins
+        // p2 wins (opponent)
         if goal_is_full && n_p2_stones_in_p1_home > 0 {
-            return (-1.0, 3 - self.current_player);
+            return (WDL::loss(), 3 - self.current_player);
         }
 
-        // non-terminal state
-        let reward = (n_p1_stones_in_p2_home - n_p2_stones_in_p1_home) as f32 / self.home_capacity as f32;
-        (reward, 0)
+        // Non-terminal: heuristic WDL from current player's perspective.
+        // P(win) scales with my progress, P(loss) with their progress,
+        // P(draw) represents the unresolved portion.
+        let my_progress = n_p1_stones_in_p2_home as f32 / cap;
+        let their_progress = n_p2_stones_in_p1_home as f32 / cap;
+        let unresolved = 1.0 - my_progress.max(their_progress);
+        let total = my_progress + their_progress + unresolved;
+        let wdl = WDL {
+            win: my_progress / total,
+            draw: unresolved / total,
+            loss: their_progress / total,
+        };
+        (wdl, 0)
     }
 
     #[allow(clippy::needless_range_loop)]
@@ -339,11 +347,11 @@ impl Board {
 
 impl Board {
     pub fn get_info(&self) -> BoardInfo {
-        let (reward, winner) = self.compute_reward_and_winner();
+        let (wdl, winner) = self.compute_wdl_and_winner();
         BoardInfo {
             current_player: self.current_player,
             winner,
-            reward,
+            wdl,
             size: self.size,
             duration: self.duration,
             game_over: winner > 0,

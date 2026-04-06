@@ -154,7 +154,8 @@ class StandaloneMCTSAgent(MCTSAgent):
         # - (if depth not reached) initialize the node with nn estimates and zeros for N(s,a), and Q(s,a)
         # - return value from the perspective of the player on the previous move
         if state.board not in self.node_store or remaining_depth == 0:
-            pi, v_hat = self.nn.evaluate_state(state)
+            pi, wdl = self.nn.evaluate_state(state)
+            v_hat = float(wdl[0] - wdl[2])  # expected value = P(win) - P(loss)
             if remaining_depth > 0:
                 add_as_new_node(pi, v_hat)
             return -v_hat
