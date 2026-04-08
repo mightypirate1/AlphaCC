@@ -137,6 +137,40 @@ impl From<NNQuantizedValue> for i16 {
 }
 
 
+/// Quantized WDL (win/draw/loss) probabilities.
+/// Each component is a `NNQuantizedPi` (Q0.16 in [0,1]).
+#[derive(Copy, Clone, Debug, PartialEq, Eq, bitcode::Encode, bitcode::Decode)]
+pub struct NNQuantizedWDL([NNQuantizedPi; 3]);
+
+impl NNQuantizedWDL {
+    #[inline]
+    pub fn quantize(wdl: [f32; 3]) -> Self {
+        NNQuantizedWDL([
+            NNQuantizedPi::quantize(wdl[0]),
+            NNQuantizedPi::quantize(wdl[1]),
+            NNQuantizedPi::quantize(wdl[2]),
+        ])
+    }
+
+    #[inline]
+    pub fn dequantize(self) -> [f32; 3] {
+        [
+            self.0[0].dequantize(),
+            self.0[1].dequantize(),
+            self.0[2].dequantize(),
+        ]
+    }
+
+    /// Expected value = P(win) - P(loss), computed in quantized space.
+    #[inline]
+    pub fn expected_value(self) -> f32 {
+        let w = self.0[0].raw() as i32;
+        let l = self.0[2].raw() as i32;
+        (w - l) as f32 / NNQuantizedPi::SCALE
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;

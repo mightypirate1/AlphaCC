@@ -25,7 +25,7 @@ pub fn nn_inference(
     // Pre-allocate output tensors on GPU — shapes must match model outputs
     let policy_out = DynTensor::new(allocator, TensorElementType::Float32, [batch_size, s, s, s, s])
         .expect("failed to allocate policy output");
-    let value_out = DynTensor::new(allocator, TensorElementType::Float32, [batch_size])
+    let value_out = DynTensor::new(allocator, TensorElementType::Float32, [batch_size, 3])
         .expect("failed to allocate value output");
 
     // Bind outputs via raw C API so we keep ownership (the safe bind_output moves the value)

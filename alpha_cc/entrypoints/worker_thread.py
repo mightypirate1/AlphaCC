@@ -10,6 +10,7 @@ from alpha_cc.agents.mcts.mcts_agent import MCTSAgent
 from alpha_cc.agents.value_assignment import (
     DefaultAssignmentStrategy,
     HeuristicAssignmentStrategy,
+    TDLambdaAssignmentStrategy,
     ValueAssignmentStrategy,
 )
 from alpha_cc.config import Environment
@@ -36,6 +37,7 @@ logger = logging.getLogger(__file__)
 @click.option("--gamma", type=float, default=1.0)
 @click.option("--heuristic", is_flag=True, default=False)
 @click.option("--non-terminal-value-weight", type=float, default=0.1)
+@click.option("--td-lambda", type=float, default=None, help="TD(lambda) blending factor. Enables soft MCTS WDL targets.")
 @click.option("--internal-nodes-fraction", type=str, default="0.0")
 @click.option("--internal-nodes-min-visits", type=str, default="1")
 @click.option("--n-threads", type=int, default=1)
@@ -55,6 +57,7 @@ def main(
     gamma: float,
     heuristic: bool,
     non_terminal_value_weight: float,
+    td_lambda: float | None,
     internal_nodes_fraction: str,
     internal_nodes_min_visits: str,
     n_threads: int,
@@ -90,7 +93,7 @@ def main(
     training_db = TrainingDB(host=Environment.redis_host_main)
     games_db = GamesDB(host=Environment.redis_host_main)
 
-    value_assignment_strategy = create_value_assignment_strategy(size, gamma, heuristic, non_terminal_value_weight)
+    value_assignment_strategy = create_value_assignment_strategy(size, gamma, heuristic, non_terminal_value_weight, td_lambda)
     training_runtime = TrainingRunTime(Board(size), value_assignment_strategy)
     tournament_runtime = TournamentRuntime(
         size, training_db, games_db, max_game_length=max_game_length_schedule.as_int(0)
@@ -124,8 +127,10 @@ def main(
 
 
 def create_value_assignment_strategy(
-    size: int, gamma: float, heuristic: bool, non_terminal_weight: float
+    size: int, gamma: float, heuristic: bool, non_terminal_weight: float, td_lambda: float | None = None
 ) -> ValueAssignmentStrategy:
+    if td_lambda is not None:
+        return TDLambdaAssignmentStrategy(gamma=gamma, lambda_=td_lambda, non_terminal_weight=non_terminal_weight)
     if heuristic:
         return HeuristicAssignmentStrategy(size, gamma)
     return DefaultAssignmentStrategy(gamma, non_terminal_weight=non_terminal_weight)

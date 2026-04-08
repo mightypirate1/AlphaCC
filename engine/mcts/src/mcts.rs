@@ -5,6 +5,7 @@ use alpha_cc_nn::PredictionSource;
 use alpha_cc_core::Board;
 use alpha_cc_core::moves::find_all_moves;
 use crate::mcts_node::MCTSNode;
+use crate::outcome::Outcome;
 use crate::noise;
 use crate::tree::Tree;
 
@@ -44,6 +45,7 @@ impl<T: PredictionSource> MCTS<T> {
     }
 
     /// Perform a single rollout from `board` down the tree.
+    /// Returns (value, outcome) from the caller's (parent's) perspective.
     fn rollout(
         &self,
         model_id: u32,
@@ -51,15 +53,16 @@ impl<T: PredictionSource> MCTS<T> {
         remaining_depth: usize,
         root_noise: &Option<Vec<f32>>,
         thread_id: usize,
-    ) -> f32 {
+    ) -> (f32, Option<Outcome>) {
         let info = board.get_info();
         if info.game_over {
-            return -info.reward;
+            let outcome = Outcome::from_wdl(&info.wdl);
+            return (-info.wdl.to_value(), Some(outcome.flip()));
         }
 
         if let Some(data) = self.tree.visit(board, thread_id) {
             if remaining_depth == 0 {
-                return -data.get_v();
+                return (-data.get_v(), None);
             }
 
             let a = self.find_best_action(&data, root_noise);
@@ -70,24 +73,28 @@ impl<T: PredictionSource> MCTS<T> {
             data.apply_virtual_loss(a);
             drop(data);
 
-            let v = self.rollout(model_id, &s_prime, remaining_depth - 1, &None, thread_id);
+            let (v, outcome) = self.rollout(model_id, &s_prime, remaining_depth - 1, &None, thread_id);
 
             let data = self.tree.get_data(board)
                 .expect("node data disappeared mid-rollout");
+            if let Some(o) = outcome {
+                data.tick_outcome(o);
+            }
             data.resolve_virtual_loss(a, self.mcts_params.gamma * v);
 
-            return -(self.mcts_params.gamma * v);
+            return (-(self.mcts_params.gamma * v), outcome.map(|o| o.flip()));
         }
 
         let node = self.new_leaf_for(board, &self.services[thread_id], model_id);
         let v = node.v.dequantize();
         self.tree.insert(board, node);
-        -v
+        (-v, None)
     }
 
     fn new_leaf_for(&self, board: &Board, service: &T, model_id: u32) -> MCTSNode {
         let nn_pred = service.predict(board, model_id);
-        let v = nn_pred.value();
+        let v = nn_pred.expected_value();
+        let nn_wdl = nn_pred.quant_wdl();
         let mut pi = nn_pred.pi();
         let num_actions = pi.len();
 
@@ -95,7 +102,7 @@ impl<T: PredictionSource> MCTS<T> {
             noise::apply_dirichlet_noise(&mut pi, &self.mcts_params);
         }
 
-        MCTSNode::new(pi, v, num_actions)
+        MCTSNode::new(pi, v, nn_wdl, num_actions)
     }
 
     pub fn notify_move_applied(&self, board: &Board) {
@@ -130,7 +137,7 @@ impl<T: PredictionSource> MCTS<T> {
         n_rollouts: usize,
         rollout_depth: usize,
         temperature: f32,
-    ) -> (Vec<f32>, f32) {
+    ) -> (Vec<f32>, f32, [f32; 3]) {
         let n_threads = self.services.len().min(n_rollouts);
         let rollouts_per_thread = n_rollouts / n_threads;
         let remainder = n_rollouts % n_threads;
@@ -159,7 +166,7 @@ impl<T: PredictionSource> MCTS<T> {
                     let mut local_sum = 0.0f64;
                     for _ in 0..count {
                         self.tree.begin_rollout(thread_id);
-                        let v = self.rollout(model_id, &board, rollout_depth, &noise, thread_id);
+                        let (v, _outcome) = self.rollout(model_id, &board, rollout_depth, &noise, thread_id);
                         local_sum += (-v) as f64;
                     }
                     local_sum
@@ -175,6 +182,14 @@ impl<T: PredictionSource> MCTS<T> {
         tree.finalize_rollouts(board);
 
         let mean_value = (value_sum / n_rollouts as f64) as f32;
+
+        // Read root node's blended WDL (Bayesian prior + empirical counts)
+        let root_wdl = if let Some(data) = self.tree.get_data(board) {
+            let wdl = data.blended_wdl();
+            [wdl.win, wdl.draw, wdl.loss]
+        } else {
+            [0.0, 1.0, 0.0] // pure uncertainty fallback
+        };
 
         // Build pi from root node visit counts
         let pi = if let Some(data) = self.tree.get_data(board) {
@@ -204,7 +219,7 @@ impl<T: PredictionSource> MCTS<T> {
             vec![1.0 / n as f32; n]
         };
 
-        (pi, mean_value)
+        (pi, mean_value, root_wdl)
     }
 
     fn find_best_action(&self, data: &MCTSNode, root_noise: &Option<Vec<f32>>) -> usize {

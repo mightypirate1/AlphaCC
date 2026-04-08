@@ -1,6 +1,9 @@
 use std::sync::atomic::{AtomicI32, AtomicU32, Ordering::Relaxed};
 
-use alpha_cc_nn::{NNQuantizedPi, NNQuantizedValue};
+use alpha_cc_core::WDL;
+use alpha_cc_nn::{NNQuantizedPi, NNQuantizedValue, NNQuantizedWDL};
+
+use crate::outcome::Outcome;
 
 /// Fixed-point scale for cumulative value sums (Q16.16).
 const W_SCALE: f32 = 65536.0;
@@ -12,8 +15,13 @@ pub struct MCTSNode {
 
     pub pi: Vec<NNQuantizedPi>,
     pub v: NNQuantizedValue,
+    pub nn_wdl: NNQuantizedWDL,
     pub n: Vec<AtomicU32>,
     pub w: Vec<AtomicI32>,
+    /// Empirical WDL outcome counters (ticked by rollouts that reach terminals).
+    pub n_win: AtomicU32,
+    pub n_draw: AtomicU32,
+    pub n_loss: AtomicU32,
     /// Reference count: total rollout visits. Used by tree pruning.
     pub refcount: AtomicU32,
 }
@@ -25,12 +33,16 @@ impl Clone for MCTSNode {
 }
 
 impl MCTSNode {
-    pub fn new(pi: Vec<f32>, v: f32, num_actions: usize) -> Self {
+    pub fn new(pi: Vec<f32>, v: f32, nn_wdl: NNQuantizedWDL, num_actions: usize) -> Self {
         Self {
             pi: NNQuantizedPi::quantize_vec(&pi),
             v: NNQuantizedValue::quantize(v),
+            nn_wdl,
             n: (0..num_actions).map(|_| AtomicU32::new(0)).collect(),
             w: (0..num_actions).map(|_| AtomicI32::new(0)).collect(),
+            n_win: AtomicU32::new(0),
+            n_draw: AtomicU32::new(0),
+            n_loss: AtomicU32::new(0),
             refcount: AtomicU32::new(1),
         }
     }
@@ -40,8 +52,12 @@ impl MCTSNode {
         MCTSNode {
             pi: self.pi.clone(),
             v: self.v,
+            nn_wdl: self.nn_wdl,
             n: self.n.iter().map(|a| AtomicU32::new(a.load(Relaxed))).collect(),
             w: self.w.iter().map(|a| AtomicI32::new(a.load(Relaxed))).collect(),
+            n_win: AtomicU32::new(self.n_win.load(Relaxed)),
+            n_draw: AtomicU32::new(self.n_draw.load(Relaxed)),
+            n_loss: AtomicU32::new(self.n_loss.load(Relaxed)),
             refcount: AtomicU32::new(self.refcount.load(Relaxed)),
         }
     }
@@ -53,6 +69,29 @@ impl MCTSNode {
             + n_actions * std::mem::size_of::<NNQuantizedPi>()
             + n_actions * std::mem::size_of::<AtomicU32>()
             + n_actions * std::mem::size_of::<AtomicI32>()
+    }
+
+    /// Tick the appropriate WDL counter for an observed rollout outcome.
+    pub fn tick_outcome(&self, outcome: Outcome) {
+        match outcome {
+            Outcome::Win  => { self.n_win.fetch_add(1, Relaxed); }
+            Outcome::Draw => { self.n_draw.fetch_add(1, Relaxed); }
+            Outcome::Loss => { self.n_loss.fetch_add(1, Relaxed); }
+        }
+    }
+
+    /// Bayesian-blended WDL: NN prior (pseudo-count 1) mixed with empirical counts.
+    pub fn blended_wdl(&self) -> WDL {
+        let nn = self.nn_wdl.dequantize();
+        let nw = self.n_win.load(Relaxed) as f32;
+        let nd = self.n_draw.load(Relaxed) as f32;
+        let nl = self.n_loss.load(Relaxed) as f32;
+        let total = 1.0 + nw + nd + nl;
+        WDL {
+            win:  (nn[0] + nw) / total,
+            draw: (nn[1] + nd) / total,
+            loss: (nn[2] + nl) / total,
+        }
     }
 
     #[inline]

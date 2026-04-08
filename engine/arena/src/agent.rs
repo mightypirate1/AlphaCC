@@ -157,7 +157,7 @@ fn ai_thread(
         }
 
         // Do one batch of rollouts
-        let (pi, value) = mcts.run_rollout_threads(&board, rollouts_per_batch, rollout_depth, 1.0);
+        let (pi, value, _) = mcts.run_rollout_threads(&board, rollouts_per_batch, rollout_depth, 1.0);
         total_rollouts += rollouts_per_batch;
 
         // Extract NN data from the root node

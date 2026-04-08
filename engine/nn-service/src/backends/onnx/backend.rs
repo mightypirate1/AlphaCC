@@ -225,8 +225,8 @@ impl Backend for OnnxBackend {
         decoder::decode(output, self.game_size)
     }
 
-    fn respond(&self, pi_bytes: Vec<u8>, value: f32, move_bytes: Vec<u8>) -> DecodedPrediction {
-        crate::backends::respond::respond(&pi_bytes, value, &move_bytes, self.game_size as usize)
+    fn respond(&self, pi_bytes: Vec<u8>, wdl_bytes: Vec<u8>, move_bytes: Vec<u8>) -> DecodedPrediction {
+        crate::backends::respond::respond(&pi_bytes, wdl_bytes, &move_bytes, self.game_size as usize)
     }
 
     fn compile_model(&self, model: OnnxSession) -> anyhow::Result<OnnxSession> {

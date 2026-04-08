@@ -5,23 +5,32 @@ use crate::prediction_source::PredictionSource;
 
 /// A deterministic prediction source for testing.
 ///
-/// Returns a uniform policy over legal moves and a fixed value.
+/// Returns a uniform policy over legal moves and a fixed WDL.
 /// Optionally biases the first legal move to have higher probability.
 pub struct MockPredictor {
-    value: f32,
+    wdl: [f32; 3],
     /// If > 0, the first move gets this fraction of the total probability.
     first_move_bias: f32,
 }
 
 impl MockPredictor {
-    /// Uniform policy, fixed value.
+    /// Uniform policy, fixed expected value. WDL derived as [w, 0, l] where w-l = value.
     pub fn uniform(value: f32) -> Self {
-        Self { value, first_move_bias: 0.0 }
+        let v = value.clamp(-1.0, 1.0);
+        let wdl = [(1.0 + v) / 2.0, 0.0, (1.0 - v) / 2.0];
+        Self { wdl, first_move_bias: 0.0 }
     }
 
     /// Biased policy: first move gets `bias` fraction, rest is uniform.
     pub fn biased(value: f32, first_move_bias: f32) -> Self {
-        Self { value, first_move_bias }
+        let v = value.clamp(-1.0, 1.0);
+        let wdl = [(1.0 + v) / 2.0, 0.0, (1.0 - v) / 2.0];
+        Self { wdl, first_move_bias }
+    }
+
+    /// Explicit WDL values.
+    pub fn with_wdl(wdl: [f32; 3], first_move_bias: f32) -> Self {
+        Self { wdl, first_move_bias }
     }
 }
 
@@ -37,6 +46,6 @@ impl PredictionSource for MockPredictor {
         } else {
             vec![1.0 / n as f32; n]
         };
-        NNPred::new(pi, self.value)
+        NNPred::new(pi, self.wdl)
     }
 }

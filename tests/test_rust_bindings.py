@@ -34,17 +34,17 @@ def test_rendering(board: Board) -> None:
 @pytest.mark.parametrize("size", [3, 5, 7, 9])
 @pytest.mark.parametrize("batch_size", [1, 32, 512])
 def test_post_preds_array_contiguity(size: int, batch_size: int) -> None:
-    """Verify that the numpy arrays passed to post_preds_from_logits are C-contiguous,
+    """Verify that the numpy arrays passed to preds_from_logits are C-contiguous,
     as required by PyO3's PyReadonlyArray1::as_slice()."""
     # Simulate NN output shapes
     x_pis = torch.randn(batch_size, size, size, size, size)
-    x_vals = torch.randn(batch_size)
+    x_wdl = torch.randn(batch_size, 3)
 
     # Same transforms as _post_predictions
     logits_np = x_pis.numpy().ravel()
-    values_np = x_vals.numpy().ravel()
+    wdl_np = x_wdl.numpy().ravel()
 
     assert logits_np.flags["C_CONTIGUOUS"], "logits array is not contiguous"
-    assert values_np.flags["C_CONTIGUOUS"], "values array is not contiguous"
+    assert wdl_np.flags["C_CONTIGUOUS"], "wdl_logits array is not contiguous"
     assert logits_np.dtype == np.float32
-    assert values_np.dtype == np.float32
+    assert wdl_np.dtype == np.float32

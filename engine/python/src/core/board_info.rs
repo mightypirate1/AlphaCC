@@ -10,6 +10,7 @@ pub struct PyBoardInfo {
     pub duration: u16,
     pub game_over: bool,
     pub reward: f32,
+    pub wdl: (f32, f32, f32),
 }
 
 impl From<alpha_cc_core::BoardInfo> for PyBoardInfo {
@@ -20,7 +21,8 @@ impl From<alpha_cc_core::BoardInfo> for PyBoardInfo {
             size: bi.size,
             duration: bi.duration,
             game_over: bi.game_over,
-            reward: bi.reward,
+            reward: bi.wdl.to_value(),
+            wdl: (bi.wdl.win, bi.wdl.draw, bi.wdl.loss),
         }
     }
 }
@@ -30,10 +32,11 @@ impl From<alpha_cc_core::BoardInfo> for PyBoardInfo {
 impl PyBoardInfo {
     fn __repr__(&self) -> String {
         format!(
-            "BoardInfo[\n  game_over: {}\n  current_player: {}\n  winner: {}\n  reward: {}\n  duration: {}\n  size: {}\n]",
+            "BoardInfo[\n  game_over: {}\n  current_player: {}\n  winner: {}\n  wdl: ({:.3}, {:.3}, {:.3})\n  reward: {:.3}\n  duration: {}\n  size: {}\n]",
             self.game_over,
             self.current_player,
             self.winner,
+            self.wdl.0, self.wdl.1, self.wdl.2,
             self.reward,
             self.duration,
             self.size,

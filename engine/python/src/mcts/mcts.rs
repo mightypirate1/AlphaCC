@@ -51,7 +51,7 @@ impl PyMCTS {
     }
 
     fn run(&self, board: &PyBoard, rollout_depth: usize) -> f32 {
-        let (_, value) = self.0.run_rollout_threads(&board.0, 1, rollout_depth, 1.0);
+        let (_, value, _) = self.0.run_rollout_threads(&board.0, 1, rollout_depth, 1.0);
         value
     }
 
@@ -63,12 +63,12 @@ impl PyMCTS {
         n_rollouts: usize,
         rollout_depth: usize,
         temperature: f32,
-    ) -> (Bound<'py, numpy::PyArray1<f32>>, f32) {
-        let (pi, mean_value) = self.0.run_rollout_threads(&board.0, n_rollouts, rollout_depth, temperature);
+    ) -> (Bound<'py, numpy::PyArray1<f32>>, f32, [f32; 3]) {
+        let (pi, mean_value, wdl) = self.0.run_rollout_threads(&board.0, n_rollouts, rollout_depth, temperature);
         let pi_arr = numpy::IntoPyArray::into_pyarray(
             numpy::ndarray::Array1::from_vec(pi), py,
         );
-        (pi_arr, mean_value)
+        (pi_arr, mean_value, wdl)
     }
 
     fn get_node(&self, board: &PyBoard) -> Option<PyMCTSNode> {
