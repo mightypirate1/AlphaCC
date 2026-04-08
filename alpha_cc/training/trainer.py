@@ -439,16 +439,8 @@ class Trainer:
         kl_divs, td_errors = self._compute_sample_errors_batched(dataset)
         return kl_divs, td_errors
 
-    _PARAM_GROUPS = ("encoder", "global-encoder", "local-encoder", "policy-head", "value-head")
-
     def _get_param_group_modules(self) -> dict[str, torch.nn.Module]:
-        return {
-            "encoder": self._nn._encoder,
-            "global-encoder": self._nn._global_encoder,
-            "local-encoder": self._nn._local_encoder,
-            "policy-head": self._nn._policy_head,
-            "value-head": self._nn._value_combined,
-        }
+        return self._nn.param_groups()
 
     def _reset_gradient_stats(self) -> None:
         self._grad_stats: dict[str, dict[str, float]] = {
@@ -459,7 +451,7 @@ class Trainer:
                 "weight-norm-sq": 0.0,
                 "weight-max": 0.0,
             }
-            for name in self._PARAM_GROUPS
+            for name in self._get_param_group_modules()
         }
 
     @torch.no_grad()

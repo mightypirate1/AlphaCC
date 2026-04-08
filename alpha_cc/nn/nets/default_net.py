@@ -64,6 +64,14 @@ class DefaultNet(torch.nn.Module):
         x_wdl = self._value_head(self._value_encoder(x_enc))
         return x_pi, x_wdl
 
+    def param_groups(self) -> dict[str, torch.nn.Module]:
+        return {
+            "encoder": self._encoder,
+            "value-encoder": self._value_encoder,
+            "policy-head": self._policy_head,
+            "value-head": self._value_head,
+        }
+
     @torch.no_grad()
     def evaluate_state(self, state: GameState) -> tuple[np.ndarray, np.ndarray]:
         """Returns (pi_probs, wdl_probs) where wdl_probs is [win, draw, loss]."""
