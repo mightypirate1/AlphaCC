@@ -22,6 +22,10 @@ impl NNPred {
         self.quant_wdl.dequantize()
     }
 
+    pub fn quant_wdl(&self) -> NNQuantizedWDL {
+        self.quant_wdl
+    }
+
     /// Expected value = P(win) - P(loss), computed efficiently in quantized space.
     pub fn expected_value(&self) -> f32 {
         self.quant_wdl.expected_value()

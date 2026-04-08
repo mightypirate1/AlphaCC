@@ -20,6 +20,15 @@ impl WDL {
     pub fn flip(&self) -> Self {
         Self { win: self.loss, draw: self.draw, loss: self.win }
     }
+
+    /// Discount WDL by mixing toward draw (uncertainty). gamma=1 keeps unchanged.
+    pub fn mix_toward_draw(&self, gamma: f32) -> Self {
+        Self {
+            win:  gamma * self.win,
+            draw: gamma * self.draw + (1.0 - gamma),
+            loss: gamma * self.loss,
+        }
+    }
 }
 
 pub struct BoardInfo {

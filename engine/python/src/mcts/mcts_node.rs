@@ -36,6 +36,12 @@ impl PyMCTSNode {
         self.0.get_v()
     }
 
+    #[getter(blended_wdl)]
+    fn get_blended_wdl_py(&self) -> [f32; 3] {
+        let wdl = self.0.blended_wdl();
+        [wdl.win, wdl.draw, wdl.loss]
+    }
+
     /// Get moves for a board position. Not a getter — requires the board as argument.
     fn get_moves(&self, board: &PyBoard) -> Vec<PyMove> {
         find_all_moves(&board.0).into_iter().map(PyMove::from).collect()

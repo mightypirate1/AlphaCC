@@ -85,7 +85,7 @@ class StandaloneMCTSAgent(MCTSAgent):
     ) -> int:
         if self._argmax_delay is not None:
             self._steps_left_to_argmax -= 1
-        pi, _ = self.run_rollouts(board, n_rollouts=n_rollouts, rollout_depth=rollout_depth, temperature=temperature)
+        pi, _, _ = self.run_rollouts(board, n_rollouts=n_rollouts, rollout_depth=rollout_depth, temperature=temperature)
         action_index = int(pi.argmax())
         if training and self._steps_left_to_argmax > 0:
             action_index = np.random.choice(len(pi), p=pi)
@@ -97,13 +97,16 @@ class StandaloneMCTSAgent(MCTSAgent):
         temperature: float = 1.0,
         n_rollouts: int | None = None,
         rollout_depth: int | None = None,
-    ) -> tuple[np.ndarray, float]:
+    ) -> tuple[np.ndarray, float, tuple[float, float, float]]:
         n_rollouts = n_rollouts if n_rollouts is not None else self._n_rollouts
         rollout_depth = rollout_depth if rollout_depth is not None else self._rollout_depth
         state = GameState(board)
         value = -np.array([self._rollout(state, remaining_depth=rollout_depth) for _ in range(n_rollouts)]).mean()
         pi = self._rollout_policy(state.board, temperature)
-        return pi, value
+        # Derive WDL from scalar value (no full WDL tracking in Python MCTS)
+        v = float(value)
+        wdl = ((1 + v) / 2, 0.0, (1 - v) / 2)
+        return pi, value, wdl
 
     def with_weights(self, path: str | Path) -> Self:
         weights = torch.load(path, weights_only=True)

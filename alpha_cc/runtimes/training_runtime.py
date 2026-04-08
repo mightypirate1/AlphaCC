@@ -48,7 +48,7 @@ class TrainingRunTime:
                         exp.game_ended_early = True
                     break
 
-                pi, value = agent.run_rollouts(
+                pi, value, mcts_wdl = agent.run_rollouts(
                     board,
                     n_rollouts=n_rollouts,
                     rollout_depth=rollout_depth,
@@ -60,6 +60,7 @@ class TrainingRunTime:
                     state=GameState(board),
                     pi_target=pi,
                     wdl_target=wdl_placeholder,
+                    mcts_wdl=tuple(mcts_wdl),
                 )
                 trajectory.append(experience)
 
