@@ -21,14 +21,11 @@ class DefaultNet(torch.nn.Module):
             ResBlock(4, 64, 3),  # 4 channels: two from the state tensor, two that we append here
             ResBlock(64, 128, 5),
             ResBlock(128, 128, 5),
+            ResBlock(128, 128, 5),
+            ResBlock(128, 128, 5),
+            ResBlock(128, 128, 5),
         )
-        self._global_encoder = torch.nn.Sequential(
-            torch.nn.AdaptiveAvgPool2d(1),
-            torch.nn.Flatten(),
-            torch.nn.Linear(128, 64),
-            torch.nn.ReLU(),
-        )
-        self._local_encoder = torch.nn.Sequential(
+        self._value_encoder = torch.nn.Sequential(
             ResBlock(128, 128, 5),
             torch.nn.AvgPool2d(board_size),
             torch.nn.Flatten(),
@@ -38,9 +35,9 @@ class DefaultNet(torch.nn.Module):
             ResBlock(128, 128, 5),
             torch.nn.Conv2d(128, board_size * board_size, 5, padding=2),
         )
-        self._value_combined = torch.nn.Sequential(
+        self._value_head = torch.nn.Sequential(
             torch.nn.Dropout(dropout),
-            torch.nn.Linear(128 + 64, 64),  # 128 local + 64 global features
+            torch.nn.Linear(128, 64),
             torch.nn.ReLU(),
             torch.nn.Linear(64, 3),  # WDL logits: (win, draw, loss)
         )
@@ -52,9 +49,6 @@ class DefaultNet(torch.nn.Module):
 
         # encoder
         x_enc = self._encoder(x)
-        x_enc_local = self._local_encoder(x_enc)
-        x_enc_global = self._global_encoder(x_enc)
-        x_enc_combined = torch.cat([x_enc_local, x_enc_global], dim=1)
 
         # policy head
         x_policy = self._policy_head(x_enc)
@@ -67,7 +61,7 @@ class DefaultNet(torch.nn.Module):
         )
 
         # value head — WDL logits, shape (n, 3)
-        x_wdl = self._value_combined(x_enc_combined)
+        x_wdl = self._value_head(self._value_encoder(x_enc))
         return x_pi, x_wdl
 
     @torch.no_grad()
