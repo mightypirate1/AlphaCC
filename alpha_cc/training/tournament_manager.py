@@ -19,6 +19,7 @@ class TournamentManager:
         tournament_runtime: TournamentRuntime,
         training_db: TrainingDB,
         summary_writer: SummaryWriter,
+        model: DefaultNet,
         board_size: int = 9,
         onnx_compiled_batch_size_secondary: int | None = None,
     ) -> None:
@@ -29,6 +30,7 @@ class TournamentManager:
         self._summary_writer = summary_writer
         self._tournament_thread: threading.Thread | None = None
         self._board_size = board_size
+        self._model = model
         self._onnx_compiled_batch_size_secondary = onnx_compiled_batch_size_secondary
 
     @property
@@ -74,18 +76,16 @@ class TournamentManager:
 
         # Challenger: always compile (it's the freshly trained model)
         challenger_weights = load_weights(self._run_id, challenger_idx)
-        challenger_model = DefaultNet(self._board_size)
-        challenger_model.load_state_dict(challenger_weights)
-        challenger_payload = _serialize_model(challenger_model, self._board_size, bs)
+        self._model.load_state_dict(challenger_weights)
+        challenger_payload = _serialize_model(self._model, self._board_size, bs)
         self._training_db.weights_publish(challenger_payload, challenger_idx, batch_size=bs)
         logger.info(f"published secondary variant for challenger idx={challenger_idx} (batch_size={bs})")
 
         # Champion: skip if already exists
         if not self._training_db.weights_exists(self._champion_index, batch_size=bs):
             champion_weights = load_weights(self._run_id, self._champion_index)
-            champion_model = DefaultNet(self._board_size)
-            champion_model.load_state_dict(champion_weights)
-            champion_payload = _serialize_model(champion_model, self._board_size, bs)
+            self._model.load_state_dict(champion_weights)
+            champion_payload = _serialize_model(self._model, self._board_size, bs)
             self._training_db.weights_publish(champion_payload, self._champion_index, batch_size=bs)
             logger.info(f"published secondary variant for champion idx={self._champion_index} (batch_size={bs})")
         else:

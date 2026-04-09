@@ -128,6 +128,7 @@ def main(
         summary_writer=summary_writer,
         run_id=run_id,
         champion_index=champion_index,
+        model=DefaultNet(size, n_blocks=n_blocks, hidden_channels=hidden_channels),
         board_size=size,
         onnx_compiled_batch_size_secondary=onnx_compiled_batch_size_secondary,
     )
