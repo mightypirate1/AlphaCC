@@ -2,18 +2,19 @@ from collections import Counter
 
 import numpy as np
 
-from alpha_cc.agents.mcts import MCTSExperience
+from alpha_cc.agents.mcts import ProcessedExperience
 from alpha_cc.engine import Board
 from alpha_cc.state.game_state import GameState
 from alpha_cc.training import TrainingDataset
 
 
-def _make_experience(state: GameState, v_target: float = 0.0) -> MCTSExperience:
+def _make_experience(state: GameState, v_target: float = 0.0) -> ProcessedExperience:
     n = len(state.children)
-    return MCTSExperience(
-        state,
+    wdl = ((1 + v_target) / 2, 0.0, (1 - v_target) / 2)
+    return ProcessedExperience(
+        state=state,
         pi_target=np.full(n, 1.0 / n),
-        v_target=v_target,
+        wdl_target=wdl,
     )
 
 
@@ -38,9 +39,9 @@ def test_ring_buffer_wraps() -> None:
     batch_b = [_make_experience(state, v_target=-1.0) for _ in range(3)]
     dataset.add_trajectory(batch_b)
     assert len(dataset) == 5
-    counter = Counter(exp.v_target for exp in dataset.samples)
-    assert counter[1.0] == 2
-    assert counter[-1.0] == 3
+    counter = Counter(exp.wdl_target[0] for exp in dataset.samples)
+    assert counter[1.0] == 2  # v_target=1.0 → wdl win=1.0
+    assert counter[0.0] == 3  # v_target=-1.0 → wdl win=0.0
 
 
 def test_prioritized_sample_returns_all_when_n_exceeds_size() -> None:

@@ -301,9 +301,7 @@ class Trainer:
             loss_accumulator = torch.zeros(3, dtype=torch.float64, device="cpu")  # Higher precision for accumulation
             samples_seen = 0
             for data_tuple in dataloader:
-                x, pi_mask, target_pi, target_wdl, weight, is_internal = (
-                    data.to(self._device) for data in data_tuple
-                )
+                x, pi_mask, target_pi, target_wdl, weight, is_internal = (data.to(self._device) for data in data_tuple)
                 self._optimizer.zero_grad(set_to_none=True)
                 current_pi_unsoftmaxed, current_wdl_logits = self._compiled_nn(x)
                 wdl_loss = compute_wdl_loss(current_wdl_logits, target_wdl, weight, is_internal)
@@ -370,9 +368,7 @@ class Trainer:
             epoch_entropy_loss = 0.0
             epoch_is_internal = 0.0
             for data_tuple in test_dataloader:
-                x, pi_mask, target_pi, target_wdl, weight, is_internal = (
-                    data.to(self._device) for data in data_tuple
-                )
+                x, pi_mask, target_pi, target_wdl, weight, is_internal = (data.to(self._device) for data in data_tuple)
                 current_pi_unsoftmaxed, current_wdl_logits = self._compiled_nn(x)
                 wdl_loss = compute_wdl_loss(current_wdl_logits, target_wdl, weight, is_internal)
                 policy_loss = compute_policy_loss(current_pi_unsoftmaxed, pi_mask, target_pi, weight)

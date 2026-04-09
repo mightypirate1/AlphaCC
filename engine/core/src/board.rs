@@ -189,16 +189,22 @@ impl Board {
         }
 
         // Non-terminal: heuristic WDL from current player's perspective.
-        // P(win) scales with my progress, P(loss) with their progress,
-        // P(draw) represents the unresolved portion.
+        // Draw is high when the game is early (low avg) and close (low gap).
+        // Win/loss split the decisive portion proportionally to progress.
         let my_progress = n_p1_stones_in_p2_home as f32 / cap;
         let their_progress = n_p2_stones_in_p1_home as f32 / cap;
-        let unresolved = 1.0 - my_progress.max(their_progress);
-        let total = my_progress + their_progress + unresolved;
-        let wdl = WDL {
-            win: my_progress / total,
-            draw: unresolved / total,
-            loss: their_progress / total,
+        let avg = (my_progress + their_progress) / 2.0;
+        let gap = (my_progress - their_progress).abs();
+        let draw = (1.0 - avg) * (1.0 - gap);
+        let decisive = my_progress + their_progress;
+        let wdl = if decisive > 0.0 {
+            WDL {
+                win: (1.0 - draw) * my_progress / decisive,
+                draw,
+                loss: (1.0 - draw) * their_progress / decisive,
+            }
+        } else {
+            WDL { win: 0.0, draw: 1.0, loss: 0.0 }
         };
         (wdl, 0)
     }

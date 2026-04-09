@@ -9,6 +9,13 @@ use crate::outcome::Outcome;
 use crate::noise;
 use crate::tree::Tree;
 
+pub struct RolloutResult {
+    pub pi: Vec<f32>,
+    pub value: f32,
+    pub mcts_wdl: [f32; 3],
+    pub greedy_backup_wdl: [f32; 3],
+}
+
 pub struct MCTS<T: PredictionSource> {
     tree: Arc<Tree>,
     services: Vec<T>,
@@ -137,7 +144,7 @@ impl<T: PredictionSource> MCTS<T> {
         n_rollouts: usize,
         rollout_depth: usize,
         temperature: f32,
-    ) -> (Vec<f32>, f32, [f32; 3]) {
+    ) -> RolloutResult {
         let n_threads = self.services.len().min(n_rollouts);
         let rollouts_per_thread = n_rollouts / n_threads;
         let remainder = n_rollouts % n_threads;
@@ -219,7 +226,49 @@ impl<T: PredictionSource> MCTS<T> {
             vec![1.0 / n as f32; n]
         };
 
-        (pi, mean_value, root_wdl)
+        let greedy_backup_wdl = self.greedy_backup_wdl(board, rollout_depth);
+
+        RolloutResult {
+            pi,
+            value: mean_value,
+            mcts_wdl: root_wdl,
+            greedy_backup_wdl,
+        }
+    }
+
+    /// Walk the tree greedily from `board`, always picking the most-visited child.
+    /// Returns the WDL of the deepest reachable node, from the root player's perspective.
+    fn greedy_backup_wdl(&self, board: &Board, max_depth: usize) -> [f32; 3] {
+        let mut current = board.clone();
+        let mut depth = 0;
+
+        loop {
+            let info = current.get_info();
+            if info.game_over {
+                let wdl = if depth % 2 == 0 { info.wdl } else { info.wdl.flip() };
+                return [wdl.win, wdl.draw, wdl.loss];
+            }
+
+            let Some(data) = self.tree.get_data(&current) else {
+                log::warn!("[mcts] greedy_backup_wdl: node missing from tree at depth {depth}");
+                return [0.0, 1.0, 0.0];
+            };
+
+            if data.total_visits() == 0 || depth >= max_depth {
+                let wdl = data.blended_wdl();
+                let wdl = if depth % 2 == 0 { wdl } else { wdl.flip() };
+                return [wdl.win, wdl.draw, wdl.loss];
+            }
+
+            let best_action = (0..data.num_actions())
+                .max_by_key(|&a| data.get_n(a))
+                .unwrap_or(0);
+
+            let moves = find_all_moves(&current);
+            current = current.apply(&moves[best_action]);
+            drop(data);
+            depth += 1;
+        }
     }
 
     fn find_best_action(&self, data: &MCTSNode, root_noise: &Option<Vec<f32>>) -> usize {

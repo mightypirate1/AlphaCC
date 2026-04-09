@@ -4,7 +4,7 @@ import numpy as np
 from tqdm_loggable.auto import tqdm
 
 from alpha_cc.agents.mcts.mcts_agent import MCTSAgent
-from alpha_cc.agents.mcts.mcts_experience import MCTSExperience
+from alpha_cc.agents.mcts.mcts_experience import Experience
 from alpha_cc.agents.mcts.mcts_node_py import MCTSNodePy
 from alpha_cc.agents.mcts.training_data import TrainingData
 from alpha_cc.agents.value_assignment import ValueAssignmentStrategy
@@ -38,29 +38,23 @@ class TrainingRunTime:
         agent.on_game_start()
         snapshot_interval = 1 if internal_nodes_fraction else 0
 
-        trajectory: list[MCTSExperience] = []
+        trajectory: list[Experience] = []
         internal_nodes: dict[GameState, MCTSNodePy] = {}
 
         with tqdm(desc="training", total=max_game_length) as pbar:
-            while not board.info.game_over:  # main terminaltion condition
+            while not board.info.game_over:  # main termination condition
                 if board.info.duration >= max_game_duration:  # ended early termination condition
-                    for exp in trajectory:
-                        exp.game_ended_early = True
                     break
 
-                pi, value, mcts_wdl = agent.run_rollouts(
+                result = agent.run_rollouts(
                     board,
                     n_rollouts=n_rollouts,
                     rollout_depth=rollout_depth,
                     temperature=action_temperature,
                 )
-                # WDL placeholder — gets overwritten by value assignment strategy
-                wdl_placeholder = ((1 + value) / 2, 0.0, (1 - value) / 2)
-                experience = MCTSExperience(
+                experience = Experience(
                     state=GameState(board),
-                    pi_target=pi,
-                    wdl_target=wdl_placeholder,
-                    mcts_wdl=tuple(mcts_wdl),
+                    result=result,
                 )
                 trajectory.append(experience)
 
@@ -75,9 +69,9 @@ class TrainingRunTime:
                         )
                     )
 
-                a = int(np.argmax(pi))
+                a = int(np.argmax(result.pi))
                 if (time_to_argmax := time_to_argmax - 1) >= 0:
-                    a = np.random.choice(len(pi), p=pi)
+                    a = np.random.choice(len(result.pi), p=result.pi)
 
                 board = board.apply(board.get_moves()[a])
                 agent.on_move_applied(board)
@@ -94,7 +88,7 @@ class TrainingRunTime:
 
 def _sample_internal_nodes(
     nodes: dict[Board, MCTSNodePy],
-    trajectory: list[MCTSExperience],
+    trajectory: list[Experience],
     fraction: float,
     min_visits: int,
     already_have: int,

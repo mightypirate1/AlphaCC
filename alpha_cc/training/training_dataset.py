@@ -13,7 +13,7 @@ from torch.utils.data import Dataset
 if TYPE_CHECKING:
     from torch.utils.tensorboard import SummaryWriter
 
-from alpha_cc.agents.mcts.mcts_experience import MCTSExperience
+from alpha_cc.agents.mcts.mcts_experience import ProcessedExperience
 from alpha_cc.agents.mcts.mcts_node_py import MCTSNodePy
 from alpha_cc.agents.mcts.training_data import TrainingData
 from alpha_cc.state.game_state import GameState
@@ -29,7 +29,7 @@ class TrainingDataset(Dataset):
     """
     Prioritized Experience Replay (PER) buffer using rank-based sampling.
 
-    Ring buffer (deque) of MCTSExperience with parallel deques for KL-divergence
+    Ring buffer (deque) of ProcessedExperience with parallel deques for KL-divergence
     and TD-error. New samples are initialized with max priority (visit-count
     gated for internal nodes). Sampling uses combined rank-based priorities:
 
@@ -43,7 +43,7 @@ class TrainingDataset(Dataset):
 
     def __init__(
         self,
-        experiences: Iterable[MCTSExperience] | None = None,
+        experiences: Iterable[ProcessedExperience] | None = None,
         max_size: int | None = None,
         gamma: float = 0.5,
         visits_threshold: float = 100.0,
@@ -65,7 +65,7 @@ class TrainingDataset(Dataset):
         self._rank_mode = rank_mode
         self._weighter = weighter
 
-        self._experiences: deque[MCTSExperience] = deque(maxlen=max_size)
+        self._experiences: deque[ProcessedExperience] = deque(maxlen=max_size)
         self._kl_div: deque[float] = deque(maxlen=max_size)
         self._td_error: deque[float] = deque(maxlen=max_size)
         self._total_num_samples = 0
@@ -100,7 +100,7 @@ class TrainingDataset(Dataset):
         )
 
     @property
-    def samples(self) -> list[MCTSExperience]:
+    def samples(self) -> list[ProcessedExperience]:
         return list(self._experiences)
 
     @property
@@ -149,7 +149,7 @@ class TrainingDataset(Dataset):
         self,
         writer: SummaryWriter,
         step: int,
-        sampled_exps: list[MCTSExperience],
+        sampled_exps: list[ProcessedExperience],
         priority: np.ndarray,
         kl: np.ndarray,
         td: np.ndarray,
@@ -205,18 +205,18 @@ class TrainingDataset(Dataset):
 
         return count
 
-    def add_trajectories(self, trajectories: list[list[MCTSExperience]]) -> None:
+    def add_trajectories(self, trajectories: list[list[ProcessedExperience]]) -> None:
         for traj in trajectories:
             self.add_trajectory(traj)
 
-    def add_trajectory(self, trajectory: list[MCTSExperience]) -> None:
+    def add_trajectory(self, trajectory: list[ProcessedExperience]) -> None:
         for exp in trajectory:
             self._add_experience(exp, priority_scale=1.0)
 
     def add_internal_node(self, state: GameState, node: MCTSNodePy) -> None:
         n_visits = int(np.sum(node.n))
         pi_target = np.ones_like(node.n) / len(node.n) if n_visits == 0 else node.n / n_visits
-        exp = MCTSExperience(
+        exp = ProcessedExperience(
             state=state,
             pi_target=pi_target,
             wdl_target=(0.0, 1.0, 0.0),  # pure uncertainty (draw) for internal nodes
@@ -235,12 +235,12 @@ class TrainingDataset(Dataset):
     _INIT_TD_ERROR = 2.0
     _INIT_KL_DIV = 10.0
 
-    def _add_experience(self, exp: MCTSExperience, priority_scale: float = 1.0) -> None:
+    def _add_experience(self, exp: ProcessedExperience, priority_scale: float = 1.0) -> None:
         self._experiences.append(exp)
         self._kl_div.append(self._INIT_KL_DIV * priority_scale)
         self._td_error.append(self._INIT_TD_ERROR * priority_scale)
 
-    def _create_pi_target_tensor(self, exp: MCTSExperience) -> torch.Tensor:
+    def _create_pi_target_tensor(self, exp: ProcessedExperience) -> torch.Tensor:
         """
         The neural net and the MCTS speak different lanugages:
         - nn thinks a policy is a big tensor encoding all moves (including legal ones)

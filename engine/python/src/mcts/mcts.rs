@@ -8,6 +8,43 @@ use super::mcts_node::PyMCTSNode;
 type MCTS = alpha_cc_mcts::MCTS<alpha_cc_nn_service::NNRemote>;
 
 #[gen_stub_pyclass]
+#[pyclass(name = "RolloutResult", module = "alpha_cc_engine")]
+pub struct PyRolloutResult(alpha_cc_mcts::RolloutResult);
+
+#[gen_stub_pymethods]
+#[pymethods]
+impl PyRolloutResult {
+    #[new]
+    #[pyo3(signature = (pi, value, mcts_wdl, greedy_backup_wdl=None))]
+    fn new(pi: Vec<f32>, value: f32, mcts_wdl: [f32; 3], greedy_backup_wdl: Option<[f32; 3]>) -> Self {
+        let greedy_backup_wdl = greedy_backup_wdl.unwrap_or(mcts_wdl);
+        Self(alpha_cc_mcts::RolloutResult { pi, value, mcts_wdl, greedy_backup_wdl })
+    }
+
+    #[getter]
+    fn pi<'py>(&self, py: Python<'py>) -> Bound<'py, numpy::PyArray1<f32>> {
+        numpy::IntoPyArray::into_pyarray(
+            numpy::ndarray::Array1::from_vec(self.0.pi.clone()), py,
+        )
+    }
+
+    #[getter]
+    fn value(&self) -> f32 {
+        self.0.value
+    }
+
+    #[getter]
+    fn mcts_wdl(&self) -> [f32; 3] {
+        self.0.mcts_wdl
+    }
+
+    #[getter]
+    fn greedy_backup_wdl(&self) -> [f32; 3] {
+        self.0.greedy_backup_wdl
+    }
+}
+
+#[gen_stub_pyclass]
 #[pyclass(name = "MCTS", module = "alpha_cc_engine")]
 pub struct PyMCTS(pub MCTS);
 
@@ -51,24 +88,18 @@ impl PyMCTS {
     }
 
     fn run(&self, board: &PyBoard, rollout_depth: usize) -> f32 {
-        let (_, value, _) = self.0.run_rollout_threads(&board.0, 1, rollout_depth, 1.0);
-        value
+        self.0.run_rollout_threads(&board.0, 1, rollout_depth, 1.0).value
     }
 
     #[pyo3(signature = (board, n_rollouts, rollout_depth, temperature=1.0))]
-    fn run_rollouts<'py>(
+    fn run_rollouts(
         &self,
-        py: Python<'py>,
         board: &PyBoard,
         n_rollouts: usize,
         rollout_depth: usize,
         temperature: f32,
-    ) -> (Bound<'py, numpy::PyArray1<f32>>, f32, [f32; 3]) {
-        let (pi, mean_value, wdl) = self.0.run_rollout_threads(&board.0, n_rollouts, rollout_depth, temperature);
-        let pi_arr = numpy::IntoPyArray::into_pyarray(
-            numpy::ndarray::Array1::from_vec(pi), py,
-        );
-        (pi_arr, mean_value, wdl)
+    ) -> PyRolloutResult {
+        PyRolloutResult(self.0.run_rollout_threads(&board.0, n_rollouts, rollout_depth, temperature))
     }
 
     fn get_node(&self, board: &PyBoard) -> Option<PyMCTSNode> {

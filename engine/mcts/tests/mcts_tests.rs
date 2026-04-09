@@ -27,12 +27,12 @@ fn run_rollouts_returns_policy_and_value() {
     let board = Board::create(3);
     let mcts = make_mcts(MockPredictor::uniform(0.5), false);
 
-    let (pi, value, _) = mcts.run_rollout_threads(&board, 10, 5, 1.0);
+    let result = mcts.run_rollout_threads(&board, 10, 5, 1.0);
 
-    assert_eq!(pi.len(), find_all_moves(&board).len());
-    let sum: f32 = pi.iter().sum();
+    assert_eq!(result.pi.len(), find_all_moves(&board).len());
+    let sum: f32 = result.pi.iter().sum();
     assert!((sum - 1.0).abs() < 0.01, "pi should sum to ~1.0, got {sum}");
-    assert!(value.abs() < 1.0, "value should be in [-1, 1], got {value}");
+    assert!(result.value.abs() < 1.0, "value should be in [-1, 1], got {}", result.value);
 }
 
 #[test]
@@ -52,10 +52,10 @@ fn biased_predictor_favors_first_move() {
     let board = Board::create(3);
     let mcts = make_mcts(MockPredictor::biased(0.0, 0.9), false);
 
-    let (pi, _, _) = mcts.run_rollout_threads(&board, 100, 5, 1.0);
+    let result = mcts.run_rollout_threads(&board, 100, 5, 1.0);
 
     // The first move should get the most visits since the prior strongly favors it
-    let max_idx = pi.iter().enumerate().max_by(|a, b| a.1.partial_cmp(b.1).unwrap()).unwrap().0;
+    let max_idx = result.pi.iter().enumerate().max_by(|a, b| a.1.partial_cmp(b.1).unwrap()).unwrap().0;
     assert_eq!(max_idx, 0, "biased predictor should favor action 0, but max was action {max_idx}");
 }
 
@@ -64,10 +64,10 @@ fn value_differs_based_on_predictor() {
     let board = Board::create(3);
 
     let mcts_pos = make_mcts(MockPredictor::uniform(0.8), false);
-    let (_, value_pos, _) = mcts_pos.run_rollout_threads(&board, 30, 5, 1.0);
+    let value_pos = mcts_pos.run_rollout_threads(&board, 30, 5, 1.0).value;
 
     let mcts_neg = make_mcts(MockPredictor::uniform(-0.8), false);
-    let (_, value_neg, _) = mcts_neg.run_rollout_threads(&board, 30, 5, 1.0);
+    let value_neg = mcts_neg.run_rollout_threads(&board, 30, 5, 1.0).value;
 
     // The two predictors disagree strongly, so the MCTS values should differ
     assert!((value_pos - value_neg).abs() > 0.1,
@@ -101,8 +101,8 @@ fn can_play_a_complete_game() {
 
     let mut moves_played = 0;
     while !board.get_info().game_over && moves_played < 200 {
-        let (pi, _, _) = mcts.run_rollout_threads(&board, 10, 5, 1.0);
-        let action = pi.iter().enumerate().max_by(|a, b| a.1.partial_cmp(b.1).unwrap()).unwrap().0;
+        let result = mcts.run_rollout_threads(&board, 10, 5, 1.0);
+        let action = result.pi.iter().enumerate().max_by(|a, b| a.1.partial_cmp(b.1).unwrap()).unwrap().0;
         let moves = find_all_moves(&board);
         board = board.apply(&moves[action]);
         mcts.notify_move_applied(&board);
@@ -126,8 +126,8 @@ fn pruning_tree_reduces_node_count_after_move() {
     let nodes_before = mcts.get_all_nodes().len();
 
     // Play a move
-    let (pi, _, _) = mcts.run_rollout_threads(&board, 10, 5, 1.0);
-    let action = pi.iter().enumerate().max_by(|a, b| a.1.partial_cmp(b.1).unwrap()).unwrap().0;
+    let result = mcts.run_rollout_threads(&board, 10, 5, 1.0);
+    let action = result.pi.iter().enumerate().max_by(|a, b| a.1.partial_cmp(b.1).unwrap()).unwrap().0;
     let moves = find_all_moves(&board);
     let new_board = board.apply(&moves[action]);
     mcts.notify_move_applied(&new_board);
@@ -235,10 +235,10 @@ fn zero_depth_rollout_uses_nn_value() {
     let mcts = make_mcts(MockPredictor::uniform(0.42), false);
 
     // depth=0 means just evaluate the leaf, no search
-    let (pi, _, _) = mcts.run_rollout_threads(&board, 10, 0, 1.0);
+    let result = mcts.run_rollout_threads(&board, 10, 0, 1.0);
 
     // With depth 0, pi should still be well-formed
-    assert_eq!(pi.len(), find_all_moves(&board).len());
+    assert_eq!(result.pi.len(), find_all_moves(&board).len());
 }
 
 #[test]
