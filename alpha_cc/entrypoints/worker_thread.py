@@ -37,7 +37,9 @@ logger = logging.getLogger(__file__)
 @click.option("--heuristic", is_flag=True, default=False)
 @click.option("--non-terminal-value-weight", type=float, default=0.1)
 @click.option("--wdl-gamma", type=float, default=1.0, help="Gamma discount for backward WDL propagation.")
-@click.option("--wdl-lambda", type=float, default=None, help="TD(lambda) blending factor. Enables soft MCTS WDL targets.")
+@click.option(
+    "--wdl-lambda", type=float, default=None, help="TD(lambda) blending factor. Enables soft MCTS WDL targets."
+)
 @click.option("--wdl-weight-game", type=float, default=1.0, help="Weight for game-outcome WDL in target blend.")
 @click.option("--wdl-weight-mcts", type=float, default=0.0, help="Weight for MCTS root WDL in target blend.")
 @click.option("--wdl-weight-greedy", type=float, default=0.0, help="Weight for greedy-backup WDL in target blend.")
@@ -148,16 +150,24 @@ def create_value_assignment_strategy(
 ) -> ValueAssignmentStrategy:
     if wdl_lambda is not None:
         return TDLambdaAssignmentStrategy(
-            gamma=wdl_gamma, lambda_=wdl_lambda, non_terminal_weight=non_terminal_weight,
-            wdl_weights=wdl_weights, wdl_smoothing=wdl_smoothing,
+            gamma=wdl_gamma,
+            lambda_=wdl_lambda,
+            non_terminal_weight=non_terminal_weight,
+            wdl_weights=wdl_weights,
+            wdl_smoothing=wdl_smoothing,
         )
     if heuristic:
         return HeuristicAssignmentStrategy(
-            size, gamma=wdl_gamma, wdl_weights=wdl_weights, wdl_smoothing=wdl_smoothing,
+            size,
+            gamma=wdl_gamma,
+            wdl_weights=wdl_weights,
+            wdl_smoothing=wdl_smoothing,
         )
     return DefaultAssignmentStrategy(
-        wdl_gamma, non_terminal_weight=non_terminal_weight,
-        wdl_weights=wdl_weights, wdl_smoothing=wdl_smoothing,
+        wdl_gamma,
+        non_terminal_weight=non_terminal_weight,
+        wdl_weights=wdl_weights,
+        wdl_smoothing=wdl_smoothing,
     )
 
 

@@ -1,9 +1,9 @@
 from alpha_cc.agents.heuristic import Heuristic
 from alpha_cc.agents.mcts.mcts_experience import Experience, ProcessedExperience
 from alpha_cc.agents.value_assignment.default_assignment_strategy import (
+    _DEFAULT_WDL_WEIGHTS,
     DefaultAssignmentStrategy,
     WDLWeights,
-    _DEFAULT_WDL_WEIGHTS,
     _normalize_wdl_weights,
     _weighted_wdl_sum,
 )
@@ -28,7 +28,9 @@ class HeuristicAssignmentStrategy(ValueAssignmentStrategy):
     ) -> None:
         self._heuristic = Heuristic(size, scale=heuristic_scale, subtract_opponent=True)
         self._default_assignment_strategy = DefaultAssignmentStrategy(
-            gamma, wdl_weights=wdl_weights, wdl_smoothing=wdl_smoothing,
+            gamma,
+            wdl_weights=wdl_weights,
+            wdl_smoothing=wdl_smoothing,
         )
         self._w_game, self._w_mcts, self._w_greedy = _normalize_wdl_weights(wdl_weights)
         self._wdl_smoothing = wdl_smoothing
@@ -43,7 +45,11 @@ class HeuristicAssignmentStrategy(ValueAssignmentStrategy):
                 pi_target=exp.result.pi,
                 wdl_target=_weighted_wdl_sum(
                     _value_to_wdl(self._heuristic(exp.state)),
-                    exp.result, self._w_game, self._w_mcts, self._w_greedy, self._wdl_smoothing,
+                    exp.result,
+                    self._w_game,
+                    self._w_mcts,
+                    self._w_greedy,
+                    self._wdl_smoothing,
                 ),
                 game_ended_early=True,
             )

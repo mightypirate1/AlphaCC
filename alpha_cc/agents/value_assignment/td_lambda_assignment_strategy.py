@@ -1,10 +1,11 @@
 from alpha_cc.agents.mcts.mcts_experience import Experience, ProcessedExperience
 from alpha_cc.agents.value_assignment.default_assignment_strategy import (
-    WDLWeights,
     _DEFAULT_WDL_WEIGHTS,
+    WDLWeights,
     _flip_wdl,
     _mix_toward_draw,
     _normalize_wdl_weights,
+    _smooth_wdl,
     _weighted_wdl_sum,
 )
 from alpha_cc.agents.value_assignment.value_assignment_strategy import ValueAssignmentStrategy
@@ -25,13 +26,15 @@ def _wdl_lerp(
 
 
 class TDLambdaAssignmentStrategy(ValueAssignmentStrategy):
-    """Value assignment using TD(lambda) blending of MCTS search WDL with game outcome.
+    """Value assignment using TD(lambda) blending of search estimates with game outcome.
 
-    For each position, the target is a blend of:
-      - The MCTS search-derived soft WDL (from Bayesian-blended node counts)
-      - The game outcome, propagated backward with gamma discounting
+    At each position (iterating backward from the end):
+      1. Compute a weighted sum of the propagated return, mcts WDL, and greedy WDL
+      2. Blend that with the propagated return via lambda
+      3. Apply label smoothing
+      4. Propagate the blended result backward (flip + gamma discount)
 
-    lambda_=0 gives pure MCTS targets, lambda_=1 gives pure game outcome.
+    lambda_=0 gives pure weighted estimate, lambda_=1 gives pure game outcome.
     """
 
     def __init__(
@@ -49,26 +52,25 @@ class TDLambdaAssignmentStrategy(ValueAssignmentStrategy):
         self._wdl_smoothing = wdl_smoothing
 
     def __call__(self, trajectory: list[Experience], final_board: Board) -> list[ProcessedExperience]:
-        game_wdl = _flip_wdl(final_board.info.wdl)
+        v = _flip_wdl(final_board.info.wdl)
         weight = 1.0 if final_board.info.game_over else self._non_terminal_weight
         game_ended_early = not final_board.info.game_over
 
-        next_wdl = game_wdl
         processed = []
         for exp in reversed(trajectory):
-            mcts_wdl = (exp.result.mcts_wdl[0], exp.result.mcts_wdl[1], exp.result.mcts_wdl[2])
-            base_wdl = _wdl_lerp(mcts_wdl, next_wdl, self._lambda)
+            v_i = _weighted_wdl_sum(v, exp.result, self._w_game, self._w_mcts, self._w_greedy, 0.0)
+            v_i = _wdl_lerp(v_i, v, self._lambda)
+            if self._wdl_smoothing > 0:
+                v_i = _smooth_wdl(v_i, self._wdl_smoothing)
             processed.append(
                 ProcessedExperience(
                     state=exp.state,
                     pi_target=exp.result.pi,
-                    wdl_target=_weighted_wdl_sum(
-                        base_wdl, exp.result, self._w_game, self._w_mcts, self._w_greedy, self._wdl_smoothing,
-                    ),
+                    wdl_target=v_i,
                     weight=weight,
                     game_ended_early=game_ended_early,
                 )
             )
-            next_wdl = _mix_toward_draw(_flip_wdl(base_wdl), self._gamma)
+            v = _mix_toward_draw(_flip_wdl(v_i), self._gamma)
         processed.reverse()
         return processed

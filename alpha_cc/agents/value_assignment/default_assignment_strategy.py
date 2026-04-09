@@ -84,7 +84,12 @@ class DefaultAssignmentStrategy(ValueAssignmentStrategy):
                     state=exp.state,
                     pi_target=exp.result.pi,
                     wdl_target=_weighted_wdl_sum(
-                        wdl, exp.result, self._w_game, self._w_mcts, self._w_greedy, self._wdl_smoothing,
+                        wdl,
+                        exp.result,
+                        self._w_game,
+                        self._w_mcts,
+                        self._w_greedy,
+                        self._wdl_smoothing,
                     ),
                     weight=weight,
                     game_ended_early=game_ended_early,
