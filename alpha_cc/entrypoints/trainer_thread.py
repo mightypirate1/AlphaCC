@@ -45,6 +45,8 @@ checkpoint_lock = threading.Lock()
 @click.option("--per-visits-threshold", type=float, default=100.0)
 @click.option("--per-rank-mode", type=click.Choice(["td", "min", "prod"]), default="td")
 @click.option("--gpu", is_flag=True, default=False)
+@click.option("--n-blocks", type=int, default=6)
+@click.option("--hidden-channels", type=int, default=128)
 @click.option("--onnx-compiled-batch-size", type=int, default=None)
 @click.option("--onnx-compiled-batch-size-secondary", type=int, default=None)
 def main(
@@ -69,6 +71,8 @@ def main(
     per_visits_threshold: float,
     per_rank_mode: Literal["td", "min", "prod"],
     gpu: bool,
+    n_blocks: int,
+    hidden_channels: int,
     onnx_compiled_batch_size: int | None,
     onnx_compiled_batch_size_secondary: int | None,
 ) -> None:
@@ -79,7 +83,7 @@ def main(
     tournament_runtime = TournamentRuntime(size, db)
     trainer = Trainer(
         size,
-        DefaultNet(size),
+        DefaultNet(size, n_blocks=n_blocks, hidden_channels=hidden_channels),
         epochs_per_update=epochs_per_update,
         policy_weight=policy_weight,
         value_weight=value_weight,
@@ -100,6 +104,8 @@ def main(
         init_weights_index,
         init_champion_weight_index,
         onnx_compiled_batch_size,
+        n_blocks=n_blocks,
+        hidden_channels=hidden_channels,
     )
     if existing_checkpoint is None:
         db.flush_db()  # safe fresh start
@@ -251,6 +257,8 @@ def initialize_training(
     init_weights_index: int | None,
     init_champion_weight_index: int | None,
     onnx_compiled_batch_size: int | None = None,
+    n_blocks: int = 6,
+    hidden_channels: int = 128,
 ) -> tuple[int, int, TrainingCheckpoint | None]:
     """
     If the run_id is not new, i.e. it has been used before for training,
@@ -277,7 +285,7 @@ def initialize_training(
         logger.info(f"overriding champion weights with: {run_id=}, weight_index={init_champion_weight_index}")
         init_weights = load_weights(checkpoint.run_id, init_champion_weight_index)
         # re-serialize the overridden champion as ONNX
-        champion_model = DefaultNet(size)
+        champion_model = DefaultNet(size, n_blocks=n_blocks, hidden_channels=hidden_channels)
         champion_model.load_state_dict(init_weights)
         checkpoint.champion_payload = _serialize_model(champion_model, size, onnx_compiled_batch_size)
         checkpoint.champion_index = init_champion_weight_index

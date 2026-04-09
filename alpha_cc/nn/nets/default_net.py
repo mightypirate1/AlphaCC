@@ -12,34 +12,39 @@ class DefaultNet(torch.nn.Module):
     def __init__(
         self,
         board_size: int,
+        n_blocks: int = 6,
+        hidden_channels: int = 128,
         dropout: float = 0.3,
     ) -> None:
         super().__init__()
+        ch = hidden_channels
         self._board_size = board_size
         self._preprocessing = CoordinateChannels(board_size)
         self._encoder = torch.nn.Sequential(
-            ResBlock(4, 64, 3),  # 4 channels: two from the state tensor, two that we append here
-            ResBlock(64, 128, 5),
-            ResBlock(128, 128, 5),
-            ResBlock(128, 128, 5),
-            ResBlock(128, 128, 5),
-            ResBlock(128, 128, 5),
+            ResBlock(4, ch, 3),  # 4 channels: two from the state tensor, two that we append here
+            *(ResBlock(ch, ch, 5) for _ in range(n_blocks - 1)),
         )
-        self._value_encoder = torch.nn.Sequential(
-            ResBlock(128, 128, 5),
+        self._value_local_encoder = torch.nn.Sequential(
+            ResBlock(ch, ch, 5),
             torch.nn.AvgPool2d(board_size),
             torch.nn.Flatten(),
         )
+        self._value_global_encoder = torch.nn.Sequential(
+            torch.nn.AdaptiveAvgPool2d(1),
+            torch.nn.Flatten(),
+            torch.nn.Linear(ch, ch // 2),
+            torch.nn.ReLU(),
+        )
         self._policy_head = torch.nn.Sequential(
             torch.nn.Dropout2d(dropout),
-            ResBlock(128, 128, 5),
-            torch.nn.Conv2d(128, board_size * board_size, 5, padding=2),
+            ResBlock(ch, ch, 5),
+            torch.nn.Conv2d(ch, board_size * board_size, 5, padding=2),
         )
         self._value_head = torch.nn.Sequential(
             torch.nn.Dropout(dropout),
-            torch.nn.Linear(128, 64),
+            torch.nn.Linear(ch + ch // 2, ch // 2),
             torch.nn.ReLU(),
-            torch.nn.Linear(64, 3),  # WDL logits: (win, draw, loss)
+            torch.nn.Linear(ch // 2, 3),  # WDL logits: (win, draw, loss)
         )
         self._policy_softmax = PolicySoftmax(board_size)
 
@@ -61,13 +66,16 @@ class DefaultNet(torch.nn.Module):
         )
 
         # value head — WDL logits, shape (n, 3)
-        x_wdl = self._value_head(self._value_encoder(x_enc))
+        x_local = self._value_local_encoder(x_enc)
+        x_global = self._value_global_encoder(x_enc)
+        x_wdl = self._value_head(torch.cat([x_local, x_global], dim=1))
         return x_pi, x_wdl
 
     def param_groups(self) -> dict[str, torch.nn.Module]:
         return {
             "encoder": self._encoder,
-            "value-encoder": self._value_encoder,
+            "value-local-encoder": self._value_local_encoder,
+            "value-global-encoder": self._value_global_encoder,
             "policy-head": self._policy_head,
             "value-head": self._value_head,
         }
