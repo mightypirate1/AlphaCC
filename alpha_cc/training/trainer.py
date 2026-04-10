@@ -222,57 +222,6 @@ class Trainer:
         if worker_stats_list:
             self._report_worker_stats(worker_stats_list)
 
-    @torch.no_grad()
-    def _compute_sample_errors_batched(self, dataset: TrainingDataset) -> tuple[np.ndarray, np.ndarray]:
-        """
-        Batched forward pass over dataset to compute per-sample KL divergence and TD error.
-        Used by PER to update priorities after training.
-
-        TD error is |v_pred - v_target| where v = W - L (expected value from WDL).
-        Returns (kl_divs, td_errors) as float32 numpy arrays, one entry per sample.
-        Internal nodes get td_error=0 (WDL head is not trained on them).
-        """
-        self._nn.eval()
-        kl_divs_list: list[torch.Tensor] = []
-        wdl_errors_list: list[torch.Tensor] = []
-        dataloader = DataLoader(
-            dataset,
-            batch_size=1024,
-            shuffle=False,
-            drop_last=False,
-            pin_memory=self._device.type == "cuda",
-            num_workers=self._num_dataloader_workers,
-            prefetch_factor=3 if self._num_dataloader_workers > 0 else None,
-        )
-
-        with tqdm(desc="recomputing-priorities", total=len(dataset)) as pbar:
-            for batch in dataloader:
-                x, pi_mask_batch, pi_target_batch, target_wdl, weight, is_internal = (b.to(self._device) for b in batch)
-                pi_tensor_batch, wdl_logits_batch = self._compiled_nn(x)
-
-                # Per-sample TD error from expected values: |v_pred - v_target| where v = W - L.
-                # 0 for internal nodes, dampened by weight for unfinished games.
-                wdl_probs = torch.nn.functional.softmax(wdl_logits_batch, dim=-1)
-                v_pred = wdl_probs[:, 0] - wdl_probs[:, 2]
-                v_target = target_wdl[:, 0] - target_wdl[:, 2]
-                td_err = torch.abs(v_pred - v_target)
-                td_err = torch.where(is_internal.squeeze(), torch.zeros_like(td_err), td_err)
-                td_err = td_err * weight.squeeze()
-                wdl_errors_list.append(td_err.cpu())
-
-                # Per-sample KL divergence (batched): KL(pi_target || pi_pred) over legal moves
-                log_pred = self._policy_log_softmax(pi_tensor_batch, pi_mask_batch)
-                log_target = torch.log(pi_target_batch.clamp_min(1e-6))
-                kl_per_sample = pi_target_batch * (log_target - log_pred)
-                kl_per_sample = torch.where(pi_mask_batch, kl_per_sample, 0.0)
-                kl_per_sample = kl_per_sample.reshape(x.shape[0], -1).sum(dim=1)
-                kl_divs_list.append(kl_per_sample.cpu())
-                pbar.update(x.shape[0])
-
-        kl_array = torch.cat(kl_divs_list).numpy().astype(np.float32)
-        wdl_array = torch.cat(wdl_errors_list).numpy().astype(np.float32)
-        return kl_array, wdl_array
-
     def _report_worker_stats(self, stats_list: list[WorkerStats]) -> None:
         if self._summary_writer is None:
             return
@@ -289,11 +238,15 @@ class Trainer:
     def _update_nn(self, dataset: TrainingDataset) -> tuple[np.ndarray, np.ndarray]:
         self._reset_gradient_stats()
 
-        def train_epoch(dataloader: DataLoader) -> tuple[float, float, float]:
+        def train_epoch(
+            dataloader: DataLoader, collect: bool = False
+        ) -> tuple[float, float, float, list[torch.Tensor], list[torch.Tensor]]:
             self._nn.train()
             # accumulator of: wdl_loss, policy_loss, entropy_loss
             loss_accumulator = torch.zeros(3, dtype=torch.float64, device="cpu")  # Higher precision for accumulation
             samples_seen = 0
+            kl_list: list[torch.Tensor] = []
+            td_list: list[torch.Tensor] = []
             with tqdm(desc="nn-update", total=len(dataset)) as pbar:
                 for data_tuple in dataloader:
                     x, pi_mask, target_pi, target_wdl, weight, is_internal = (
@@ -312,6 +265,20 @@ class Trainer:
                     loss.backward()
                     self._accumulate_gradient_stats()
                     self._optimizer.step()
+                    if collect:
+                        with torch.no_grad():
+                            # TD error: |v_pred - v_target|, 0 for internal, weighted by sample weight
+                            wdl_probs = torch.nn.functional.softmax(current_wdl_logits, dim=-1)
+                            v_pred = wdl_probs[:, 0] - wdl_probs[:, 2]
+                            v_target = target_wdl[:, 0] - target_wdl[:, 2]
+                            td_err = torch.abs(v_pred - v_target)
+                            td_err = torch.where(is_internal.squeeze(), torch.zeros_like(td_err), td_err)
+                            td_list.append((td_err * weight.squeeze()).cpu())
+                            # KL(target || pred) over legal moves, unweighted
+                            log_pred = self._policy_log_softmax(current_pi_unsoftmaxed, pi_mask)
+                            log_target = torch.log(target_pi.clamp_min(1e-6))
+                            kl = target_pi * (log_target - log_pred)
+                            kl_list.append(torch.where(pi_mask, kl, 0.0).reshape(x.shape[0], -1).sum(dim=1).cpu())
                     batch_size = x.shape[0]
                     samples_seen += batch_size
                     batch_losses = torch.tensor(
@@ -334,7 +301,7 @@ class Trainer:
                 epoch_wdl_loss, epoch_policy_loss, epoch_entropy_loss = tuple(
                     (loss_accumulator / samples_seen).tolist()
                 )
-                return epoch_wdl_loss, epoch_policy_loss, epoch_entropy_loss
+                return epoch_wdl_loss, epoch_policy_loss, epoch_entropy_loss, kl_list, td_list
 
         def compute_wdl_loss(
             wdl_logits: torch.Tensor, target_wdl: torch.Tensor, weight: torch.Tensor, is_internal: torch.Tensor
@@ -407,17 +374,25 @@ class Trainer:
         total_wdl_loss = 0.0
         total_policy_loss = 0.0
         total_entropy_loss = 0.0
-        for _ in range(self._epochs_per_update):
+        kl_divs: np.ndarray | None = None
+        td_errors: np.ndarray | None = None
+        for epoch_idx in range(self._epochs_per_update):
+            is_last = epoch_idx == self._epochs_per_update - 1
             train_dataloader = DataLoader(
                 dataset,
                 batch_size=self._batch_size,
-                shuffle=True,
-                drop_last=True,
+                shuffle=not is_last,
+                drop_last=not is_last,
                 pin_memory=self._device.type == "cuda",
                 num_workers=self._num_dataloader_workers,
                 prefetch_factor=3 if self._num_dataloader_workers > 0 else None,
             )
-            train_epoch(train_dataloader)
+            epoch_wdl_loss, epoch_policy_loss, epoch_entropy_loss, kl_list, td_list = train_epoch(
+                train_dataloader, collect=is_last
+            )
+            if is_last:
+                kl_divs = torch.cat(kl_list).numpy().astype(np.float32)
+                td_errors = torch.cat(td_list).numpy().astype(np.float32)
             epoch_test_wdl_loss, epoch_test_policy_loss, epoch_test_entropy_loss = epoch_eval()
             total_wdl_loss += epoch_test_wdl_loss / self._epochs_per_update
             total_policy_loss += epoch_test_policy_loss / self._epochs_per_update
@@ -428,9 +403,7 @@ class Trainer:
             self._summary_writer.add_scalar("trainer/entropy-loss", total_entropy_loss, global_step=self._global_step)
 
         self._flush_gradient_stats()
-
-        # Final batched eval pass over full dataset for PER priority updates
-        kl_divs, td_errors = self._compute_sample_errors_batched(dataset)
+        assert kl_divs is not None and td_errors is not None
         return kl_divs, td_errors
 
     def _get_param_group_modules(self) -> dict[str, torch.nn.Module]:
