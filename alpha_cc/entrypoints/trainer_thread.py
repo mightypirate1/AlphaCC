@@ -16,7 +16,7 @@ from alpha_cc.db import TrainingDB
 from alpha_cc.logs import init_rootlogger
 from alpha_cc.nn.nets.default_net import DefaultNet
 from alpha_cc.runtimes import TournamentRuntime
-from alpha_cc.training import TournamentManager, Trainer, TrainingCheckpoint, TrainingDataset
+from alpha_cc.training import ExportThread, StatsThread, TournamentManager, Trainer, TrainingCheckpoint, TrainingDataset
 
 logger = logging.getLogger(__file__)
 shutdown_requested = threading.Event()
@@ -49,6 +49,7 @@ checkpoint_lock = threading.Lock()
 @click.option("--hidden-channels", type=int, default=128)
 @click.option("--onnx-compiled-batch-size", type=int, default=None)
 @click.option("--onnx-compiled-batch-size-secondary", type=int, default=None)
+@click.option("--stats-gpu", is_flag=True, default=False)
 @click.option("--num-terminal-before-nn", type=int, default=0)
 def main(
     run_id: str,
@@ -77,6 +78,7 @@ def main(
     onnx_compiled_batch_size: int | None,
     onnx_compiled_batch_size_secondary: int | None,
     num_terminal_before_nn: int,
+    stats_gpu: bool,
 ) -> None:
     init_rootlogger(verbose=verbose)
     summary_writer = create_summary_writer(run_id)
@@ -147,6 +149,35 @@ def main(
     db.model_set_current(0, curr_index)
     if gpu:
         trainer.compile(board_size=size, mode="max-autotune")
+
+    stats_device = "cuda" if stats_gpu and torch.cuda.is_available() else "cpu"
+    stats_trainer = Trainer(
+        size,
+        DefaultNet(size, n_blocks=n_blocks, hidden_channels=hidden_channels),
+        epochs_per_update=epochs_per_update,
+        policy_weight=policy_weight,
+        value_weight=value_weight,
+        entropy_weight=entropy_weight,
+        batch_size=batch_size,
+        lr=lr,
+        l2_reg=l2_reg,
+        device=stats_device,
+        summary_writer=summary_writer,
+    )
+    stats_thread = StatsThread(stats_trainer, base_limit=n_train_samples)
+    stats_thread.start()
+
+    export_thread = ExportThread(
+        model=DefaultNet(size, n_blocks=n_blocks, hidden_channels=hidden_channels),
+        db=db,
+        run_id=run_id,
+        board_size=size,
+        save_weights_fn=save_weights,
+        onnx_compiled_batch_size=onnx_compiled_batch_size,
+        summary_writer=summary_writer,
+    )
+    export_thread.start()
+
     set_service_healthy()
 
     while True:
@@ -155,7 +186,6 @@ def main(
         for td in training_datas:
             if td.winner != 0:
                 db.nn_warmup_increment()
-        trainer.report_rollout_stats(training_datas, limit=n_train_samples)
         replay_buffer.add_datas(
             training_datas,
             summary_writer=summary_writer,
@@ -174,12 +204,15 @@ def main(
         kl_divs, td_errors = trainer.train(sampled_dataset)
         replay_buffer.update_priorities(sampled_indices, kl_divs, td_errors)
 
-        # publish weights
-        curr_index, onnx_payload = publish_weights(trainer.nn, db, size, onnx_compiled_batch_size)
-        save_weights(run_id, curr_index, trainer.nn.state_dict(), onnx_payload)
+        # snapshot weights and hand off to background threads
+        curr_index = db.weights_incr_weights_index()
+        state_dict_snapshot = {k: v.cpu().clone() for k, v in trainer.nn.state_dict().items()}
+        stats_thread.submit(state_dict_snapshot, training_datas, curr_index)
+        export_thread.submit(state_dict_snapshot, curr_index)
 
         # periodically run tournament
         if curr_index % tournament_freq == 0:
+            export_thread.wait_idle()
             tournament_manager.run_tournament(curr_index)
 
 

@@ -114,10 +114,11 @@ class Trainer:
             self._nn.eval()
             dataloader = DataLoader(
                 eval_dataset,
-                batch_size=self._batch_size,
+                batch_size=1024,
                 drop_last=False,
                 pin_memory=True,
                 shuffle=False,
+                prefetch_factor=3,
             )
             pi_logits_list: list[torch.Tensor] = []  # raw logits (legal moves only)
             pi_logprobs: list[torch.Tensor] = []  # log probs over legal moves
@@ -304,7 +305,9 @@ class Trainer:
             samples_seen = 0
             with tqdm(desc="nn-update", total=len(dataset)) as pbar:
                 for data_tuple in dataloader:
-                    x, pi_mask, target_pi, target_wdl, weight, is_internal = (data.to(self._device) for data in data_tuple)
+                    x, pi_mask, target_pi, target_wdl, weight, is_internal = (
+                        data.to(self._device) for data in data_tuple
+                    )
                     self._optimizer.zero_grad(set_to_none=True)
                     current_pi_unsoftmaxed, current_wdl_logits = self._compiled_nn(x)
                     wdl_loss = compute_wdl_loss(current_wdl_logits, target_wdl, weight, is_internal)
@@ -337,7 +340,9 @@ class Trainer:
                         }
                     )
                     pbar.update(batch_size)
-                epoch_wdl_loss, epoch_policy_loss, epoch_entropy_loss = tuple((loss_accumulator / samples_seen).tolist())
+                epoch_wdl_loss, epoch_policy_loss, epoch_entropy_loss = tuple(
+                    (loss_accumulator / samples_seen).tolist()
+                )
                 return epoch_wdl_loss, epoch_policy_loss, epoch_entropy_loss
 
         def compute_wdl_loss(

@@ -155,7 +155,7 @@ class TrainingDB:
 
     def nn_warmup_get(self) -> int:
         response = self._db.get(self.nn_warmup_counter_key)
-        return 0 if response is None else int(response)
+        return 0 if response is None else int(response)  # type: ignore
 
     ##
     # tournament
