@@ -3,6 +3,8 @@ import threading
 from collections import deque
 from typing import Any
 
+import torch
+
 from alpha_cc.agents.mcts.training_data import TrainingData
 from alpha_cc.training.trainer import Trainer
 
@@ -39,6 +41,8 @@ class StatsThread(threading.Thread):
         self._work_available.set()
 
     def run(self) -> None:
+        torch._dynamo.config.suppress_errors = True
+        torch.set_float32_matmul_precision("high")
         while True:
             self._work_available.wait()
             with self._lock:

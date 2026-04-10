@@ -81,6 +81,8 @@ def main(
     stats_gpu: bool,
 ) -> None:
     init_rootlogger(verbose=verbose)
+    torch._dynamo.config.suppress_errors = True
+    torch.set_float32_matmul_precision("high")
     summary_writer = create_summary_writer(run_id)
     device = "cuda" if gpu and torch.cuda.is_available() else "cpu"
     db = TrainingDB(host=Environment.redis_host_main)
