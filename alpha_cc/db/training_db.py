@@ -47,6 +47,10 @@ class TrainingDB:
         return "latest-weights-index"
 
     @property
+    def nn_warmup_counter_key(self) -> str:
+        return "nn-warmup-counter"
+
+    @property
     def tournament_counter_key(self) -> str:
         return "tournament-counter"
 
@@ -137,6 +141,21 @@ class TrainingDB:
         index = 0 if response is None else int(response)  # type: ignore
         logger.debug(f"latest index: {index}")
         return index
+
+    ##
+    # nn warmup
+    def nn_warmup_init(self, n: int) -> None:
+        self._db.set(self.nn_warmup_counter_key, -n)
+
+    def nn_warmup_set(self, value: int) -> None:
+        self._db.set(self.nn_warmup_counter_key, value)
+
+    def nn_warmup_increment(self) -> None:
+        self._db.incr(self.nn_warmup_counter_key)
+
+    def nn_warmup_get(self) -> int:
+        response = self._db.get(self.nn_warmup_counter_key)
+        return 0 if response is None else int(response)
 
     ##
     # tournament

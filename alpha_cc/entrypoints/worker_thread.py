@@ -49,7 +49,6 @@ logger = logging.getLogger(__file__)
 @click.option("--n-threads", type=int, default=1)
 @click.option("--pruning-tree", is_flag=True, default=False)
 @click.option("--debug-prints", is_flag=True, default=False)
-@click.option("--num-terminal-before-nn", type=int, default=0)
 @click.option("--verbose", is_flag=True, default=False)
 def main(
     size: int,
@@ -74,7 +73,6 @@ def main(
     n_threads: int,
     pruning_tree: bool,
     debug_prints: bool,
-    num_terminal_before_nn: int,
     verbose: bool,
 ) -> None:
     def create_model(channel: int, trainer_time: int, dummy_preds: bool) -> MCTSAgent:
@@ -130,7 +128,7 @@ def main(
             )
         internal_nodes_fraction_val = internal_nodes_fraction_schedule.as_float(trainer_time)
         training_data = training_runtime.play_game(
-            agent=create_model(0, trainer_time, num_terminal_before_nn > 0),
+            agent=create_model(0, trainer_time, training_db.nn_warmup_get() < 0),
             n_rollouts=n_rollouts_schedule.as_int(trainer_time),
             rollout_depth=rollout_depth_schedule.as_int(trainer_time),
             max_game_length=max_game_length_schedule.as_int(trainer_time),
@@ -139,8 +137,6 @@ def main(
             internal_nodes_fraction=internal_nodes_fraction_val if internal_nodes_fraction_val > 0.0 else None,
             internal_nodes_min_visits=internal_nodes_min_visits_schedule.as_int(trainer_time),
         )
-        if training_data.winner != 0 and num_terminal_before_nn > 0:
-            num_terminal_before_nn -= 1
         training_db.training_data_post(training_data)
 
 

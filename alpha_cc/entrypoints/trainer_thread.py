@@ -49,6 +49,7 @@ checkpoint_lock = threading.Lock()
 @click.option("--hidden-channels", type=int, default=128)
 @click.option("--onnx-compiled-batch-size", type=int, default=None)
 @click.option("--onnx-compiled-batch-size-secondary", type=int, default=None)
+@click.option("--num-terminal-before-nn", type=int, default=0)
 def main(
     run_id: str,
     size: int,
@@ -75,6 +76,7 @@ def main(
     hidden_channels: int,
     onnx_compiled_batch_size: int | None,
     onnx_compiled_batch_size_secondary: int | None,
+    num_terminal_before_nn: int,
 ) -> None:
     init_rootlogger(verbose=verbose)
     summary_writer = create_summary_writer(run_id)
@@ -109,6 +111,7 @@ def main(
     )
     if existing_checkpoint is None:
         db.flush_db()  # safe fresh start
+        db.nn_warmup_init(num_terminal_before_nn)
         curr_index, onnx_payload = publish_weights(trainer.nn, db, size, onnx_compiled_batch_size)
         save_weights(run_id, curr_index, trainer.nn.state_dict(), onnx_payload)
         champion_index = curr_index
@@ -120,6 +123,7 @@ def main(
         )
     else:
         replay_buffer = existing_checkpoint.replay_buffer
+        db.nn_warmup_set(existing_checkpoint.nn_warmup_counter)
         logger.info(f"Restored replay buffer from checkpoint: size={len(replay_buffer)}")
 
     tournament_manager = TournamentManager(
@@ -148,6 +152,9 @@ def main(
     while True:
         # wait until we have enough new samples
         training_datas = await_samples(db, n_train_samples)
+        for td in training_datas:
+            if td.winner != 0:
+                db.nn_warmup_increment()
         trainer.report_rollout_stats(training_datas, limit=n_train_samples)
         replay_buffer.add_datas(
             training_datas,
@@ -359,6 +366,7 @@ def create_and_register_signal_handler(
             champion_index=tournament_manager.champion_index,
             replay_buffer=replay_buffer,
             trainer_steps=trainer.get_steps(),
+            nn_warmup_counter=training_db.nn_warmup_get(),
         )
         Path(save_root(run_id)).mkdir(exist_ok=True, parents=True)
         checkpoint.save(save_path_latest, verbose=True)
