@@ -181,6 +181,9 @@ def main(
     set_service_healthy()
 
     while True:
+        warmup_remaining = db.nn_warmup_get()
+        if warmup_remaining < 0:
+            logger.info(f"Warmup: {-warmup_remaining} more terminal games until workers use real NN")
         # wait until we have enough new samples
         training_datas = await_samples(db, n_train_samples)
         for td in training_datas:
