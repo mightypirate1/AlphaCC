@@ -93,11 +93,6 @@ class Trainer:
             self._summary_writer.add_scalar(f"{prefix}/{key}-min", data.min(), global_step=self._global_step)
             self._summary_writer.add_scalar(f"{prefix}/{key}-max", data.max(), global_step=self._global_step)
 
-        def entropy(p: torch.Tensor) -> torch.Tensor:
-            return -(p * (p.clamp_min(1e-6).log())).sum(dim=-1)
-
-        def kl_divergence(p: torch.Tensor, q: torch.Tensor) -> torch.Tensor:
-            return torch.sum(p * (torch.log(p.clip(1e-6)) - torch.log(q.clip(1e-6))), dim=-1)
 
         if self._summary_writer is None:
             return
@@ -116,47 +111,48 @@ class Trainer:
                 eval_dataset,
                 batch_size=1024,
                 drop_last=False,
-                pin_memory=True,
                 shuffle=False,
-                prefetch_factor=3,
+                pin_memory=self._device.type == "cuda",
+                num_workers=self._num_dataloader_workers,
+                prefetch_factor=3 if self._num_dataloader_workers > 0 else None,
             )
-            pi_logits_list: list[torch.Tensor] = []  # raw logits (legal moves only)
-            pi_logprobs: list[torch.Tensor] = []  # log probs over legal moves
-            pi_preds: list[torch.Tensor] = []  # probs over legal moves
-            pi_targets: list[torch.Tensor] = []  # target probs over legal moves (masked & re-normalized)
-            wdl_preds = []
+            pi_logprobs_list: list[torch.Tensor] = []
+            pi_targets_list: list[torch.Tensor] = []
+            wdl_preds: list[torch.Tensor] = []
+            kl_divs_list: list[torch.Tensor] = []
+            entropy_list: list[torch.Tensor] = []
             with tqdm(desc="nn-eval/epoch", total=len(eval_dataset)) as pbar:
-                processed = 0
                 for batch in dataloader:
                     x, pi_mask_batch, pi_target_batch, _, _, _ = (b.to(self._device) for b in batch)
+                    B = x.shape[0]
                     pi_tensor_batch, wdl_logits_batch = self._compiled_nn(x)
                     wdl_preds.append(torch.nn.functional.softmax(wdl_logits_batch, dim=-1).cpu())
-                    # iterate per sample
-                    for pi_tensor_unsoftmaxed, pi_mask, pi_target_full in zip(
-                        pi_tensor_batch, pi_mask_batch, pi_target_batch
-                    ):
-                        # legal indices
-                        legal_idx = torch.nonzero(pi_mask.squeeze(), as_tuple=True)
-                        raw_pi_logits = pi_tensor_unsoftmaxed[legal_idx].ravel()
-                        target_legal = pi_target_full[legal_idx].ravel()
-                        # re-normalize target in case of numerical drift
-                        target_legal = target_legal / target_legal.sum().clamp_min(1e-8)
 
-                        pi_logprob = torch.nn.functional.log_softmax(raw_pi_logits, dim=0)
-                        pi_pred = torch.nn.functional.softmax(raw_pi_logits, dim=0)
+                    # Flatten spatial dims → (B, N) for fully vectorized ops
+                    mask = pi_mask_batch.reshape(B, -1).bool()
+                    target = pi_target_batch.reshape(B, -1) * mask
+                    target = target / target.sum(dim=1, keepdim=True).clamp_min(1e-8)
 
-                        pi_logits_list.append(raw_pi_logits.cpu())
-                        pi_logprobs.append(pi_logprob.cpu())
-                        pi_preds.append(pi_pred.cpu())
-                        pi_targets.append(target_legal.cpu())
+                    # Masked log_softmax; replace -inf at illegal positions with 0 to avoid 0*-inf=nan
+                    log_pred = torch.nn.functional.log_softmax(
+                        pi_tensor_batch.reshape(B, -1).masked_fill(~mask, float("-inf")), dim=1
+                    ).masked_fill(~mask, 0.0)
+                    log_target = target.clamp_min(1e-6).log()
 
-                    processed += x.shape[0]
-                    pbar.update(x.shape[0])
+                    # Legal-only values for histograms (variable-length per sample, concatenated)
+                    pi_logprobs_list.append(log_pred[mask].cpu())
+                    pi_targets_list.append(target[mask].cpu())
+                    # Per-sample entropy and KL
+                    entropy_list.append(-(target * log_target).sum(dim=1).cpu())
+                    kl_divs_list.append((target * (log_target - log_pred)).sum(dim=1).cpu())
 
-            # flatten (concatenate) for histograms
-            pi_logprobs_raveled = torch.cat(pi_logprobs, dim=0)  # pred logprobs (legal)
-            pi_targets_raveled = torch.cat(pi_targets, dim=0)  # target probs (legal)
-            wdl_pred = torch.cat(wdl_preds, dim=0)  # (N, 3)
+                    pbar.update(B)
+
+            pi_logprobs_raveled = torch.cat(pi_logprobs_list)
+            pi_targets_raveled = torch.cat(pi_targets_list)
+            wdl_pred = torch.cat(wdl_preds)
+            pi_target_entropy = torch.cat(entropy_list)
+            kl_divergences = torch.cat(kl_divs_list)
 
         #######
         ### trajectories
@@ -166,10 +162,6 @@ class Trainer:
         wdl_targets = np.array([e.wdl_target for e in experiences])
         wdl_target_values = wdl_targets[:, 0] - wdl_targets[:, 2]  # expected value = W - L
         pi_targets_logprobs_raveled = pi_targets_raveled.clamp(1e-6).log()
-        pi_target_entropy = torch.as_tensor([entropy(pi_target) for pi_target in pi_targets])
-        kl_divergences = torch.as_tensor(
-            [kl_divergence(pi_target, pi_pred) for pi_target, pi_pred in zip(pi_targets, pi_preds)]
-        )
         self._summary_writer.add_histogram(
             "trainer/pi/pi-target-entropy", pi_target_entropy, global_step=self._global_step
         )
@@ -249,9 +241,9 @@ class Trainer:
             batch_size=1024,
             shuffle=False,
             drop_last=False,
-            pin_memory=True,
+            pin_memory=self._device.type == "cuda",
             num_workers=self._num_dataloader_workers,
-            prefetch_factor=3,
+            prefetch_factor=3 if self._num_dataloader_workers > 0 else None,
         )
 
         with tqdm(desc="recomputing-priorities", total=len(dataset)) as pbar:
@@ -408,9 +400,9 @@ class Trainer:
             test_data,
             batch_size=self._batch_size,
             drop_last=False,
-            pin_memory=True,
+            pin_memory=self._device.type == "cuda",
             num_workers=self._num_dataloader_workers,
-            prefetch_factor=3,
+            prefetch_factor=3 if self._num_dataloader_workers > 0 else None,
         )
 
         total_wdl_loss = 0.0
@@ -422,9 +414,9 @@ class Trainer:
                 batch_size=self._batch_size,
                 shuffle=True,
                 drop_last=True,
-                pin_memory=True,
+                pin_memory=self._device.type == "cuda",
                 num_workers=self._num_dataloader_workers,
-                prefetch_factor=3,
+                prefetch_factor=3 if self._num_dataloader_workers > 0 else None,
             )
             train_epoch(train_dataloader)
             epoch_test_wdl_loss, epoch_test_policy_loss, epoch_test_entropy_loss = epoch_eval()
