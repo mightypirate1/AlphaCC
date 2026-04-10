@@ -2,6 +2,7 @@ import logging
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm_loggable.auto import tqdm
@@ -277,6 +278,20 @@ class Trainer:
                     x, pi_mask, target_pi, target_wdl, weight, is_internal = (
                         data.to(self._device) for data in data_tuple
                     )
+                    # Pad tail batch to batch_size so compiled step sees fixed shapes.
+                    n_real = x.shape[0]
+                    if n_real < self._batch_size:
+                        n_pad = self._batch_size - n_real
+
+                        def _pad(t: torch.Tensor, value: float = 0.0) -> torch.Tensor:
+                            return F.pad(t.float(), (0, 0) * (t.dim() - 1) + (0, n_pad), value=value).to(t.dtype)
+
+                        x = _pad(x)
+                        pi_mask = _pad(pi_mask, value=1.0)
+                        target_pi = _pad(target_pi)
+                        target_wdl = _pad(target_wdl)
+                        weight = _pad(weight)
+                        is_internal = _pad(is_internal)
                     wdl_loss, policy_loss, entropy_loss, current_pi_unsoftmaxed, current_wdl_logits = self._train_step(
                         x, pi_mask, target_pi, target_wdl, weight, is_internal
                     )
@@ -284,18 +299,20 @@ class Trainer:
                     if collect:
                         with torch.no_grad():
                             # TD error: |v_pred - v_target|, 0 for internal, weighted by sample weight
-                            wdl_probs = torch.nn.functional.softmax(current_wdl_logits, dim=-1)
+                            wdl_probs = torch.nn.functional.softmax(current_wdl_logits[:n_real], dim=-1)
                             v_pred = wdl_probs[:, 0] - wdl_probs[:, 2]
-                            v_target = target_wdl[:, 0] - target_wdl[:, 2]
+                            v_target = target_wdl[:n_real, 0] - target_wdl[:n_real, 2]
                             td_err = torch.abs(v_pred - v_target)
-                            td_err = torch.where(is_internal.squeeze(), torch.zeros_like(td_err), td_err)
-                            td_list.append((td_err * weight.squeeze()).cpu())
+                            td_err = torch.where(is_internal[:n_real].squeeze(), torch.zeros_like(td_err), td_err)
+                            td_list.append((td_err * weight[:n_real].squeeze()).cpu())
                             # KL(target || pred) over legal moves, unweighted
-                            log_pred = self._policy_log_softmax(current_pi_unsoftmaxed, pi_mask)
-                            log_target = torch.log(target_pi.clamp_min(1e-6))
-                            kl = target_pi * (log_target - log_pred)
-                            kl_list.append(torch.where(pi_mask, kl, 0.0).reshape(x.shape[0], -1).sum(dim=1).cpu())
-                    batch_size = x.shape[0]
+                            log_pred = self._policy_log_softmax(current_pi_unsoftmaxed[:n_real], pi_mask[:n_real])
+                            log_target = torch.log(target_pi[:n_real].clamp_min(1e-6))
+                            kl = target_pi[:n_real] * (log_target - log_pred)
+                            kl_list.append(
+                                torch.where(pi_mask[:n_real], kl, 0.0).reshape(n_real, -1).sum(dim=1).cpu()
+                            )
+                    batch_size = n_real
                     samples_seen += batch_size
                     batch_losses = torch.tensor(
                         [
@@ -354,7 +371,7 @@ class Trainer:
         test_dataloader = DataLoader(
             test_data,
             batch_size=self._batch_size,
-            drop_last=False,
+            drop_last=True,
             pin_memory=self._device.type == "cuda",
             num_workers=self._num_dataloader_workers,
             prefetch_factor=3 if self._num_dataloader_workers > 0 else None,
