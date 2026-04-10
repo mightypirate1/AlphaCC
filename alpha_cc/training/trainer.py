@@ -10,6 +10,7 @@ from alpha_cc.agents.mcts.training_data import TrainingData
 from alpha_cc.agents.mcts.worker_stats import WorkerStats
 from alpha_cc.nn.blocks import PolicyLogSoftmax, PolicySoftmax
 from alpha_cc.nn.nets import DefaultNet
+from alpha_cc.training import train_ops
 from alpha_cc.training.training_dataset import TrainingDataset
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,15 @@ class Trainer:
         self._global_step = 0
         self._eval_step = 0
         self._summary_writer = summary_writer
+        self._train_step = train_ops.make_train_step(
+            self._nn,
+            self._optimizer,
+            self._policy_log_softmax,
+            self._policy_softmax,
+            self._policy_weight,
+            self._value_weight,
+            self._entropy_weight,
+        )
 
     @property
     def nn(self) -> DefaultNet:
@@ -56,18 +66,33 @@ class Trainer:
         return self._optimizer
 
     def compile(self, board_size: int, mode: str = "max-autotune") -> None:
-        """JIT-compile the model for faster training. The original model
-        is preserved at `self.nn` for ONNX export and state_dict access."""
-        logger.info(f"Compiling model with torch.compile(mode={mode!r})...")
+        """JIT-compile the training step and model for faster training. The original
+        model is preserved at `self.nn` for ONNX export and state_dict access."""
+        logger.info(f"Compiling training step with torch.compile(mode={mode!r})...")
         torch._dynamo.config.suppress_errors = True
         torch.set_float32_matmul_precision("high")
-        self._compiled_nn = torch.compile(self._nn, mode=mode)  # type: ignore
-        # Warmup the forward pass only with no_grad to avoid leaking backward
-        # compilation state into subsequent optimizer steps.
-        dummy = torch.zeros(self._batch_size, 2, board_size, board_size, device=self._device)
-        with torch.no_grad():
-            self._compiled_nn(dummy)
-        logger.info("Model compiled and warmed up")
+        self._compiled_nn = torch.compile(self._nn, mode=mode)  # type: ignore  # used for eval
+        self._train_step = train_ops.make_train_step(
+            self._nn,
+            self._optimizer,
+            self._policy_log_softmax,
+            self._policy_softmax,
+            self._policy_weight,
+            self._value_weight,
+            self._entropy_weight,
+            mode=mode,
+        )
+        # Warm up the full training step (forward + backward + optimizer) so compilation
+        # completes before workers start, not while they compete for CPU.
+        bs, n = board_size, self._batch_size
+        dummy_x = torch.zeros(n, 2, bs, bs, device=self._device)
+        dummy_mask = torch.ones(n, bs, bs, bs, bs, dtype=torch.bool, device=self._device)
+        dummy_pi = torch.full((n, bs, bs, bs, bs), 1.0 / (bs**4), device=self._device)
+        dummy_wdl = torch.full((n, 3), 1.0 / 3.0, device=self._device)
+        dummy_weight = torch.ones(n, device=self._device)
+        dummy_is_internal = torch.zeros(n, dtype=torch.bool, device=self._device)
+        self._train_step(dummy_x, dummy_mask, dummy_pi, dummy_wdl, dummy_weight, dummy_is_internal)
+        logger.info("Training step compiled and warmed up")
 
     def train(self, dataset: TrainingDataset) -> tuple[np.ndarray, np.ndarray]:
         kl_divs, td_errors = self._update_nn(dataset)
@@ -252,19 +277,10 @@ class Trainer:
                     x, pi_mask, target_pi, target_wdl, weight, is_internal = (
                         data.to(self._device) for data in data_tuple
                     )
-                    self._optimizer.zero_grad(set_to_none=True)
-                    current_pi_unsoftmaxed, current_wdl_logits = self._compiled_nn(x)
-                    wdl_loss = compute_wdl_loss(current_wdl_logits, target_wdl, weight, is_internal)
-                    policy_loss = compute_policy_loss(current_pi_unsoftmaxed, pi_mask, target_pi, weight)
-                    entropy_loss = compute_entropy_loss(current_pi_unsoftmaxed, pi_mask, weight)
-                    loss = (
-                        self._policy_weight * policy_loss
-                        + self._value_weight * wdl_loss
-                        + self._entropy_weight * entropy_loss
+                    wdl_loss, policy_loss, entropy_loss, current_pi_unsoftmaxed, current_wdl_logits = self._train_step(
+                        x, pi_mask, target_pi, target_wdl, weight, is_internal
                     )
-                    loss.backward()
                     self._accumulate_gradient_stats()
-                    self._optimizer.step()
                     if collect:
                         with torch.no_grad():
                             # TD error: |v_pred - v_target|, 0 for internal, weighted by sample weight
@@ -303,37 +319,6 @@ class Trainer:
                 )
                 return epoch_wdl_loss, epoch_policy_loss, epoch_entropy_loss, kl_list, td_list
 
-        def compute_wdl_loss(
-            wdl_logits: torch.Tensor, target_wdl: torch.Tensor, weight: torch.Tensor, is_internal: torch.Tensor
-        ) -> torch.Tensor:
-            """Cross-entropy between predicted WDL (from logits) and target WDL distribution."""
-            mask = (~is_internal).float()
-            log_probs = torch.nn.functional.log_softmax(wdl_logits, dim=-1)
-            # Per-sample cross-entropy: -sum(target * log_pred)
-            ce = -(target_wdl * log_probs).sum(dim=-1)
-            weight_masked = weight * mask
-            return (ce * weight_masked).sum() / weight_masked.sum().clamp_min(1e-8)
-
-        def compute_policy_loss(
-            pi_tensor_unsoftmaxed: torch.Tensor, pi_mask: torch.Tensor, target_pi: torch.Tensor, weight: torch.Tensor
-        ) -> torch.Tensor:
-            pi_mask_flat = pi_mask.reshape((pi_mask.shape[0], -1))
-            policy_loss_unmasked = -target_pi * self._policy_log_softmax(pi_tensor_unsoftmaxed, pi_mask)
-            policy_loss_unnormalized = torch.where(pi_mask, policy_loss_unmasked, 0).reshape((pi_mask.shape[0], -1))
-            n_actions = pi_mask_flat.sum(dim=1, keepdim=True)
-            policy_loss_unweighted = (policy_loss_unnormalized / n_actions).sum(dim=1)
-            return (weight * policy_loss_unweighted).sum() / weight.sum()
-
-        def compute_entropy_loss(
-            pi_tensor_unsoftmaxed: torch.Tensor, pi_mask: torch.Tensor, weight: torch.Tensor
-        ) -> torch.Tensor:
-            pi = self._policy_softmax(pi_tensor_unsoftmaxed, pi_mask)
-            pi_masked = torch.where(pi_mask, pi, 0)
-            sample_entropy_unweighted = (
-                (pi_masked * torch.log(pi_masked.clip(1e-6))).reshape((pi_mask.shape[0], -1)).sum(dim=1)
-            )
-            return (weight * sample_entropy_unweighted).sum() / weight.sum()
-
         @torch.no_grad()
         def epoch_eval() -> tuple[float, float, float]:
             self._nn.eval()
@@ -344,9 +329,13 @@ class Trainer:
             for data_tuple in test_dataloader:
                 x, pi_mask, target_pi, target_wdl, weight, is_internal = (data.to(self._device) for data in data_tuple)
                 current_pi_unsoftmaxed, current_wdl_logits = self._compiled_nn(x)
-                wdl_loss = compute_wdl_loss(current_wdl_logits, target_wdl, weight, is_internal)
-                policy_loss = compute_policy_loss(current_pi_unsoftmaxed, pi_mask, target_pi, weight)
-                entropy_loss = compute_entropy_loss(current_pi_unsoftmaxed, pi_mask, weight)
+                wdl_loss = train_ops.compute_wdl_loss(current_wdl_logits, target_wdl, weight, is_internal)
+                policy_loss = train_ops.compute_policy_loss(
+                    current_pi_unsoftmaxed, pi_mask, target_pi, weight, self._policy_log_softmax
+                )
+                entropy_loss = train_ops.compute_entropy_loss(
+                    current_pi_unsoftmaxed, pi_mask, weight, self._policy_softmax
+                )
                 epoch_wdl_loss += wdl_loss.mean().cpu().item() / len(test_dataloader)
                 epoch_policy_loss += policy_loss.mean().cpu().item() / len(test_dataloader)
                 epoch_entropy_loss += entropy_loss.mean().cpu().item() / len(test_dataloader)
@@ -387,9 +376,7 @@ class Trainer:
                 num_workers=self._num_dataloader_workers,
                 prefetch_factor=3 if self._num_dataloader_workers > 0 else None,
             )
-            epoch_wdl_loss, epoch_policy_loss, epoch_entropy_loss, kl_list, td_list = train_epoch(
-                train_dataloader, collect=is_last
-            )
+            _, _, _, kl_list, td_list = train_epoch(train_dataloader, collect=is_last)
             if is_last:
                 kl_divs = torch.cat(kl_list).numpy().astype(np.float32)
                 td_errors = torch.cat(td_list).numpy().astype(np.float32)
@@ -403,8 +390,7 @@ class Trainer:
             self._summary_writer.add_scalar("trainer/entropy-loss", total_entropy_loss, global_step=self._global_step)
 
         self._flush_gradient_stats()
-        assert kl_divs is not None and td_errors is not None
-        return kl_divs, td_errors
+        return kl_divs, td_errors  # type: ignore # TODO: solve this cleaner
 
     def _get_param_group_modules(self) -> dict[str, torch.nn.Module]:
         return self._nn.param_groups()
