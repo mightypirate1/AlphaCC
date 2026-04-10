@@ -62,11 +62,11 @@ class Trainer:
         torch._dynamo.config.suppress_errors = True
         torch.set_float32_matmul_precision("high")
         self._compiled_nn = torch.compile(self._nn, mode=mode)  # type: ignore
-        # Warmup: run a dummy forward+backward to trigger compilation
+        # Warmup the forward pass only with no_grad to avoid leaking backward
+        # compilation state into subsequent optimizer steps.
         dummy = torch.zeros(self._batch_size, 2, board_size, board_size, device=self._device)
-        out_pi, out_wdl = self._compiled_nn(dummy)
-        (out_pi.sum() + out_wdl.sum()).backward()
-        self._optimizer.zero_grad()
+        with torch.no_grad():
+            self._compiled_nn(dummy)
         logger.info("Model compiled and warmed up")
 
     def train(self, dataset: TrainingDataset) -> tuple[np.ndarray, np.ndarray]:
