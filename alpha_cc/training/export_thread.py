@@ -51,6 +51,8 @@ class ExportThread(threading.Thread):
 
     def submit(self, state_dict: dict[str, Any], curr_index: int) -> None:
         with self._lock:
+            if self._pending is not None:
+                logger.warning(f"export-thread: dropped weights {self._pending[1]} (export lagging behind training)")
             self._pending = (state_dict, curr_index)
         self._work_available.set()
 

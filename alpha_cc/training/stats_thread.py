@@ -55,8 +55,7 @@ class StatsThread(threading.Thread):
                     self._work_available.clear()
 
             effective_limit = max(1, int(self._base_limit * (1.0 - fill_fraction)))
-            if fill_fraction > 0:
-                logger.debug(f"stats-thread queue fill={fill_fraction:.0%}, " f"effective_limit={effective_limit}")
+            logger.warning(f"stats-thread queue fill={fill_fraction:.0%}, effective_limit={effective_limit}")
 
             try:
                 self._trainer.nn.load_state_dict(state_dict)
