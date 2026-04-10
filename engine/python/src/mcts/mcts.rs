@@ -1,11 +1,37 @@
 use pyo3::prelude::*;
 use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 
+use alpha_cc_nn::PredictionSource;
 use crate::core::PyBoard;
 use crate::nn::PyFetchStats;
 use super::mcts_node::PyMCTSNode;
 
-type MCTS = alpha_cc_mcts::MCTS<alpha_cc_nn_service::NNRemote>;
+enum PredictionSources {
+    Dummy(alpha_cc_nn::mock::MockPredictor),
+    Real(alpha_cc_nn_service::NNRemote),
+}
+
+impl PredictionSources {
+    fn dummy() -> Self {
+        Self::Dummy(alpha_cc_nn::mock::MockPredictor::uniform(0.0))
+    }
+
+    fn real(addr: &str) -> Self {
+        let nn = alpha_cc_nn_service::NNRemote::connect(addr);
+        Self::Real(nn)
+    }
+}
+
+impl PredictionSource for PredictionSources {
+    fn predict(&self, board: &alpha_cc_core::Board, model_id: u32) -> alpha_cc_nn::NNPred {
+        match self {
+            Self::Dummy(dummy) => dummy.predict(board, model_id),
+            Self::Real(nn_remote) => nn_remote.predict(board, model_id),
+        }
+    }
+}
+
+type MCTS = alpha_cc_mcts::MCTS<PredictionSources>;
 
 #[gen_stub_pyclass]
 #[pyclass(name = "RolloutResult", module = "alpha_cc_engine")]
@@ -46,14 +72,14 @@ impl PyRolloutResult {
 
 #[gen_stub_pyclass]
 #[pyclass(name = "MCTS", module = "alpha_cc_engine")]
-pub struct PyMCTS(pub MCTS);
+pub struct PyMCTS(MCTS);
 
 #[gen_stub_pymethods]
 #[pymethods]
 impl PyMCTS {
     #[allow(clippy::too_many_arguments)]
     #[new]
-    #[pyo3(signature = (nn_service_addr, channel, gamma, dirichlet_weight, dirichlet_leaf_weight, dirichlet_alpha, c_puct_init, c_puct_base, n_threads=1, pruning_tree=false, debug_prints=false))]
+    #[pyo3(signature = (nn_service_addr, channel, gamma, dirichlet_weight, dirichlet_leaf_weight, dirichlet_alpha, c_puct_init, c_puct_base, n_threads=1, pruning_tree=false, debug_prints=false, dummy_preds=false))]
     fn new(
         nn_service_addr: String,
         channel: u32,
@@ -66,11 +92,14 @@ impl PyMCTS {
         n_threads: usize,
         pruning_tree: bool,
         debug_prints: bool,
+        dummy_preds: bool,
     ) -> Self {
         let n = n_threads.max(1);
-        let services: Vec<_> = (0..n)
-            .map(|_| alpha_cc_nn_service::NNRemote::connect(&nn_service_addr))
-            .collect();
+        let services = if dummy_preds {
+            (0..n).map(|_| PredictionSources::dummy()).collect()
+        } else {
+            (0..n).map(|_| PredictionSources::real(&nn_service_addr)).collect()
+        };
         PyMCTS(MCTS::new(
             services,
             channel,
