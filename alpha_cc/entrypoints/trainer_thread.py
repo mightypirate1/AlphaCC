@@ -83,6 +83,7 @@ def main(
     init_rootlogger(verbose=verbose)
     torch._dynamo.config.suppress_errors = True
     torch.set_float32_matmul_precision("high")
+    _patch_fx_traceback()
     summary_writer = create_summary_writer(run_id)
     device = "cuda" if gpu and torch.cuda.is_available() else "cpu"
     db = TrainingDB(host=Environment.redis_host_main)
@@ -468,3 +469,26 @@ def create_summary_writer(run_id: str) -> SummaryWriter:
     logdir = f"{Environment.tb_logdir}/{run_id}"
     Path(logdir).mkdir(parents=True, exist_ok=True)
     return SummaryWriter(log_dir=logdir)
+
+
+def _patch_fx_traceback() -> None:
+    """Workaround for a PyTorch bug where fx_traceback.annotate's __exit__
+    does `del current_meta["custom"]` but the key may already be absent,
+    causing a spurious KeyError that crashes the training loop."""
+    from contextlib import contextmanager
+
+    import torch.fx.traceback as fxt
+
+    @contextmanager
+    def _safe_annotate(fields: dict):  # type: ignore[no-untyped-def]  # noqa: ANN202
+        prior = fxt.current_meta.get("custom")
+        fxt.current_meta["custom"] = fields
+        try:
+            yield
+        finally:
+            if prior is None:
+                fxt.current_meta.pop("custom", None)
+            else:
+                fxt.current_meta["custom"] = prior
+
+    fxt.annotate = _safe_annotate  # type: ignore

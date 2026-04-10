@@ -93,7 +93,6 @@ class Trainer:
             self._summary_writer.add_scalar(f"{prefix}/{key}-min", data.min(), global_step=self._global_step)
             self._summary_writer.add_scalar(f"{prefix}/{key}-max", data.max(), global_step=self._global_step)
 
-
         if self._summary_writer is None:
             return
 
@@ -124,18 +123,18 @@ class Trainer:
             with tqdm(desc="nn-eval/epoch", total=len(eval_dataset)) as pbar:
                 for batch in dataloader:
                     x, pi_mask_batch, pi_target_batch, _, _, _ = (b.to(self._device) for b in batch)
-                    B = x.shape[0]
+                    batch_size = x.shape[0]
                     pi_tensor_batch, wdl_logits_batch = self._compiled_nn(x)
                     wdl_preds.append(torch.nn.functional.softmax(wdl_logits_batch, dim=-1).cpu())
 
                     # Flatten spatial dims → (B, N) for fully vectorized ops
-                    mask = pi_mask_batch.reshape(B, -1).bool()
-                    target = pi_target_batch.reshape(B, -1) * mask
+                    mask = pi_mask_batch.reshape(batch_size, -1).bool()
+                    target = pi_target_batch.reshape(batch_size, -1) * mask
                     target = target / target.sum(dim=1, keepdim=True).clamp_min(1e-8)
 
                     # Masked log_softmax; replace -inf at illegal positions with 0 to avoid 0*-inf=nan
                     log_pred = torch.nn.functional.log_softmax(
-                        pi_tensor_batch.reshape(B, -1).masked_fill(~mask, float("-inf")), dim=1
+                        pi_tensor_batch.reshape(batch_size, -1).masked_fill(~mask, float("-inf")), dim=1
                     ).masked_fill(~mask, 0.0)
                     log_target = target.clamp_min(1e-6).log()
 
@@ -146,7 +145,7 @@ class Trainer:
                     entropy_list.append(-(target * log_target).sum(dim=1).cpu())
                     kl_divs_list.append((target * (log_target - log_pred)).sum(dim=1).cpu())
 
-                    pbar.update(B)
+                    pbar.update(batch_size)
 
             pi_logprobs_raveled = torch.cat(pi_logprobs_list)
             pi_targets_raveled = torch.cat(pi_targets_list)
