@@ -19,6 +19,11 @@ from alpha_cc.agents.mcts.training_data import TrainingData
 from alpha_cc.state.game_state import GameState
 from alpha_cc.state.state_tensors import state_tensor
 
+# Implausibly high init values so new samples rank highest until measured.
+# wdl_error: cross-entropy typically in [0, 2].  kl_div: rarely exceeds ~10.
+_INIT_TD_ERROR = 2.0
+_INIT_KL_DIV = 10.0
+
 
 class TrainingDataWeighter(ABC):
     @abstractmethod
@@ -179,10 +184,6 @@ class TrainingDataset(Dataset):
             TrainingDataset(all_samples[n:], weighter=self._weighter),
         )
 
-    def add_data(self, training_data: TrainingData) -> None:
-        self.add_trajectory(training_data.trajectory)
-        self.add_internal_nodes(training_data.internal_nodes)
-
     def add_datas(
         self,
         training_datas: list[TrainingData],
@@ -191,10 +192,22 @@ class TrainingDataset(Dataset):
         expected_num_samples: int | None = None,
     ) -> int:
         """Add training data, optionally log stats. Returns total trajectory steps added."""
+        def add_trajectories(trajectories: list[list[ProcessedExperience]]) -> None:
+            for traj in trajectories:
+                add_trajectory(traj)
+
+        def add_trajectory(trajectory: list[ProcessedExperience]) -> None:
+            for exp in trajectory:
+                self._add_experience(exp, priority_scale=1.0)
+
+        def add_data(training_data: TrainingData) -> None:
+            add_trajectory(training_data.trajectory)
+            self.add_internal_nodes(training_data.internal_nodes)
+
         count = 0
         for training_data in training_datas:
             count += len(training_data.trajectory)
-            self.add_data(training_data)
+            add_data(training_data)
         self._total_num_samples += count
 
         if summary_writer is not None:
@@ -204,14 +217,6 @@ class TrainingDataset(Dataset):
             summary_writer.add_scalar("trainer/samples-this-batch", count, global_step=global_step)
 
         return count
-
-    def add_trajectories(self, trajectories: list[list[ProcessedExperience]]) -> None:
-        for traj in trajectories:
-            self.add_trajectory(traj)
-
-    def add_trajectory(self, trajectory: list[ProcessedExperience]) -> None:
-        for exp in trajectory:
-            self._add_experience(exp, priority_scale=1.0)
 
     def add_internal_node(self, state: GameState, node: MCTSNodePy) -> None:
         n_visits = int(np.sum(node.n))
@@ -230,15 +235,10 @@ class TrainingDataset(Dataset):
         for state, node in internal_nodes.items():
             self.add_internal_node(state, node)
 
-    # Implausibly high init values so new samples rank highest until measured.
-    # wdl_error: cross-entropy typically in [0, 2].  kl_div: rarely exceeds ~10.
-    _INIT_TD_ERROR = 2.0
-    _INIT_KL_DIV = 10.0
-
     def _add_experience(self, exp: ProcessedExperience, priority_scale: float = 1.0) -> None:
         self._experiences.append(exp)
-        self._kl_div.append(self._INIT_KL_DIV * priority_scale)
-        self._td_error.append(self._INIT_TD_ERROR * priority_scale)
+        self._kl_div.append(_INIT_KL_DIV * priority_scale)
+        self._td_error.append(_INIT_TD_ERROR * priority_scale)
 
     def _create_pi_target_tensor(self, exp: ProcessedExperience) -> torch.Tensor:
         """
