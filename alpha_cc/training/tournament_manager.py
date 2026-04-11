@@ -7,6 +7,7 @@ from alpha_cc.db import TrainingDB
 from alpha_cc.db.models import TournamentResult
 from alpha_cc.nn.nets.default_net import DefaultNet
 from alpha_cc.runtimes import TournamentRuntime
+from alpha_cc.training.model_io import load_weights, serialize_model
 
 logger = logging.getLogger(__file__)
 
@@ -41,7 +42,7 @@ class TournamentManager:
     def champion_index(self) -> int:
         return self._champion_index
 
-    def run_tournament(self, challenger_idx: int) -> None:
+    def run_tournament(self, challenger_idx: int, n_rounds: int = 5) -> None:
         """
         Arranges tournament, waits for the workers to play it out,
         and records the results to the StatsWriter.
@@ -50,10 +51,10 @@ class TournamentManager:
         def _run_tournament() -> None:
             self._publish_secondary_variants(challenger_idx)
             tournament_results = self._tournament_runtime.run_tournament(
-                challenger_idx, self._champion_index, n_rounds=5
+                challenger_idx, self._champion_index, n_rounds=n_rounds
             )
             win_rate, win_rate_as_white, win_rate_as_black = self._extract_winrate(tournament_results)
-            if win_rate > 0.55:
+            if win_rate >= 0.55:
                 self._champion_index = challenger_idx
                 logger.info(f"new champion: {self._champion_index}! (winrate={win_rate})")
             self._log_winrate(win_rate, win_rate_as_white, win_rate_as_black, challenger_idx)
@@ -73,12 +74,11 @@ class TournamentManager:
         bs = self._onnx_compiled_batch_size_secondary
         if bs is None:
             return
-        from alpha_cc.entrypoints.trainer_thread import _serialize_model, load_weights
 
         # Challenger: always compile (it's the freshly trained model)
         challenger_weights = load_weights(self._run_id, challenger_idx)
         self._model.load_state_dict(challenger_weights)
-        challenger_payload = _serialize_model(self._model, self._board_size, bs)
+        challenger_payload = serialize_model(self._model, self._board_size, bs)
         self._training_db.weights_publish(challenger_payload, challenger_idx, batch_size=bs)
         logger.info(f"published secondary variant for challenger idx={challenger_idx} (batch_size={bs})")
 
@@ -86,7 +86,7 @@ class TournamentManager:
         if not self._training_db.weights_exists(self._champion_index, batch_size=bs):
             champion_weights = load_weights(self._run_id, self._champion_index)
             self._model.load_state_dict(champion_weights)
-            champion_payload = _serialize_model(self._model, self._board_size, bs)
+            champion_payload = serialize_model(self._model, self._board_size, bs)
             self._training_db.weights_publish(champion_payload, self._champion_index, batch_size=bs)
             logger.info(f"published secondary variant for champion idx={self._champion_index} (batch_size={bs})")
         else:

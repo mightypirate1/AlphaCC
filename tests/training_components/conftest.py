@@ -3,8 +3,7 @@ from unittest.mock import patch
 import pytest
 from torch.utils.tensorboard import SummaryWriter
 
-from alpha_cc.agents.mcts.node_store import LocalNodeStore
-from alpha_cc.agents.mcts.standalone_mcts_agent import StandaloneMCTSAgent
+from alpha_cc.agents.mcts.mcts_agent import MCTSAgent
 from alpha_cc.agents.mcts.training_data import TrainingData
 from alpha_cc.agents.value_assignment import (
     DefaultAssignmentStrategy,
@@ -23,8 +22,8 @@ def nn() -> DefaultNet:
 
 
 @pytest.fixture
-def agent(nn: DefaultNet) -> StandaloneMCTSAgent:
-    return StandaloneMCTSAgent(nn, n_rollouts=10, rollout_depth=10, node_store=LocalNodeStore())
+def agent() -> MCTSAgent:
+    return MCTSAgent("http://bogus:12345", n_rollouts=10, rollout_depth=10, dummy_preds=True)
 
 
 @pytest.fixture
@@ -55,11 +54,11 @@ def training_dataset() -> TrainingDataset:
 
 
 @pytest.fixture
-def training_data(agent: StandaloneMCTSAgent, training_runtime: TrainingRunTime) -> TrainingData:
+def training_data(agent: MCTSAgent, training_runtime: TrainingRunTime) -> TrainingData:
     return training_runtime.play_game(agent, n_rollouts=10, rollout_depth=10, max_game_length=8)
 
 
 @pytest.fixture
 def training_dataset_with_content(training_dataset: TrainingDataset, training_data: TrainingData) -> TrainingDataset:
-    training_dataset.add_data(training_data)
+    training_dataset.add_datas([training_data])
     return training_dataset

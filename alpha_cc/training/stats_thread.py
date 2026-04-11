@@ -49,8 +49,8 @@ class StatsThread(threading.Thread):
                 if not self._queue:
                     self._work_available.clear()
                     continue
-                fill_fraction = len(self._queue) / self._QUEUE_MAXLEN
                 state_dict, training_datas, global_step = self._queue.popleft()
+                fill_fraction = len(self._queue) / self._QUEUE_MAXLEN
                 if not self._queue:
                     self._work_available.clear()
 

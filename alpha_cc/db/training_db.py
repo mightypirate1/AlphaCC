@@ -171,9 +171,9 @@ class TrainingDB:
         self._db.lpush(self.tournament_results_key, dill.dumps(result))
 
     def tournament_get_n_completed_games(self) -> int:
-        return self._db.llen(self.tournament_results_key)
+        return self._db.llen(self.tournament_results_key)  # type: ignore
 
     def tournament_get_results(self) -> TournamentResult:
         raw = self._db.lrange(self.tournament_results_key, 0, -1)
-        results = [dill.loads(r) for r in raw]
+        results = [dill.loads(r) for r in raw]  # type: ignore  # noqa: S301
         return TournamentResult.from_game_results(results)

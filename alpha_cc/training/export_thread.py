@@ -10,6 +10,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from alpha_cc.db import TrainingDB
 from alpha_cc.nn.nets.default_net import DefaultNet
+from alpha_cc.training import model_io
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,6 @@ class ExportThread(threading.Thread):
         db: TrainingDB,
         run_id: str,
         board_size: int,
-        save_weights_fn: Any,
         onnx_compiled_batch_size: int | None = None,
         summary_writer: SummaryWriter | None = None,
     ) -> None:
@@ -47,7 +47,6 @@ class ExportThread(threading.Thread):
         self._db = db
         self._run_id = run_id
         self._board_size = board_size
-        self._save_weights_fn = save_weights_fn
         self._onnx_compiled_batch_size = onnx_compiled_batch_size
         self._summary_writer = summary_writer
 
@@ -91,7 +90,7 @@ class ExportThread(threading.Thread):
                     set_latest=True,
                 )
                 self._db.model_set_current(0, curr_index)
-                self._save_weights_fn(self._run_id, curr_index, state_dict, onnx_payload)
+                model_io.save_weights(self._run_id, curr_index, state_dict, onnx_payload)
                 logger.info(f"export-thread: published weights {curr_index}")
                 if self._summary_writer is not None:
                     self._summary_writer.add_scalar("trainer/export-index", curr_index, global_step=curr_index)

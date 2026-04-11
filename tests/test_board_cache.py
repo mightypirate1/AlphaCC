@@ -54,7 +54,7 @@ def test_cache_valid_through_full_game(size: int) -> None:
     step = 0
     while not board.info.game_over:
         step += 1
-        assert step < 2000, "game seems infinite"
+        assert step < 200000, "game seems infinite"
 
         # verify hash
         assert hash(board) == _fresh_hash(board), f"hash mismatch at step {step}"

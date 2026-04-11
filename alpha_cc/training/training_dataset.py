@@ -192,6 +192,7 @@ class TrainingDataset(Dataset):
         expected_num_samples: int | None = None,
     ) -> int:
         """Add training data, optionally log stats. Returns total trajectory steps added."""
+
         def add_trajectories(trajectories: list[list[ProcessedExperience]]) -> None:
             for traj in trajectories:
                 add_trajectory(traj)

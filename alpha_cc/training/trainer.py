@@ -2,7 +2,7 @@ import logging
 
 import numpy as np
 import torch
-import torch.nn.functional as F
+import torch.nn.functional as F  # noqa: N812
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm_loggable.auto import tqdm
@@ -286,15 +286,15 @@ class Trainer:
                     if n_real < self._batch_size:
                         n_pad = self._batch_size - n_real
 
-                        def _pad(t: torch.Tensor, value: float = 0.0) -> torch.Tensor:
-                            return F.pad(t.float(), (0, 0) * (t.dim() - 1) + (0, n_pad), value=value).to(t.dtype)
+                        def _pad(t: torch.Tensor, padding: int, value: float = 0.0) -> torch.Tensor:
+                            return F.pad(t.float(), (0, 0) * (t.dim() - 1) + (0, padding), value=value).to(t.dtype)
 
-                        x = _pad(x)
-                        pi_mask = _pad(pi_mask, value=1.0)
-                        target_pi = _pad(target_pi)
-                        target_wdl = _pad(target_wdl)
-                        weight = _pad(weight)
-                        is_internal = _pad(is_internal)
+                        x = _pad(x, n_pad)
+                        pi_mask = _pad(pi_mask, n_pad, value=1.0)
+                        target_pi = _pad(target_pi, n_pad)
+                        target_wdl = _pad(target_wdl, n_pad, value=1.0 / 3.0)
+                        weight = _pad(weight, n_pad)
+                        is_internal = _pad(is_internal, n_pad)
                     wdl_loss, policy_loss, entropy_loss, current_pi_unsoftmaxed, current_wdl_logits = self._train_step(
                         x, pi_mask, target_pi, target_wdl, weight, is_internal
                     )
@@ -312,9 +312,7 @@ class Trainer:
                             log_pred = self._policy_log_softmax(current_pi_unsoftmaxed[:n_real], pi_mask[:n_real])
                             log_target = torch.log(target_pi[:n_real].clamp_min(1e-6))
                             kl = target_pi[:n_real] * (log_target - log_pred)
-                            kl_list.append(
-                                torch.where(pi_mask[:n_real], kl, 0.0).reshape(n_real, -1).sum(dim=1).cpu()
-                            )
+                            kl_list.append(torch.where(pi_mask[:n_real], kl, 0.0).reshape(n_real, -1).sum(dim=1).cpu())
                     batch_size = n_real
                     samples_seen += batch_size
                     batch_losses = torch.tensor(

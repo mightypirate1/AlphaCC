@@ -19,14 +19,14 @@ class PredictRequest(_message.Message):
     def __init__(self, request_id: _Optional[int] = ..., state_tensor: _Optional[bytes] = ..., moves: _Optional[bytes] = ..., model_id: _Optional[int] = ...) -> None: ...
 
 class PredictResponse(_message.Message):
-    __slots__ = ("request_id", "pi_logits", "value")
+    __slots__ = ("request_id", "pi_logits", "wdl_logits")
     REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
     PI_LOGITS_FIELD_NUMBER: _ClassVar[int]
-    VALUE_FIELD_NUMBER: _ClassVar[int]
+    WDL_LOGITS_FIELD_NUMBER: _ClassVar[int]
     request_id: int
     pi_logits: bytes
-    value: float
-    def __init__(self, request_id: _Optional[int] = ..., pi_logits: _Optional[bytes] = ..., value: _Optional[float] = ...) -> None: ...
+    wdl_logits: bytes
+    def __init__(self, request_id: _Optional[int] = ..., pi_logits: _Optional[bytes] = ..., wdl_logits: _Optional[bytes] = ...) -> None: ...
 
 class ServerInfoRequest(_message.Message):
     __slots__ = ()

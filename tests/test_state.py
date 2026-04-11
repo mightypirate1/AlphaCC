@@ -70,4 +70,4 @@ def test_nn(board_size: int) -> None:
     nn = DefaultNet(board_size)
     pi, v = nn(state_tensor(state).unsqueeze(0))
     assert pi.shape == (1, board_size, board_size, board_size, board_size)
-    assert v.shape == (1,)
+    assert v.shape == (1, 3)
