@@ -57,6 +57,7 @@ class TournamentManager:
                 self._champion_index = challenger_idx
                 logger.info(f"new champion: {self._champion_index}! (winrate={win_rate})")
             self._log_winrate(win_rate, win_rate_as_white, win_rate_as_black, challenger_idx)
+            self._log_tournament_stats(tournament_results, challenger_idx)
 
         if self.is_running:
             logger.warning("tournament already running; it will be terminated")
@@ -106,11 +107,21 @@ class TournamentManager:
         win_rate_as_white: float,
         win_rate_as_black: float,
         challenger_idx: int,
-    ) -> float:
+    ) -> None:
         step = challenger_idx
         logger.info(f"WINRATES: total={win_rate} as_white={win_rate_as_white}, as_black={win_rate_as_black}")
         self._summary_writer.add_scalar("tournament/win-rate", win_rate, step)
         self._summary_writer.add_scalar("tournament/win-rate-as-white", win_rate_as_white, step)
         self._summary_writer.add_scalar("tournament/win-rate-as-black", win_rate_as_black, step)
         self._summary_writer.add_scalar("tournament/champion-index", self._champion_index, step)
-        return win_rate
+
+    def _log_tournament_stats(self, results: TournamentResult, challenger_idx: int) -> None:
+        step = challenger_idx
+        lengths = results.all_game_lengths
+        if lengths:
+            self._summary_writer.add_scalar("tournament/game-length-mean", sum(lengths) / len(lengths), step)
+            self._summary_writer.add_scalar("tournament/game-length-min", min(lengths), step)
+            self._summary_writer.add_scalar("tournament/game-length-max", max(lengths), step)
+        total = max(results.total_games, 1)
+        self._summary_writer.add_scalar("tournament/draw-rate", results.total_draws / total, step)
+        self._summary_writer.add_scalar("tournament/timeout-rate", results.total_timeouts / total, step)

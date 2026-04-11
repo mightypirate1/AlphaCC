@@ -4,6 +4,7 @@ import dill
 import redis
 
 from alpha_cc.agents.mcts.training_data import TrainingData
+from alpha_cc.db.models.game_result import GameResult
 from alpha_cc.db.models.tournament_results import TournamentResult
 from alpha_cc.db.redis_dbs import RedisDBs
 
@@ -51,10 +52,6 @@ class TrainingDB:
         return "nn-warmup-counter"
 
     @property
-    def tournament_counter_key(self) -> str:
-        return "tournament-counter"
-
-    @property
     def tournament_results_key(self) -> str:
         return "tournament-results"
 
@@ -67,9 +64,6 @@ class TrainingDB:
         if batch_size is not None:
             return f"{base}-b{batch_size}"
         return base
-
-    def tournament_result_key(self, channel_1: int, channel_2: int, winner: int) -> str:
-        return f"{channel_1}-{channel_2}-{winner}"
 
     def flush_db(self) -> None:
         logger.debug("reseting db")
@@ -160,29 +154,26 @@ class TrainingDB:
     ##
     # tournament
     def tournament_reset(self) -> None:
-        self._db.set(self.tournament_counter_key, 0)
         self._db.delete(self.tournament_queue_key)
         self._db.delete(self.tournament_results_key)
 
-    def tournament_increment_counter(self) -> None:
-        self._db.incr(self.tournament_counter_key, 1)
-
     def tournament_add_match(self, channel_1: int, channel_2: int) -> None:
-        paring = (channel_1, channel_2)
-        self._db.lpush(self.tournament_queue_key, dill.dumps(paring))
+        pairing = (channel_1, channel_2)
+        self._db.lpush(self.tournament_queue_key, dill.dumps(pairing))
 
     def tournament_get_match(self) -> tuple[int, int] | None:
-        encoded_paring = self._db.rpop(self.tournament_queue_key)
-        if encoded_paring is None:
+        encoded_pairing = self._db.rpop(self.tournament_queue_key)
+        if encoded_pairing is None:
             return None
-        return dill.loads(encoded_paring)  # noqa
+        return dill.loads(encoded_pairing)  # noqa
+
+    def tournament_post_result(self, result: GameResult) -> None:
+        self._db.lpush(self.tournament_results_key, dill.dumps(result))
 
     def tournament_get_n_completed_games(self) -> int:
-        return int(self._db.get(self.tournament_counter_key))  # type: ignore
-
-    def tournament_add_result(self, channel_1: int, channel_2: int, winner: int) -> None:
-        pairing_key = self.tournament_result_key(channel_1, channel_2, winner)
-        self._db.hincrby(self.tournament_results_key, pairing_key, 1)
+        return self._db.llen(self.tournament_results_key)
 
     def tournament_get_results(self) -> TournamentResult:
-        return TournamentResult.from_db(self.tournament_results_key, self._db)
+        raw = self._db.lrange(self.tournament_results_key, 0, -1)
+        results = [dill.loads(r) for r in raw]
+        return TournamentResult.from_game_results(results)

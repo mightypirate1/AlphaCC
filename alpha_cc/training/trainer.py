@@ -207,6 +207,9 @@ class Trainer:
         )
         self._summary_writer.add_histogram("trainer/pi/kl-divergence", kl_divergences, global_step=self._global_step)
         log_aggregates("game-length", game_lengths)
+        terminal_wdl = np.array([traj[-1].wdl_target for traj in trajectories if traj])
+        terminal_abs_value = np.abs(terminal_wdl[:, 0] - terminal_wdl[:, 2])
+        log_aggregates("terminal-abs-value", terminal_abs_value)
         log_aggregates("pi-target-entropy", pi_target_entropy)
         self._summary_writer.add_scalar(
             "train-rollouts/frac-ended-early",
