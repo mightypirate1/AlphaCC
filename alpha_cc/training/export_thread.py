@@ -1,3 +1,5 @@
+import contextlib
+import io
 import logging
 import threading
 import warnings
@@ -11,7 +13,7 @@ from alpha_cc.nn.nets.default_net import DefaultNet
 
 logger = logging.getLogger(__name__)
 
-for _name in ("torch.onnx", "onnxscript", "onnx"):
+for _name in ("torch.onnx", "onnxscript", "onnx", "onnx_ir"):
     logging.getLogger(_name).setLevel(logging.ERROR)
 warnings.filterwarnings("ignore", module=r"torch\.onnx")
 warnings.filterwarnings("ignore", message=r"isinstance\(treespec, LeafSpec\)")
@@ -118,18 +120,19 @@ class ExportThread(threading.Thread):
                 "value": {0: "batch"},
             }
         )
-        torch.onnx.export(
-            self._model,
-            (dummy,),
-            tmp_path,
-            input_names=["input"],
-            output_names=["policy", "value"],
-            dynamic_axes=dynamic_axes,
-            opset_version=18,
-            do_constant_folding=True,
-            external_data=False,
-            verbose=False,
-        )
+        with contextlib.redirect_stdout(io.StringIO()):
+            torch.onnx.export(
+                self._model,
+                (dummy,),
+                tmp_path,
+                input_names=["input"],
+                output_names=["policy", "value"],
+                dynamic_axes=dynamic_axes,
+                opset_version=18,
+                do_constant_folding=True,
+                external_data=False,
+                verbose=False,
+            )
         with open(tmp_path, "rb") as f:
             payload = f.read()
         self._model.train()
