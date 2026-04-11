@@ -1,5 +1,6 @@
 import logging
 import threading
+import warnings
 from typing import Any
 
 import torch
@@ -9,6 +10,11 @@ from alpha_cc.db import TrainingDB
 from alpha_cc.nn.nets.default_net import DefaultNet
 
 logger = logging.getLogger(__name__)
+
+for _name in ("torch.onnx", "onnxscript", "onnx"):
+    logging.getLogger(_name).setLevel(logging.ERROR)
+warnings.filterwarnings("ignore", module=r"torch\.onnx")
+warnings.filterwarnings("ignore", message=r"isinstance\(treespec, LeafSpec\)")
 
 
 class ExportThread(threading.Thread):
@@ -122,6 +128,7 @@ class ExportThread(threading.Thread):
             opset_version=18,
             do_constant_folding=True,
             external_data=False,
+            verbose=False,
         )
         with open(tmp_path, "rb") as f:
             payload = f.read()

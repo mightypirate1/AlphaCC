@@ -162,6 +162,7 @@ def main(
         value_weight=value_weight,
         entropy_weight=entropy_weight,
         batch_size=batch_size,
+        num_dataloader_workers=0,  # must be 0: DataLoader workers fork from daemon thread → deadlock
         lr=lr,
         l2_reg=l2_reg,
         device=stats_device,
