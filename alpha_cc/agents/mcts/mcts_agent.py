@@ -3,7 +3,7 @@ import numpy as np
 from alpha_cc.agents.agent import Agent
 from alpha_cc.agents.mcts.mcts_node_py import MCTSNodePy
 from alpha_cc.agents.mcts.worker_stats import WorkerStats
-from alpha_cc.engine import MCTS, Board
+from alpha_cc.engine import MCTS, Board, RolloutResult
 
 
 class MCTSAgent(Agent):
@@ -23,6 +23,7 @@ class MCTSAgent(Agent):
         n_threads: int = 1,
         pruning_tree: bool = False,
         debug_prints: bool = False,
+        dummy_preds: bool = False,
     ) -> None:
         self._n_rollouts = n_rollouts
         self._rollout_depth = rollout_depth
@@ -38,8 +39,9 @@ class MCTSAgent(Agent):
             c_puct_init,
             c_puct_base,
             n_threads,
-            pruning_tree,
-            debug_prints,
+            pruning_tree=pruning_tree,
+            debug_prints=debug_prints,
+            dummy_preds=dummy_preds,
         )
 
     def get_worker_stats(self) -> WorkerStats:
@@ -62,11 +64,11 @@ class MCTSAgent(Agent):
     def choose_move(self, board: Board, training: bool = False, temperature: float = 1.0) -> int:
         if self._argmax_delay is not None:
             self._steps_left_to_argmax -= 1
-        pi, _ = self.run_rollouts(board, temperature=temperature)
+        result = self.run_rollouts(board, temperature=temperature)
 
-        action_index = int(pi.argmax())
+        action_index = int(result.pi.argmax())
         if training and self._steps_left_to_argmax > 0:
-            action_index = np.random.choice(len(pi), p=pi)
+            action_index = np.random.choice(len(result.pi), p=result.pi)
         return action_index
 
     def run_rollouts(
@@ -75,7 +77,7 @@ class MCTSAgent(Agent):
         temperature: float = 1.0,
         n_rollouts: int | None = None,
         rollout_depth: int | None = None,
-    ) -> tuple[np.ndarray, float]:
+    ) -> RolloutResult:
         n_rollouts = n_rollouts if n_rollouts is not None else self._n_rollouts
         rollout_depth = rollout_depth if rollout_depth is not None else self._rollout_depth
         return self._mcts.run_rollouts(board, n_rollouts, rollout_depth, temperature)

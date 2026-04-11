@@ -8,8 +8,8 @@ use arc_swap::ArcSwap;
 
 use crate::server::types::StateBytes;
 
-/// A single decoded prediction: (pi_logits_bytes, value).
-pub type DecodedPrediction = (Vec<u8>, f32);
+/// A single decoded prediction: (pi_logits_bytes, wdl_logits_bytes).
+pub type DecodedPrediction = (Vec<u8>, Vec<u8>);
 
 pub struct VersionedModel<M> {
     pub model: M,
@@ -82,7 +82,7 @@ pub trait Backend: Send + Sync + 'static {
     fn encode(&self, batch: Vec<StateBytes>) -> Self::Encoded;
     fn inference(&self, model_id: u32, input: Self::Encoded) -> Self::Inferred;
     fn decode(&self, output: Self::Inferred) -> Vec<DecodedPrediction>;
-    fn respond(&self, pi_bytes: Vec<u8>, value: f32, move_bytes: Vec<u8>) -> DecodedPrediction;
+    fn respond(&self, pi_bytes: Vec<u8>, wdl_bytes: Vec<u8>, move_bytes: Vec<u8>) -> DecodedPrediction;
     fn compile_model(&self, model: Self::Model) -> anyhow::Result<Self::Model>;
     fn model_from_bytes(&self, bytes: &[u8]) -> anyhow::Result<Self::Model>;
     /// Like model_from_bytes, but uses a specific TRT cache path override.

@@ -65,9 +65,10 @@ impl NNRemote {
                     if attempt >= WARN_THRESHOLD {
                         log::info!("[NNRemote] recovered after {attempt} retries (model_id={model_id})");
                     }
-                    let (logits, value) = io::decode_response(&resp);
-                    let pi = softmax(&logits);
-                    return NNPred::new(pi, value);
+                    let (pi_logits, wdl_logits) = io::decode_response(&resp);
+                    let pi = softmax(&pi_logits);
+                    let wdl_sm = softmax(&wdl_logits);
+                    return NNPred::new(pi, [wdl_sm[0], wdl_sm[1], wdl_sm[2]]);
                 }
                 Err(e) => {
                     attempt += 1;

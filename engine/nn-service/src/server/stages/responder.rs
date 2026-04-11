@@ -71,11 +71,11 @@ pub async fn run_responder<B: Backend>(
 
     while let Some(item) = responder_rx.recv().await {
         let batch_size = item.replies.len() as u64;
-        for (((request_id, reply_tx), (pi_bytes, value)), move_bytes) in
+        for (((request_id, reply_tx), (pi_bytes, wdl_bytes)), move_bytes) in
             item.replies.into_iter().zip(item.payload).zip(item.moves)
         {
-            let (pi_logits, value) = backend.respond(pi_bytes, value, move_bytes);
-            let response = PredictResponse { request_id, pi_logits, value };
+            let (pi_logits, wdl_logits) = backend.respond(pi_bytes, wdl_bytes, move_bytes);
+            let response = PredictResponse { request_id, pi_logits, wdl_logits };
             let _ = reply_tx.send(response);
         }
         stats.predictions.fetch_add(batch_size, Ordering::Relaxed);

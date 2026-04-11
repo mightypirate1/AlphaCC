@@ -46,7 +46,7 @@ develop: clean venv
 
 install: develop build-engine install-webapp
 
-build-engine:
+build-engine: generate-stubs
 	@bash -c " \
 		source .venv/bin/activate && \
 		cd engine/python && \

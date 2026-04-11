@@ -16,9 +16,9 @@ message PredictRequest {
 
 message PredictResponse {
   uint64 request_id = 1;
-  // Workers have to compute their own softmax.
+  // Workers compute their own softmax on both pi and wdl logits.
   bytes pi_logits = 2;
-  float value = 3;
+  bytes wdl_logits = 3;
 }
 
 // --- Management service (info + model hot-loading) ---

@@ -7,7 +7,7 @@ from tqdm_loggable.auto import tqdm
 
 from alpha_cc.agents.mcts.mcts_agent import MCTSAgent
 from alpha_cc.db import GamesDB, TrainingDB
-from alpha_cc.db.models import TournamentResult
+from alpha_cc.db.models import GameResult, TournamentResult
 from alpha_cc.engine import Board
 
 logger = getLogger(__file__)
@@ -69,13 +69,14 @@ class TournamentRuntime:
             self._training_db.tournament_add_match(player_1, player_2)
             raise e
 
-        # only player 1 wins are recorded
-        # wins are counted this way to force decisive results
-        if board.info.winner == 1:
-            self._training_db.tournament_add_result(player_1, player_2, winner=player_1)
-        elif board.info.winner == 2:
-            self._training_db.tournament_add_result(player_1, player_2, winner=player_2)
-        self._training_db.tournament_increment_counter()
+        result = GameResult(
+            channel_p1=player_1,
+            channel_p2=player_2,
+            winner=board.info.winner,
+            game_length=board.info.duration,
+            hit_max_duration=board.info.duration >= self._max_game_duration,
+        )
+        self._training_db.tournament_post_result(result)
 
     def run_tournament(self, challenger_idx: int, champion_idx: int, n_rounds: int = 5) -> TournamentResult:
         """

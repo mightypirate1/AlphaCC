@@ -157,7 +157,7 @@ fn ai_thread(
         }
 
         // Do one batch of rollouts
-        let (pi, value) = mcts.run_rollout_threads(&board, rollouts_per_batch, rollout_depth, 1.0);
+        let result = mcts.run_rollout_threads(&board, rollouts_per_batch, rollout_depth, 1.0);
         total_rollouts += rollouts_per_batch;
 
         // Extract NN data from the root node
@@ -172,8 +172,8 @@ fn ai_thread(
         // Send progress
         let _ = update_tx.send(AiUpdate::Progress(AiProgress {
             board_hash,
-            mcts_pi: pi.clone(),
-            mcts_value: value,
+            mcts_pi: result.pi.clone(),
+            mcts_value: result.value,
             nn,
             total_rollouts,
         }));
@@ -181,7 +181,7 @@ fn ai_thread(
         // Check if we should pick a move
         if shared.should_move.load(Ordering::Acquire) {
             let sample = shared.sample.load(Ordering::Relaxed);
-            let action_index = if sample { sample_from_pi(&pi) } else { argmax(&pi) };
+            let action_index = if sample { sample_from_pi(&result.pi) } else { argmax(&result.pi) };
             let _ = update_tx.send(AiUpdate::Move(AiMove { board_hash, action_index }));
             shared.should_move.store(false, Ordering::Relaxed);
         }

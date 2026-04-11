@@ -2,26 +2,17 @@ from collections import Counter
 
 import numpy as np
 
-from alpha_cc.agents.mcts import MCTSExperience
+from alpha_cc.agents.mcts import ProcessedExperience
 from alpha_cc.engine import Board
 from alpha_cc.state.game_state import GameState
-from alpha_cc.training import TrainingDataset
-
-
-def _make_experience(state: GameState, v_target: float = 0.0) -> MCTSExperience:
-    n = len(state.children)
-    return MCTSExperience(
-        state,
-        pi_target=np.full(n, 1.0 / n),
-        v_target=v_target,
-    )
+from alpha_cc.training.training_dataset import TrainingData, TrainingDataset
 
 
 def test_ring_buffer_basic() -> None:
     state = GameState(Board(5))
     dataset = TrainingDataset(max_size=10)
     batch = [_make_experience(state, v_target=float(i)) for i in range(5)]
-    dataset.add_trajectory(batch)
+    dataset.add_datas(_batch_to_training_data(batch))
     assert len(dataset) == 5
     assert all(exp is not None for exp in dataset.samples)
 
@@ -31,23 +22,23 @@ def test_ring_buffer_wraps() -> None:
     dataset = TrainingDataset(max_size=5)
     # Add 5 samples
     batch_a = [_make_experience(state, v_target=1.0) for _ in range(5)]
-    dataset.add_trajectory(batch_a)
+    dataset.add_datas(_batch_to_training_data(batch_a))
     assert len(dataset) == 5
 
     # Add 3 more — oldest 3 should be evicted
     batch_b = [_make_experience(state, v_target=-1.0) for _ in range(3)]
-    dataset.add_trajectory(batch_b)
+    dataset.add_datas(_batch_to_training_data(batch_b))
     assert len(dataset) == 5
-    counter = Counter(exp.v_target for exp in dataset.samples)
-    assert counter[1.0] == 2
-    assert counter[-1.0] == 3
+    counter = Counter(exp.wdl_target[0] for exp in dataset.samples)
+    assert counter[1.0] == 2  # v_target=1.0 → wdl win=1.0
+    assert counter[0.0] == 3  # v_target=-1.0 → wdl win=0.0
 
 
 def test_prioritized_sample_returns_all_when_n_exceeds_size() -> None:
     state = GameState(Board(5))
     dataset = TrainingDataset(max_size=10)
     batch = [_make_experience(state) for _ in range(5)]
-    dataset.add_trajectory(batch)
+    dataset.add_datas(_batch_to_training_data(batch))
     indices, sampled = dataset.prioritized_sample(20)
     assert len(indices) == 5
     assert len(sampled) == 5
@@ -60,7 +51,7 @@ def test_prioritized_sample_biases_toward_high_error() -> None:
 
     # Add 100 samples
     batch = [_make_experience(state, v_target=float(i)) for i in range(100)]
-    dataset.add_trajectory(batch)
+    dataset.add_datas(_batch_to_training_data(batch))
 
     # Set priorities: first 10 samples have very high error, rest low
     high_indices = np.arange(10)
@@ -93,7 +84,7 @@ def test_update_priorities() -> None:
     state = GameState(Board(5))
     dataset = TrainingDataset(max_size=10)
     batch = [_make_experience(state) for _ in range(5)]
-    dataset.add_trajectory(batch)
+    dataset.add_datas(_batch_to_training_data(batch))
 
     indices = np.array([0, 2, 4])
     kl_divs = np.array([5.0, 3.0, 1.0], dtype=np.float32)
@@ -110,7 +101,23 @@ def test_split() -> None:
     state = GameState(Board(5))
     dataset = TrainingDataset(max_size=100)
     batch = [_make_experience(state) for _ in range(100)]
-    dataset.add_trajectory(batch)
+    dataset.add_datas(_batch_to_training_data(batch))
     train, test = dataset.split(0.8)
     assert len(train) == 80
     assert len(test) == 20
+
+
+def _batch_to_training_data(batch: list[ProcessedExperience]) -> list[TrainingData]:
+    return [
+        TrainingData(trajectory=batch, internal_nodes={}, winner=0 if len(batch) == 0 else batch[-1].state.info.winner)
+    ]
+
+
+def _make_experience(state: GameState, v_target: float = 0.0) -> ProcessedExperience:
+    n = len(state.children)
+    wdl = ((1 + v_target) / 2, 0.0, (1 - v_target) / 2)
+    return ProcessedExperience(
+        state=state,
+        pi_target=np.full(n, 1.0 / n),
+        wdl_target=wdl,
+    )

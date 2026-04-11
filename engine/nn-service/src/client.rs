@@ -10,7 +10,7 @@
 //!
 //! // Simple request/response — the stream is managed for you.
 //! let response = client.predict(vec![1, 2, 3], vec![], 0).await?;
-//! println!("value: {}", response.value);
+//! println!("value: {:?}", response.wdl_logits);
 //! # Ok(())
 //! # }
 //! ```

@@ -10,14 +10,14 @@ use super::nn_pred::PyNNPred;
 #[pyfunction]
 pub fn preds_from_logits<'py>(
     logits_flat: numpy::PyReadonlyArray1<'py, f32>,
-    values_flat: numpy::PyReadonlyArray1<'py, f32>,
+    wdl_logits_flat: numpy::PyReadonlyArray1<'py, f32>,
     boards: Vec<PyBoard>,
     board_size: usize,
 ) -> PyResult<Vec<PyNNPred>> {
     let logits = logits_flat.as_slice()
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("logits not contiguous: {e}")))?;
-    let values = values_flat.as_slice()
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("values not contiguous: {e}")))?;
+    let wdl_logits = wdl_logits_flat.as_slice()
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("wdl_logits not contiguous: {e}")))?;
     let s = board_size;
     let stride = s * s * s * s;
     let mut preds = Vec::with_capacity(boards.len());
@@ -35,8 +35,9 @@ pub fn preds_from_logits<'py>(
         }).collect();
 
         let pi = alpha_cc_nn::softmax(&move_logits);
-        let value = values[i];
-        preds.push(PyNNPred(alpha_cc_nn::NNPred::new(pi, value)));
+        let wdl_row = &wdl_logits[i * 3..(i + 1) * 3];
+        let wdl = alpha_cc_nn::softmax(wdl_row);
+        preds.push(PyNNPred(alpha_cc_nn::NNPred::new(pi, [wdl[0], wdl[1], wdl[2]])));
     }
 
     Ok(preds)

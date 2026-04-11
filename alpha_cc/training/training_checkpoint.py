@@ -20,6 +20,7 @@ class TrainingCheckpoint:
     champion_index: int
     replay_buffer: TrainingDataset
     trainer_steps: tuple[int, int]
+    nn_warmup_counter: int = 0
 
     def __repr__(self) -> str:
         return (

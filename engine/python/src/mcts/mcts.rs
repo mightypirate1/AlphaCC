@@ -1,22 +1,85 @@
 use pyo3::prelude::*;
 use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 
+use alpha_cc_nn::PredictionSource;
 use crate::core::PyBoard;
 use crate::nn::PyFetchStats;
 use super::mcts_node::PyMCTSNode;
 
-type MCTS = alpha_cc_mcts::MCTS<alpha_cc_nn_service::NNRemote>;
+enum PredictionSources {
+    Dummy(alpha_cc_nn::mock::MockPredictor),
+    Real(alpha_cc_nn_service::NNRemote),
+}
+
+impl PredictionSources {
+    fn dummy() -> Self {
+        Self::Dummy(alpha_cc_nn::mock::MockPredictor::uniform(0.0))
+    }
+
+    fn real(addr: &str) -> Self {
+        let nn = alpha_cc_nn_service::NNRemote::connect(addr);
+        Self::Real(nn)
+    }
+}
+
+impl PredictionSource for PredictionSources {
+    fn predict(&self, board: &alpha_cc_core::Board, model_id: u32) -> alpha_cc_nn::NNPred {
+        match self {
+            Self::Dummy(dummy) => dummy.predict(board, model_id),
+            Self::Real(nn_remote) => nn_remote.predict(board, model_id),
+        }
+    }
+}
+
+type MCTS = alpha_cc_mcts::MCTS<PredictionSources>;
+
+#[gen_stub_pyclass]
+#[pyclass(name = "RolloutResult", module = "alpha_cc_engine")]
+pub struct PyRolloutResult(alpha_cc_mcts::RolloutResult);
+
+#[gen_stub_pymethods]
+#[pymethods]
+impl PyRolloutResult {
+    #[new]
+    #[pyo3(signature = (pi, value, mcts_wdl, greedy_backup_wdl=None))]
+    fn new(pi: Vec<f32>, value: f32, mcts_wdl: [f32; 3], greedy_backup_wdl: Option<[f32; 3]>) -> Self {
+        let greedy_backup_wdl = greedy_backup_wdl.unwrap_or(mcts_wdl);
+        Self(alpha_cc_mcts::RolloutResult { pi, value, mcts_wdl, greedy_backup_wdl })
+    }
+
+    #[getter]
+    fn pi<'py>(&self, py: Python<'py>) -> Bound<'py, numpy::PyArray1<f32>> {
+        numpy::IntoPyArray::into_pyarray(
+            numpy::ndarray::Array1::from_vec(self.0.pi.clone()), py,
+        )
+    }
+
+    #[getter]
+    fn value(&self) -> f32 {
+        self.0.value
+    }
+
+    #[getter]
+    fn mcts_wdl(&self) -> [f32; 3] {
+        self.0.mcts_wdl
+    }
+
+    #[getter]
+    fn greedy_backup_wdl(&self) -> [f32; 3] {
+        self.0.greedy_backup_wdl
+    }
+}
 
 #[gen_stub_pyclass]
 #[pyclass(name = "MCTS", module = "alpha_cc_engine")]
-pub struct PyMCTS(pub MCTS);
+pub struct PyMCTS(MCTS);
 
 #[gen_stub_pymethods]
 #[pymethods]
 impl PyMCTS {
     #[allow(clippy::too_many_arguments)]
     #[new]
-    #[pyo3(signature = (nn_service_addr, channel, gamma, dirichlet_weight, dirichlet_leaf_weight, dirichlet_alpha, c_puct_init, c_puct_base, n_threads=1, pruning_tree=false, debug_prints=false))]
+    #[pyo3(signature = (nn_service_addr, channel, gamma, dirichlet_weight, dirichlet_leaf_weight, dirichlet_alpha, c_puct_init, c_puct_base, n_threads=1, pruning_tree=false, debug_prints=false, dummy_preds=false))]
     fn new(
         nn_service_addr: String,
         channel: u32,
@@ -29,11 +92,14 @@ impl PyMCTS {
         n_threads: usize,
         pruning_tree: bool,
         debug_prints: bool,
+        dummy_preds: bool,
     ) -> Self {
         let n = n_threads.max(1);
-        let services: Vec<_> = (0..n)
-            .map(|_| alpha_cc_nn_service::NNRemote::connect(&nn_service_addr))
-            .collect();
+        let services = if dummy_preds {
+            (0..n).map(|_| PredictionSources::dummy()).collect()
+        } else {
+            (0..n).map(|_| PredictionSources::real(&nn_service_addr)).collect()
+        };
         PyMCTS(MCTS::new(
             services,
             channel,
@@ -51,24 +117,18 @@ impl PyMCTS {
     }
 
     fn run(&self, board: &PyBoard, rollout_depth: usize) -> f32 {
-        let (_, value) = self.0.run_rollout_threads(&board.0, 1, rollout_depth, 1.0);
-        value
+        self.0.run_rollout_threads(&board.0, 1, rollout_depth, 1.0).value
     }
 
     #[pyo3(signature = (board, n_rollouts, rollout_depth, temperature=1.0))]
-    fn run_rollouts<'py>(
+    fn run_rollouts(
         &self,
-        py: Python<'py>,
         board: &PyBoard,
         n_rollouts: usize,
         rollout_depth: usize,
         temperature: f32,
-    ) -> (Bound<'py, numpy::PyArray1<f32>>, f32) {
-        let (pi, mean_value) = self.0.run_rollout_threads(&board.0, n_rollouts, rollout_depth, temperature);
-        let pi_arr = numpy::IntoPyArray::into_pyarray(
-            numpy::ndarray::Array1::from_vec(pi), py,
-        );
-        (pi_arr, mean_value)
+    ) -> PyRolloutResult {
+        PyRolloutResult(self.0.run_rollout_threads(&board.0, n_rollouts, rollout_depth, temperature))
     }
 
     fn get_node(&self, board: &PyBoard) -> Option<PyMCTSNode> {

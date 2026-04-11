@@ -127,7 +127,6 @@ lint.ignore = [
     "ANN401",  # Dynamically typed expressions in args/kwargs
     "B905",    # Allow zip without strict kwarg
     "C90",     # McCabe complexity
-    "PD901",   # Allow df as a name
     "RET504",  # Unnecessary var assignment before return
 ]
 lint.unfixable = [

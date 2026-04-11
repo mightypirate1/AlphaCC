@@ -13,11 +13,16 @@ from torch.utils.data import Dataset
 if TYPE_CHECKING:
     from torch.utils.tensorboard import SummaryWriter
 
-from alpha_cc.agents.mcts.mcts_experience import MCTSExperience
+from alpha_cc.agents.mcts.mcts_experience import ProcessedExperience
 from alpha_cc.agents.mcts.mcts_node_py import MCTSNodePy
 from alpha_cc.agents.mcts.training_data import TrainingData
 from alpha_cc.state.game_state import GameState
 from alpha_cc.state.state_tensors import state_tensor
+
+# Implausibly high init values so new samples rank highest until measured.
+# wdl_error: cross-entropy typically in [0, 2].  kl_div: rarely exceeds ~10.
+_INIT_TD_ERROR = 2.0
+_INIT_KL_DIV = 10.0
 
 
 class TrainingDataWeighter(ABC):
@@ -29,7 +34,7 @@ class TrainingDataset(Dataset):
     """
     Prioritized Experience Replay (PER) buffer using rank-based sampling.
 
-    Ring buffer (deque) of MCTSExperience with parallel deques for KL-divergence
+    Ring buffer (deque) of ProcessedExperience with parallel deques for KL-divergence
     and TD-error. New samples are initialized with max priority (visit-count
     gated for internal nodes). Sampling uses combined rank-based priorities:
 
@@ -43,7 +48,7 @@ class TrainingDataset(Dataset):
 
     def __init__(
         self,
-        experiences: Iterable[MCTSExperience] | None = None,
+        experiences: Iterable[ProcessedExperience] | None = None,
         max_size: int | None = None,
         gamma: float = 0.5,
         visits_threshold: float = 100.0,
@@ -65,7 +70,7 @@ class TrainingDataset(Dataset):
         self._rank_mode = rank_mode
         self._weighter = weighter
 
-        self._experiences: deque[MCTSExperience] = deque(maxlen=max_size)
+        self._experiences: deque[ProcessedExperience] = deque(maxlen=max_size)
         self._kl_div: deque[float] = deque(maxlen=max_size)
         self._td_error: deque[float] = deque(maxlen=max_size)
         self._total_num_samples = 0
@@ -87,20 +92,20 @@ class TrainingDataset(Dataset):
         x = state_tensor(exp.state)
         pi_mask = torch.as_tensor(exp.state.action_mask)
         pi_target = self._create_pi_target_tensor(exp)
-        value_target = torch.as_tensor(exp.v_target)
+        wdl_target = torch.as_tensor(exp.wdl_target)
         weight = torch.as_tensor(exp.weight)
         is_internal_node = torch.as_tensor(exp.is_internal_node)
         return (
             x.float(),
             pi_mask.bool(),
             pi_target.float(),
-            value_target.float(),
+            wdl_target.float(),
             weight.float(),
             is_internal_node.bool(),
         )
 
     @property
-    def samples(self) -> list[MCTSExperience]:
+    def samples(self) -> list[ProcessedExperience]:
         return list(self._experiences)
 
     @property
@@ -149,16 +154,16 @@ class TrainingDataset(Dataset):
         self,
         writer: SummaryWriter,
         step: int,
-        sampled_exps: list[MCTSExperience],
+        sampled_exps: list[ProcessedExperience],
         priority: np.ndarray,
         kl: np.ndarray,
         td: np.ndarray,
     ) -> None:
-        v_targets = np.array([e.v_target for e in sampled_exps])
+        wdl_targets = np.array([e.wdl_target for e in sampled_exps])
         is_internal = np.array([e.is_internal_node for e in sampled_exps])
         is_terminal = np.array([e.weight == 1.0 and not e.is_internal_node for e in sampled_exps])
 
-        writer.add_histogram("per/v-target-sampled", v_targets, global_step=step)
+        writer.add_histogram("per/wdl-target-value-sampled", wdl_targets[:, 0] - wdl_targets[:, 2], global_step=step)
         writer.add_scalar("per/frac-internal-sampled", is_internal.mean(), global_step=step)
         writer.add_scalar("per/frac-terminal-sampled", is_terminal.mean(), global_step=step)
         writer.add_histogram("per/priority", priority, global_step=step)
@@ -179,10 +184,6 @@ class TrainingDataset(Dataset):
             TrainingDataset(all_samples[n:], weighter=self._weighter),
         )
 
-    def add_data(self, training_data: TrainingData) -> None:
-        self.add_trajectory(training_data.trajectory)
-        self.add_internal_nodes(training_data.internal_nodes)
-
     def add_datas(
         self,
         training_datas: list[TrainingData],
@@ -191,10 +192,23 @@ class TrainingDataset(Dataset):
         expected_num_samples: int | None = None,
     ) -> int:
         """Add training data, optionally log stats. Returns total trajectory steps added."""
+
+        def add_trajectories(trajectories: list[list[ProcessedExperience]]) -> None:
+            for traj in trajectories:
+                add_trajectory(traj)
+
+        def add_trajectory(trajectory: list[ProcessedExperience]) -> None:
+            for exp in trajectory:
+                self._add_experience(exp, priority_scale=1.0)
+
+        def add_data(training_data: TrainingData) -> None:
+            add_trajectory(training_data.trajectory)
+            self.add_internal_nodes(training_data.internal_nodes)
+
         count = 0
         for training_data in training_datas:
             count += len(training_data.trajectory)
-            self.add_data(training_data)
+            add_data(training_data)
         self._total_num_samples += count
 
         if summary_writer is not None:
@@ -205,21 +219,13 @@ class TrainingDataset(Dataset):
 
         return count
 
-    def add_trajectories(self, trajectories: list[list[MCTSExperience]]) -> None:
-        for traj in trajectories:
-            self.add_trajectory(traj)
-
-    def add_trajectory(self, trajectory: list[MCTSExperience]) -> None:
-        for exp in trajectory:
-            self._add_experience(exp, priority_scale=1.0)
-
     def add_internal_node(self, state: GameState, node: MCTSNodePy) -> None:
         n_visits = int(np.sum(node.n))
         pi_target = np.ones_like(node.n) / len(node.n) if n_visits == 0 else node.n / n_visits
-        exp = MCTSExperience(
+        exp = ProcessedExperience(
             state=state,
             pi_target=pi_target,
-            v_target=0.0,
+            wdl_target=(0.0, 1.0, 0.0),  # pure uncertainty (draw) for internal nodes
             weight=self._weighter.weigh_internal_node(state, node) if self._weighter else 1.0,
             is_internal_node=True,
         )
@@ -230,17 +236,12 @@ class TrainingDataset(Dataset):
         for state, node in internal_nodes.items():
             self.add_internal_node(state, node)
 
-    # Implausibly high init values so new samples rank highest until measured.
-    # td_error: values in [-1,1] so max error is 2.  kl_div: rarely exceeds ~10.
-    _INIT_TD_ERROR = 2.0
-    _INIT_KL_DIV = 10.0
-
-    def _add_experience(self, exp: MCTSExperience, priority_scale: float = 1.0) -> None:
+    def _add_experience(self, exp: ProcessedExperience, priority_scale: float = 1.0) -> None:
         self._experiences.append(exp)
-        self._kl_div.append(self._INIT_KL_DIV * priority_scale)
-        self._td_error.append(self._INIT_TD_ERROR * priority_scale)
+        self._kl_div.append(_INIT_KL_DIV * priority_scale)
+        self._td_error.append(_INIT_TD_ERROR * priority_scale)
 
-    def _create_pi_target_tensor(self, exp: MCTSExperience) -> torch.Tensor:
+    def _create_pi_target_tensor(self, exp: ProcessedExperience) -> torch.Tensor:
         """
         The neural net and the MCTS speak different lanugages:
         - nn thinks a policy is a big tensor encoding all moves (including legal ones)

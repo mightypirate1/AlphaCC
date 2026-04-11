@@ -43,14 +43,15 @@ pub fn encode_request(board: &Board) -> (Vec<u8>, Vec<u8>) {
 }
 
 
-/// Decode a prediction response into `(pi_logits, value)`.
+/// Decode a prediction response into `(pi_logits, wdl_logits)`.
 ///
 /// - `pi_logits`: one f32 per legal move, same order as `Board::get_moves()`.
 ///   Apply softmax to get probabilities.
-/// - `value`: board value estimate from the network.
-pub fn decode_response(response: &PredictResponse) -> (Vec<f32>, f32) {
-    let logits: &[f32] = bytemuck::cast_slice(&response.pi_logits);
-    (logits.to_vec(), response.value)
+/// - `wdl_logits`: 3 f32s (win, draw, loss). Apply softmax to get probabilities.
+pub fn decode_response(response: &PredictResponse) -> (Vec<f32>, [f32; 3]) {
+    let pi_logits: &[f32] = bytemuck::cast_slice(&response.pi_logits);
+    let wdl_logits: &[f32] = bytemuck::cast_slice(&response.wdl_logits);
+    (pi_logits.to_vec(), [wdl_logits[0], wdl_logits[1], wdl_logits[2]])
 }
 
 /// Decode state tensor bytes back into f32s (zero-copy view).

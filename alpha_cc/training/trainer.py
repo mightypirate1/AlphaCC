@@ -2,6 +2,7 @@ import logging
 
 import numpy as np
 import torch
+import torch.nn.functional as F  # noqa: N812
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm_loggable.auto import tqdm
@@ -10,6 +11,7 @@ from alpha_cc.agents.mcts.training_data import TrainingData
 from alpha_cc.agents.mcts.worker_stats import WorkerStats
 from alpha_cc.nn.blocks import PolicyLogSoftmax, PolicySoftmax
 from alpha_cc.nn.nets import DefaultNet
+from alpha_cc.training import train_ops
 from alpha_cc.training.training_dataset import TrainingDataset
 
 logger = logging.getLogger(__name__)
@@ -46,6 +48,15 @@ class Trainer:
         self._global_step = 0
         self._eval_step = 0
         self._summary_writer = summary_writer
+        self._train_step = train_ops.make_train_step(
+            self._nn,
+            self._optimizer,
+            self._policy_log_softmax,
+            self._policy_softmax,
+            self._policy_weight,
+            self._value_weight,
+            self._entropy_weight,
+        )
 
     @property
     def nn(self) -> DefaultNet:
@@ -56,17 +67,33 @@ class Trainer:
         return self._optimizer
 
     def compile(self, board_size: int, mode: str = "max-autotune") -> None:
-        """JIT-compile the model for faster training. The original model
-        is preserved at `self.nn` for ONNX export and state_dict access."""
-        logger.info(f"Compiling model with torch.compile(mode={mode!r})...")
+        """JIT-compile the training step and model for faster training. The original
+        model is preserved at `self.nn` for ONNX export and state_dict access."""
+        logger.info(f"Compiling training step with torch.compile(mode={mode!r})...")
+        torch._dynamo.config.suppress_errors = True
         torch.set_float32_matmul_precision("high")
-        self._compiled_nn = torch.compile(self._nn, mode=mode)  # type: ignore
-        # Warmup: run a dummy forward+backward to trigger compilation
-        dummy = torch.zeros(self._batch_size, 2, board_size, board_size, device=self._device)
-        out_pi, out_v = self._compiled_nn(dummy)
-        (out_pi.sum() + out_v.sum()).backward()
-        self._optimizer.zero_grad()
-        logger.info("Model compiled and warmed up")
+        self._compiled_nn = torch.compile(self._nn, mode=mode)  # type: ignore  # used for eval
+        self._train_step = train_ops.make_train_step(
+            self._nn,
+            self._optimizer,
+            self._policy_log_softmax,
+            self._policy_softmax,
+            self._policy_weight,
+            self._value_weight,
+            self._entropy_weight,
+            mode=mode,
+        )
+        # Warm up the full training step (forward + backward + optimizer) so compilation
+        # completes before workers start, not while they compete for CPU.
+        bs, n = board_size, self._batch_size
+        dummy_x = torch.zeros(n, 2, bs, bs, device=self._device)
+        dummy_mask = torch.ones(n, bs, bs, bs, bs, dtype=torch.bool, device=self._device)
+        dummy_pi = torch.full((n, bs, bs, bs, bs), 1.0 / (bs**4), device=self._device)
+        dummy_wdl = torch.full((n, 3), 1.0 / 3.0, device=self._device)
+        dummy_weight = torch.ones(n, device=self._device)
+        dummy_is_internal = torch.zeros(n, dtype=torch.bool, device=self._device)
+        self._train_step(dummy_x, dummy_mask, dummy_pi, dummy_wdl, dummy_weight, dummy_is_internal)
+        logger.info("Training step compiled and warmed up")
 
     def train(self, dataset: TrainingDataset) -> tuple[np.ndarray, np.ndarray]:
         kl_divs, td_errors = self._update_nn(dataset)
@@ -92,12 +119,6 @@ class Trainer:
             self._summary_writer.add_scalar(f"{prefix}/{key}-min", data.min(), global_step=self._global_step)
             self._summary_writer.add_scalar(f"{prefix}/{key}-max", data.max(), global_step=self._global_step)
 
-        def entropy(p: torch.Tensor) -> torch.Tensor:
-            return -(p * (p.clamp_min(1e-6).log())).sum(dim=-1)
-
-        def kl_divergence(p: torch.Tensor, q: torch.Tensor) -> torch.Tensor:
-            return torch.sum(p * (torch.log(p.clip(1e-6)) - torch.log(q.clip(1e-6))), dim=-1)
-
         if self._summary_writer is None:
             return
 
@@ -113,60 +134,59 @@ class Trainer:
             self._nn.eval()
             dataloader = DataLoader(
                 eval_dataset,
-                batch_size=self._batch_size,
+                batch_size=1024,
                 drop_last=False,
-                pin_memory=True,
                 shuffle=False,
+                pin_memory=self._device.type == "cuda",
+                num_workers=self._num_dataloader_workers,
+                prefetch_factor=3 if self._num_dataloader_workers > 0 else None,
             )
-            pi_logits_list: list[torch.Tensor] = []  # raw logits (legal moves only)
-            pi_logprobs: list[torch.Tensor] = []  # log probs over legal moves
-            pi_preds: list[torch.Tensor] = []  # probs over legal moves
-            pi_targets: list[torch.Tensor] = []  # target probs over legal moves (masked & re-normalized)
-            vs = []
+            pi_logprobs_list: list[torch.Tensor] = []
+            pi_targets_list: list[torch.Tensor] = []
+            wdl_preds: list[torch.Tensor] = []
+            kl_divs_list: list[torch.Tensor] = []
+            entropy_list: list[torch.Tensor] = []
             with tqdm(desc="nn-eval/epoch", total=len(eval_dataset)) as pbar:
-                processed = 0
                 for batch in dataloader:
                     x, pi_mask_batch, pi_target_batch, _, _, _ = (b.to(self._device) for b in batch)
-                    pi_tensor_batch, value_batch = self._compiled_nn(x)
-                    vs.append(value_batch.cpu())
-                    # iterate per sample
-                    for pi_tensor_unsoftmaxed, pi_mask, pi_target_full in zip(
-                        pi_tensor_batch, pi_mask_batch, pi_target_batch
-                    ):
-                        # legal indices
-                        legal_idx = torch.nonzero(pi_mask.squeeze(), as_tuple=True)
-                        raw_pi_logits = pi_tensor_unsoftmaxed[legal_idx].ravel()
-                        target_legal = pi_target_full[legal_idx].ravel()
-                        # re-normalize target in case of numerical drift
-                        target_legal = target_legal / target_legal.sum().clamp_min(1e-8)
+                    batch_size = x.shape[0]
+                    pi_tensor_batch, wdl_logits_batch = self._compiled_nn(x)
+                    wdl_preds.append(torch.nn.functional.softmax(wdl_logits_batch, dim=-1).cpu())
 
-                        pi_logprob = torch.nn.functional.log_softmax(raw_pi_logits, dim=0)
-                        pi_pred = torch.nn.functional.softmax(raw_pi_logits, dim=0)
+                    # Flatten spatial dims → (B, N) for fully vectorized ops
+                    mask = pi_mask_batch.reshape(batch_size, -1).bool()
+                    target = pi_target_batch.reshape(batch_size, -1) * mask
+                    target = target / target.sum(dim=1, keepdim=True).clamp_min(1e-8)
 
-                        pi_logits_list.append(raw_pi_logits.cpu())
-                        pi_logprobs.append(pi_logprob.cpu())
-                        pi_preds.append(pi_pred.cpu())
-                        pi_targets.append(target_legal.cpu())
+                    # Masked log_softmax; replace -inf at illegal positions with 0 to avoid 0*-inf=nan
+                    log_pred = torch.nn.functional.log_softmax(
+                        pi_tensor_batch.reshape(batch_size, -1).masked_fill(~mask, float("-inf")), dim=1
+                    ).masked_fill(~mask, 0.0)
+                    log_target = target.clamp_min(1e-6).log()
 
-                    processed += x.shape[0]
-                    pbar.update(x.shape[0])
+                    # Legal-only values for histograms (variable-length per sample, concatenated)
+                    pi_logprobs_list.append(log_pred[mask].cpu())
+                    pi_targets_list.append(target[mask].cpu())
+                    # Per-sample entropy and KL
+                    entropy_list.append(-(target * log_target).sum(dim=1).cpu())
+                    kl_divs_list.append((target * (log_target - log_pred)).sum(dim=1).cpu())
 
-            # flatten (concatenate) for histograms
-            pi_logprobs_raveled = torch.cat(pi_logprobs, dim=0)  # pred logprobs (legal)
-            pi_targets_raveled = torch.cat(pi_targets, dim=0)  # target probs (legal)
-            v = torch.cat(vs, dim=0)
+                    pbar.update(batch_size)
+
+            pi_logprobs_raveled = torch.cat(pi_logprobs_list)
+            pi_targets_raveled = torch.cat(pi_targets_list)
+            wdl_pred = torch.cat(wdl_preds)
+            pi_target_entropy = torch.cat(entropy_list)
+            kl_divergences = torch.cat(kl_divs_list)
 
         #######
         ### trajectories
         #####
         game_lengths = np.array([len(traj) for traj in trajectories])
         game_ended_early = np.array([traj[-1].game_ended_early for traj in trajectories if traj])
-        v_targets = np.array([e.v_target for e in experiences])
+        wdl_targets = np.array([e.wdl_target for e in experiences])
+        wdl_target_values = wdl_targets[:, 0] - wdl_targets[:, 2]  # expected value = W - L
         pi_targets_logprobs_raveled = pi_targets_raveled.clamp(1e-6).log()
-        pi_target_entropy = torch.as_tensor([entropy(pi_target) for pi_target in pi_targets])
-        kl_divergences = torch.as_tensor(
-            [kl_divergence(pi_target, pi_pred) for pi_target, pi_pred in zip(pi_targets, pi_preds)]
-        )
         self._summary_writer.add_histogram(
             "trainer/pi/pi-target-entropy", pi_target_entropy, global_step=self._global_step
         )
@@ -176,13 +196,20 @@ class Trainer:
         self._summary_writer.add_histogram(
             "trainer/pi/pi-target-logprobs", pi_targets_logprobs_raveled, global_step=self._global_step
         )
-        self._summary_writer.add_histogram("trainer/value/v-pred", v, global_step=self._global_step)
-        self._summary_writer.add_histogram("trainer/value/v-target", v_targets, global_step=self._global_step)
+        wdl_pred_values = wdl_pred[:, 0] - wdl_pred[:, 2]  # expected value = W - L
+        self._summary_writer.add_histogram("trainer/value/v-pred", wdl_pred_values, global_step=self._global_step)
+        self._summary_writer.add_histogram("trainer/value/v-target", wdl_target_values, global_step=self._global_step)
+        self._summary_writer.add_histogram("trainer/wdl/win-pred", wdl_pred[:, 0], global_step=self._global_step)
+        self._summary_writer.add_histogram("trainer/wdl/draw-pred", wdl_pred[:, 1], global_step=self._global_step)
+        self._summary_writer.add_histogram("trainer/wdl/loss-pred", wdl_pred[:, 2], global_step=self._global_step)
         self._summary_writer.add_scalar(
             "trainer/pi/kl-divergence-mean", kl_divergences.mean(), global_step=self._global_step
         )
         self._summary_writer.add_histogram("trainer/pi/kl-divergence", kl_divergences, global_step=self._global_step)
         log_aggregates("game-length", game_lengths)
+        terminal_wdl = np.array([traj[-1].wdl_target for traj in trajectories if traj])
+        terminal_abs_value = np.abs(terminal_wdl[:, 0] - terminal_wdl[:, 2])
+        log_aggregates("terminal-abs-value", terminal_abs_value)
         log_aggregates("pi-target-entropy", pi_target_entropy)
         self._summary_writer.add_scalar(
             "train-rollouts/frac-ended-early",
@@ -224,51 +251,6 @@ class Trainer:
         if worker_stats_list:
             self._report_worker_stats(worker_stats_list)
 
-    @torch.no_grad()
-    def _compute_sample_errors_batched(self, dataset: TrainingDataset) -> tuple[np.ndarray, np.ndarray]:
-        """
-        Batched forward pass over dataset to compute per-sample KL divergence and TD error.
-        Used by PER to update priorities after training.
-
-        Returns (kl_divs, td_errors) as float32 numpy arrays, one entry per sample.
-        Internal nodes get td_error=0 (value head is not trained on them).
-        """
-        self._nn.eval()
-        kl_divs_list: list[torch.Tensor] = []
-        td_errors_list: list[torch.Tensor] = []
-        dataloader = DataLoader(
-            dataset,
-            batch_size=self._batch_size,
-            shuffle=False,
-            drop_last=False,
-            pin_memory=True,
-            num_workers=self._num_dataloader_workers,
-            prefetch_factor=3,
-        )
-
-        for batch in dataloader:
-            x, pi_mask_batch, pi_target_batch, target_value, weight, is_internal = (b.to(self._device) for b in batch)
-            pi_tensor_batch, value_batch = self._compiled_nn(x)
-
-            # Per-sample TD error: |v_pred - v_target|, 0 for internal nodes,
-            # dampened by weight for unfinished games (unreliable v_targets).
-            td_err = torch.abs(value_batch.squeeze() - target_value.squeeze())
-            td_err = torch.where(is_internal.squeeze(), torch.zeros_like(td_err), td_err)
-            td_err = td_err * weight.squeeze()
-            td_errors_list.append(td_err.cpu())
-
-            # Per-sample KL divergence (batched): KL(pi_target || pi_pred) over legal moves
-            log_pred = self._policy_log_softmax(pi_tensor_batch, pi_mask_batch)
-            log_target = torch.log(pi_target_batch.clamp_min(1e-6))
-            kl_per_sample = pi_target_batch * (log_target - log_pred)
-            kl_per_sample = torch.where(pi_mask_batch, kl_per_sample, 0.0)
-            kl_per_sample = kl_per_sample.reshape(x.shape[0], -1).sum(dim=1)
-            kl_divs_list.append(kl_per_sample.cpu())
-
-        kl_array = torch.cat(kl_divs_list).numpy().astype(np.float32)
-        td_array = torch.cat(td_errors_list).numpy().astype(np.float32)
-        return kl_array, td_array
-
     def _report_worker_stats(self, stats_list: list[WorkerStats]) -> None:
         if self._summary_writer is None:
             return
@@ -285,158 +267,151 @@ class Trainer:
     def _update_nn(self, dataset: TrainingDataset) -> tuple[np.ndarray, np.ndarray]:
         self._reset_gradient_stats()
 
-        def train_epoch(dataloader: DataLoader) -> tuple[float, float, float]:
+        def train_epoch(
+            dataloader: DataLoader, collect: bool = False
+        ) -> tuple[float, float, float, list[torch.Tensor], list[torch.Tensor]]:
             self._nn.train()
-            # accumulator of: value_loss, policy_loss, entropy_loss
+            # accumulator of: wdl_loss, policy_loss, entropy_loss
             loss_accumulator = torch.zeros(3, dtype=torch.float64, device="cpu")  # Higher precision for accumulation
             samples_seen = 0
-            for data_tuple in dataloader:
-                x, pi_mask, target_pi, target_value, weight, is_internal = (
-                    data.to(self._device) for data in data_tuple
-                )
-                self._optimizer.zero_grad(set_to_none=True)
-                current_pi_unsoftmaxed, current_value = self._compiled_nn(x)
-                value_loss = compute_value_loss(current_value, target_value, weight, is_internal)
-                policy_loss = compute_policy_loss(current_pi_unsoftmaxed, pi_mask, target_pi, weight)
-                entropy_loss = compute_entropy_loss(current_pi_unsoftmaxed, pi_mask, weight)
-                loss = (
-                    self._policy_weight * policy_loss
-                    + self._value_weight * value_loss
-                    + self._entropy_weight * entropy_loss
-                )
-                loss.backward()
-                self._accumulate_gradient_stats()
-                self._optimizer.step()
-                batch_size = x.shape[0]
-                samples_seen += batch_size
-                batch_losses = torch.tensor(
-                    [
-                        value_loss.detach().cpu().item(),
-                        policy_loss.detach().cpu().item(),
-                        entropy_loss.detach().cpu().item(),
-                    ],
-                    dtype=torch.float64,
-                )
-                loss_accumulator += batch_losses * batch_size
-            epoch_value_loss, epoch_policy_loss, epoch_entropy_loss = tuple((loss_accumulator / samples_seen).tolist())
-            return epoch_value_loss, epoch_policy_loss, epoch_entropy_loss
+            kl_list: list[torch.Tensor] = []
+            td_list: list[torch.Tensor] = []
+            with tqdm(desc="nn-update", total=len(dataset)) as pbar:
+                for data_tuple in dataloader:
+                    x, pi_mask, target_pi, target_wdl, weight, is_internal = (
+                        data.to(self._device) for data in data_tuple
+                    )
+                    # Pad tail batch to batch_size so compiled step sees fixed shapes.
+                    n_real = x.shape[0]
+                    if n_real < self._batch_size:
+                        n_pad = self._batch_size - n_real
 
-        def compute_value_loss(
-            current_value: torch.Tensor, target_value: torch.Tensor, weight: torch.Tensor, is_internal: torch.Tensor
-        ) -> torch.Tensor:
-            mask = (~is_internal).float()
-            unweighted_loss = torch.nn.functional.mse_loss(current_value, target_value, reduction="none")
-            weight_masked = weight * mask
-            unweighted_loss_masked = unweighted_loss * mask
-            return (unweighted_loss_masked * weight_masked).sum() / weight_masked.sum().clamp_min(1e-8)
+                        def _pad(t: torch.Tensor, padding: int, value: float = 0.0) -> torch.Tensor:
+                            return F.pad(t.float(), (0, 0) * (t.dim() - 1) + (0, padding), value=value).to(t.dtype)
 
-        def compute_policy_loss(
-            pi_tensor_unsoftmaxed: torch.Tensor, pi_mask: torch.Tensor, target_pi: torch.Tensor, weight: torch.Tensor
-        ) -> torch.Tensor:
-            pi_mask_flat = pi_mask.reshape((pi_mask.shape[0], -1))
-            policy_loss_unmasked = -target_pi * self._policy_log_softmax(pi_tensor_unsoftmaxed, pi_mask)
-            policy_loss_unnormalized = torch.where(pi_mask, policy_loss_unmasked, 0).reshape((pi_mask.shape[0], -1))
-            n_actions = pi_mask_flat.sum(dim=1, keepdim=True)
-            policy_loss_unweighted = (policy_loss_unnormalized / n_actions).sum(dim=1)
-            return (weight * policy_loss_unweighted).sum() / weight.sum()
-
-        def compute_entropy_loss(
-            pi_tensor_unsoftmaxed: torch.Tensor, pi_mask: torch.Tensor, weight: torch.Tensor
-        ) -> torch.Tensor:
-            pi = self._policy_softmax(pi_tensor_unsoftmaxed, pi_mask)
-            pi_masked = torch.where(pi_mask, pi, 0)
-            sample_entropy_unweighted = (
-                (pi_masked * torch.log(pi_masked.clip(1e-6))).reshape((pi_mask.shape[0], -1)).sum(dim=1)
-            )
-            return (weight * sample_entropy_unweighted).sum() / weight.sum()
+                        x = _pad(x, n_pad)
+                        pi_mask = _pad(pi_mask, n_pad, value=1.0)
+                        target_pi = _pad(target_pi, n_pad)
+                        target_wdl = _pad(target_wdl, n_pad, value=1.0 / 3.0)
+                        weight = _pad(weight, n_pad)
+                        is_internal = _pad(is_internal, n_pad)
+                    wdl_loss, policy_loss, entropy_loss, current_pi_unsoftmaxed, current_wdl_logits = self._train_step(
+                        x, pi_mask, target_pi, target_wdl, weight, is_internal
+                    )
+                    self._accumulate_gradient_stats()
+                    if collect:
+                        with torch.no_grad():
+                            # TD error: |v_pred - v_target|, 0 for internal, weighted by sample weight
+                            wdl_probs = torch.nn.functional.softmax(current_wdl_logits[:n_real], dim=-1)
+                            v_pred = wdl_probs[:, 0] - wdl_probs[:, 2]
+                            v_target = target_wdl[:n_real, 0] - target_wdl[:n_real, 2]
+                            td_err = torch.abs(v_pred - v_target)
+                            td_err = torch.where(is_internal[:n_real].squeeze(), torch.zeros_like(td_err), td_err)
+                            td_list.append((td_err * weight[:n_real].squeeze()).cpu())
+                            # KL(target || pred) over legal moves, unweighted
+                            log_pred = self._policy_log_softmax(current_pi_unsoftmaxed[:n_real], pi_mask[:n_real])
+                            log_target = torch.log(target_pi[:n_real].clamp_min(1e-6))
+                            kl = target_pi[:n_real] * (log_target - log_pred)
+                            kl_list.append(torch.where(pi_mask[:n_real], kl, 0.0).reshape(n_real, -1).sum(dim=1).cpu())
+                    batch_size = n_real
+                    samples_seen += batch_size
+                    batch_losses = torch.tensor(
+                        [
+                            wdl_loss.detach().cpu().item(),
+                            policy_loss.detach().cpu().item(),
+                            entropy_loss.detach().cpu().item(),
+                        ],
+                        dtype=torch.float64,
+                    )
+                    loss_accumulator += batch_losses * batch_size
+                    pbar.set_postfix(
+                        {
+                            "pi": round(policy_loss.detach().cpu().item(), 5),
+                            "wdl": round(wdl_loss.detach().cpu().item(), 5),
+                            "e": round(entropy_loss.detach().cpu().item(), 5),
+                        }
+                    )
+                    pbar.update(batch_size)
+                epoch_wdl_loss, epoch_policy_loss, epoch_entropy_loss = tuple(
+                    (loss_accumulator / samples_seen).tolist()
+                )
+                return epoch_wdl_loss, epoch_policy_loss, epoch_entropy_loss, kl_list, td_list
 
         @torch.no_grad()
         def epoch_eval() -> tuple[float, float, float]:
             self._nn.eval()
-            epoch_value_loss = 0.0
+            epoch_wdl_loss = 0.0
             epoch_policy_loss = 0.0
             epoch_entropy_loss = 0.0
             epoch_is_internal = 0.0
             for data_tuple in test_dataloader:
-                x, pi_mask, target_pi, target_value, weight, is_internal = (
-                    data.to(self._device) for data in data_tuple
+                x, pi_mask, target_pi, target_wdl, weight, is_internal = (data.to(self._device) for data in data_tuple)
+                current_pi_unsoftmaxed, current_wdl_logits = self._compiled_nn(x)
+                wdl_loss = train_ops.compute_wdl_loss(current_wdl_logits, target_wdl, weight, is_internal)
+                policy_loss = train_ops.compute_policy_loss(
+                    current_pi_unsoftmaxed, pi_mask, target_pi, weight, self._policy_log_softmax
                 )
-                current_pi_unsoftmaxed, current_value = self._compiled_nn(x)
-                value_loss = compute_value_loss(current_value, target_value, weight, is_internal)
-                policy_loss = compute_policy_loss(current_pi_unsoftmaxed, pi_mask, target_pi, weight)
-                entropy_loss = compute_entropy_loss(current_pi_unsoftmaxed, pi_mask, weight)
-                epoch_value_loss += value_loss.mean().cpu().item() / len(test_dataloader)
+                entropy_loss = train_ops.compute_entropy_loss(
+                    current_pi_unsoftmaxed, pi_mask, weight, self._policy_softmax
+                )
+                epoch_wdl_loss += wdl_loss.mean().cpu().item() / len(test_dataloader)
                 epoch_policy_loss += policy_loss.mean().cpu().item() / len(test_dataloader)
                 epoch_entropy_loss += entropy_loss.mean().cpu().item() / len(test_dataloader)
                 epoch_is_internal += is_internal.float().mean().cpu().item() / len(test_dataloader)
             if self._summary_writer is not None:
                 self._summary_writer.add_scalar("eval/policy-loss", epoch_policy_loss, global_step=self._eval_step)
-                self._summary_writer.add_scalar("eval/value-loss", epoch_value_loss, global_step=self._eval_step)
+                self._summary_writer.add_scalar("eval/wdl-loss", epoch_wdl_loss, global_step=self._eval_step)
                 self._summary_writer.add_scalar("eval/entropy-loss", epoch_entropy_loss, global_step=self._eval_step)
                 self._summary_writer.add_scalar(
                     "eval/effective-frac-internal", epoch_is_internal, global_step=self._eval_step
                 )
                 self._eval_step += 1
-            return epoch_value_loss, epoch_policy_loss, epoch_entropy_loss
+            return epoch_wdl_loss, epoch_policy_loss, epoch_entropy_loss
 
-        train_data, test_data = dataset.split(0.9)
+        _, test_data = dataset.split(0.9)
         test_dataloader = DataLoader(
             test_data,
             batch_size=self._batch_size,
-            drop_last=False,
-            pin_memory=True,
+            drop_last=True,
+            pin_memory=self._device.type == "cuda",
             num_workers=self._num_dataloader_workers,
-            prefetch_factor=3,
+            prefetch_factor=3 if self._num_dataloader_workers > 0 else None,
         )
 
-        total_value_loss = 0.0
+        total_wdl_loss = 0.0
         total_policy_loss = 0.0
         total_entropy_loss = 0.0
-        with tqdm(desc="nn-update", total=self._epochs_per_update) as pbar:
-            for _ in range(self._epochs_per_update):
-                train_dataloader = DataLoader(
-                    train_data,
-                    batch_size=self._batch_size,
-                    shuffle=True,
-                    drop_last=True,
-                    pin_memory=True,
-                    num_workers=self._num_dataloader_workers,
-                    prefetch_factor=3,
-                )
-                train_epoch(train_dataloader)
-                epoch_test_value_loss, epoch_test_policy_loss, epoch_test_entropy_loss = epoch_eval()
-                total_value_loss += epoch_test_value_loss / self._epochs_per_update
-                total_policy_loss += epoch_test_policy_loss / self._epochs_per_update
-                total_entropy_loss += epoch_test_entropy_loss / self._epochs_per_update
-                pbar.set_postfix(
-                    {
-                        "pi": round(epoch_test_value_loss, 5),
-                        "v": round(epoch_test_policy_loss, 5),
-                        "e": round(epoch_test_entropy_loss, 5),
-                    }
-                )
-                pbar.update(1)
+        kl_divs: np.ndarray | None = None
+        td_errors: np.ndarray | None = None
+        for epoch_idx in range(self._epochs_per_update):
+            is_last = epoch_idx == self._epochs_per_update - 1
+            train_dataloader = DataLoader(
+                dataset,
+                batch_size=self._batch_size,
+                shuffle=not is_last,
+                drop_last=not is_last,
+                pin_memory=self._device.type == "cuda",
+                num_workers=self._num_dataloader_workers,
+                prefetch_factor=3 if self._num_dataloader_workers > 0 else None,
+            )
+            _, _, _, kl_list, td_list = train_epoch(train_dataloader, collect=is_last)
+            if is_last:
+                kl_divs = torch.cat(kl_list).numpy().astype(np.float32)
+                td_errors = torch.cat(td_list).numpy().astype(np.float32)
+            epoch_test_wdl_loss, epoch_test_policy_loss, epoch_test_entropy_loss = epoch_eval()
+            total_wdl_loss += epoch_test_wdl_loss / self._epochs_per_update
+            total_policy_loss += epoch_test_policy_loss / self._epochs_per_update
+            total_entropy_loss += epoch_test_entropy_loss / self._epochs_per_update
         if self._summary_writer is not None:
             self._summary_writer.add_scalar("trainer/policy-loss", total_policy_loss, global_step=self._global_step)
-            self._summary_writer.add_scalar("trainer/value-loss", total_value_loss, global_step=self._global_step)
+            self._summary_writer.add_scalar("trainer/wdl-loss", total_wdl_loss, global_step=self._global_step)
             self._summary_writer.add_scalar("trainer/entropy-loss", total_entropy_loss, global_step=self._global_step)
 
         self._flush_gradient_stats()
-
-        # Final batched eval pass over full dataset for PER priority updates
-        kl_divs, td_errors = self._compute_sample_errors_batched(dataset)
-        return kl_divs, td_errors
-
-    _PARAM_GROUPS = ("encoder", "global-encoder", "local-encoder", "policy-head", "value-head")
+        return kl_divs, td_errors  # type: ignore # TODO: solve this cleaner
 
     def _get_param_group_modules(self) -> dict[str, torch.nn.Module]:
-        return {
-            "encoder": self._nn._encoder,
-            "global-encoder": self._nn._global_encoder,
-            "local-encoder": self._nn._local_encoder,
-            "policy-head": self._nn._policy_head,
-            "value-head": self._nn._value_combined,
-        }
+        return self._nn.param_groups()
 
     def _reset_gradient_stats(self) -> None:
         self._grad_stats: dict[str, dict[str, float]] = {
@@ -447,7 +422,7 @@ class Trainer:
                 "weight-norm-sq": 0.0,
                 "weight-max": 0.0,
             }
-            for name in self._PARAM_GROUPS
+            for name in self._get_param_group_modules()
         }
 
     @torch.no_grad()

@@ -10,6 +10,7 @@ from alpha_cc.agents.mcts.mcts_agent import MCTSAgent
 from alpha_cc.agents.value_assignment import (
     DefaultAssignmentStrategy,
     HeuristicAssignmentStrategy,
+    TDLambdaAssignmentStrategy,
     ValueAssignmentStrategy,
 )
 from alpha_cc.config import Environment
@@ -33,9 +34,16 @@ logger = logging.getLogger(__file__)
 @click.option("--dirichlet-leaf-noise-weight", type=str, default="0.0")
 @click.option("--argmax-delay", type=str, default=None)
 @click.option("--action-temperature", type=str, default="1.0")
-@click.option("--gamma", type=float, default=1.0)
 @click.option("--heuristic", is_flag=True, default=False)
 @click.option("--non-terminal-value-weight", type=float, default=0.1)
+@click.option("--wdl-gamma", type=float, default=1.0, help="Gamma discount for backward WDL propagation.")
+@click.option(
+    "--wdl-lambda", type=float, default=None, help="TD(lambda) blending factor. Enables soft MCTS WDL targets."
+)
+@click.option("--wdl-weight-game", type=float, default=1.0, help="Weight for game-outcome WDL in target blend.")
+@click.option("--wdl-weight-mcts", type=float, default=0.0, help="Weight for MCTS root WDL in target blend.")
+@click.option("--wdl-weight-greedy", type=float, default=0.0, help="Weight for greedy-backup WDL in target blend.")
+@click.option("--wdl-smoothing", type=float, default=0.0, help="Label smoothing epsilon for WDL targets.")
 @click.option("--internal-nodes-fraction", type=str, default="0.0")
 @click.option("--internal-nodes-min-visits", type=str, default="1")
 @click.option("--n-threads", type=int, default=1)
@@ -52,9 +60,14 @@ def main(
     dirichlet_leaf_noise_weight: str,
     argmax_delay: str | None,
     action_temperature: str,
-    gamma: float,
     heuristic: bool,
     non_terminal_value_weight: float,
+    wdl_gamma: float,
+    wdl_lambda: float | None,
+    wdl_weight_game: float,
+    wdl_weight_mcts: float,
+    wdl_weight_greedy: float,
+    wdl_smoothing: float,
     internal_nodes_fraction: str,
     internal_nodes_min_visits: str,
     n_threads: int,
@@ -62,7 +75,7 @@ def main(
     debug_prints: bool,
     verbose: bool,
 ) -> None:
-    def create_model(channel: int, trainer_time: int) -> MCTSAgent:
+    def create_model(channel: int, trainer_time: int, dummy_preds: bool) -> MCTSAgent:
         return MCTSAgent(
             nn_service_addr=Environment.nn_service_addr,
             pred_channel=channel,
@@ -74,6 +87,7 @@ def main(
             n_threads=n_threads,
             pruning_tree=pruning_tree,
             debug_prints=debug_prints,
+            dummy_preds=dummy_preds,
         )
 
     max_game_length_schedule = ParamSchedule.from_str(max_game_length or "inf")
@@ -90,7 +104,10 @@ def main(
     training_db = TrainingDB(host=Environment.redis_host_main)
     games_db = GamesDB(host=Environment.redis_host_main)
 
-    value_assignment_strategy = create_value_assignment_strategy(size, gamma, heuristic, non_terminal_value_weight)
+    wdl_weights = (wdl_weight_game, wdl_weight_mcts, wdl_weight_greedy)
+    value_assignment_strategy = create_value_assignment_strategy(
+        size, wdl_gamma, heuristic, non_terminal_value_weight, wdl_lambda, wdl_weights, wdl_smoothing
+    )
     training_runtime = TrainingRunTime(Board(size), value_assignment_strategy)
     tournament_runtime = TournamentRuntime(
         size, training_db, games_db, max_game_length=max_game_length_schedule.as_int(0)
@@ -105,13 +122,13 @@ def main(
             player_1, player_2 = pairing
             tournament_runtime.play_and_record_game(
                 {
-                    player_1: create_model(player_1, trainer_time),
-                    player_2: create_model(player_2, trainer_time),
+                    player_1: create_model(player_1, trainer_time, False),
+                    player_2: create_model(player_2, trainer_time, False),
                 }
             )
         internal_nodes_fraction_val = internal_nodes_fraction_schedule.as_float(trainer_time)
         training_data = training_runtime.play_game(
-            agent=create_model(0, trainer_time),
+            agent=create_model(0, trainer_time, training_db.nn_warmup_get() < 0),
             n_rollouts=n_rollouts_schedule.as_int(trainer_time),
             rollout_depth=rollout_depth_schedule.as_int(trainer_time),
             max_game_length=max_game_length_schedule.as_int(trainer_time),
@@ -124,11 +141,35 @@ def main(
 
 
 def create_value_assignment_strategy(
-    size: int, gamma: float, heuristic: bool, non_terminal_weight: float
+    size: int,
+    wdl_gamma: float,
+    heuristic: bool,
+    non_terminal_weight: float,
+    wdl_lambda: float | None = None,
+    wdl_weights: tuple[float, float, float] = (1.0, 0.0, 0.0),
+    wdl_smoothing: float = 0.0,
 ) -> ValueAssignmentStrategy:
+    if wdl_lambda is not None:
+        return TDLambdaAssignmentStrategy(
+            gamma=wdl_gamma,
+            lambda_=wdl_lambda,
+            non_terminal_weight=non_terminal_weight,
+            wdl_weights=wdl_weights,
+            wdl_smoothing=wdl_smoothing,
+        )
     if heuristic:
-        return HeuristicAssignmentStrategy(size, gamma)
-    return DefaultAssignmentStrategy(gamma, non_terminal_weight=non_terminal_weight)
+        return HeuristicAssignmentStrategy(
+            size,
+            gamma=wdl_gamma,
+            wdl_weights=wdl_weights,
+            wdl_smoothing=wdl_smoothing,
+        )
+    return DefaultAssignmentStrategy(
+        wdl_gamma,
+        non_terminal_weight=non_terminal_weight,
+        wdl_weights=wdl_weights,
+        wdl_smoothing=wdl_smoothing,
+    )
 
 
 def create_and_register_signal_handler() -> None:

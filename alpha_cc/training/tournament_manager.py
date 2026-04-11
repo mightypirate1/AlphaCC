@@ -7,6 +7,7 @@ from alpha_cc.db import TrainingDB
 from alpha_cc.db.models import TournamentResult
 from alpha_cc.nn.nets.default_net import DefaultNet
 from alpha_cc.runtimes import TournamentRuntime
+from alpha_cc.training.model_io import load_weights, serialize_model
 
 logger = logging.getLogger(__file__)
 
@@ -19,6 +20,7 @@ class TournamentManager:
         tournament_runtime: TournamentRuntime,
         training_db: TrainingDB,
         summary_writer: SummaryWriter,
+        model: DefaultNet,
         board_size: int = 9,
         onnx_compiled_batch_size_secondary: int | None = None,
     ) -> None:
@@ -29,6 +31,7 @@ class TournamentManager:
         self._summary_writer = summary_writer
         self._tournament_thread: threading.Thread | None = None
         self._board_size = board_size
+        self._model = model
         self._onnx_compiled_batch_size_secondary = onnx_compiled_batch_size_secondary
 
     @property
@@ -39,7 +42,7 @@ class TournamentManager:
     def champion_index(self) -> int:
         return self._champion_index
 
-    def run_tournament(self, challenger_idx: int) -> None:
+    def run_tournament(self, challenger_idx: int, n_rounds: int = 5) -> None:
         """
         Arranges tournament, waits for the workers to play it out,
         and records the results to the StatsWriter.
@@ -48,13 +51,14 @@ class TournamentManager:
         def _run_tournament() -> None:
             self._publish_secondary_variants(challenger_idx)
             tournament_results = self._tournament_runtime.run_tournament(
-                challenger_idx, self._champion_index, n_rounds=5
+                challenger_idx, self._champion_index, n_rounds=n_rounds
             )
             win_rate, win_rate_as_white, win_rate_as_black = self._extract_winrate(tournament_results)
-            if win_rate > 0.55:
+            if win_rate >= 0.55:
                 self._champion_index = challenger_idx
                 logger.info(f"new champion: {self._champion_index}! (winrate={win_rate})")
             self._log_winrate(win_rate, win_rate_as_white, win_rate_as_black, challenger_idx)
+            self._log_tournament_stats(tournament_results, challenger_idx)
 
         if self.is_running:
             logger.warning("tournament already running; it will be terminated")
@@ -70,22 +74,19 @@ class TournamentManager:
         bs = self._onnx_compiled_batch_size_secondary
         if bs is None:
             return
-        from alpha_cc.entrypoints.trainer_thread import _serialize_model, load_weights
 
         # Challenger: always compile (it's the freshly trained model)
         challenger_weights = load_weights(self._run_id, challenger_idx)
-        challenger_model = DefaultNet(self._board_size)
-        challenger_model.load_state_dict(challenger_weights)
-        challenger_payload = _serialize_model(challenger_model, self._board_size, bs)
+        self._model.load_state_dict(challenger_weights)
+        challenger_payload = serialize_model(self._model, self._board_size, bs)
         self._training_db.weights_publish(challenger_payload, challenger_idx, batch_size=bs)
         logger.info(f"published secondary variant for challenger idx={challenger_idx} (batch_size={bs})")
 
         # Champion: skip if already exists
         if not self._training_db.weights_exists(self._champion_index, batch_size=bs):
             champion_weights = load_weights(self._run_id, self._champion_index)
-            champion_model = DefaultNet(self._board_size)
-            champion_model.load_state_dict(champion_weights)
-            champion_payload = _serialize_model(champion_model, self._board_size, bs)
+            self._model.load_state_dict(champion_weights)
+            champion_payload = serialize_model(self._model, self._board_size, bs)
             self._training_db.weights_publish(champion_payload, self._champion_index, batch_size=bs)
             logger.info(f"published secondary variant for champion idx={self._champion_index} (batch_size={bs})")
         else:
@@ -106,11 +107,21 @@ class TournamentManager:
         win_rate_as_white: float,
         win_rate_as_black: float,
         challenger_idx: int,
-    ) -> float:
+    ) -> None:
         step = challenger_idx
         logger.info(f"WINRATES: total={win_rate} as_white={win_rate_as_white}, as_black={win_rate_as_black}")
         self._summary_writer.add_scalar("tournament/win-rate", win_rate, step)
         self._summary_writer.add_scalar("tournament/win-rate-as-white", win_rate_as_white, step)
         self._summary_writer.add_scalar("tournament/win-rate-as-black", win_rate_as_black, step)
         self._summary_writer.add_scalar("tournament/champion-index", self._champion_index, step)
-        return win_rate
+
+    def _log_tournament_stats(self, results: TournamentResult, challenger_idx: int) -> None:
+        step = challenger_idx
+        lengths = results.all_game_lengths
+        if lengths:
+            self._summary_writer.add_scalar("tournament/game-length-mean", sum(lengths) / len(lengths), step)
+            self._summary_writer.add_scalar("tournament/game-length-min", min(lengths), step)
+            self._summary_writer.add_scalar("tournament/game-length-max", max(lengths), step)
+        total = max(results.total_games, 1)
+        self._summary_writer.add_scalar("tournament/draw-rate", results.total_draws / total, step)
+        self._summary_writer.add_scalar("tournament/timeout-rate", results.total_timeouts / total, step)
