@@ -158,7 +158,7 @@ fn build_server_config(args: &ServeArgs) -> ServerConfig {
         pipelines[0].model_ids = (0..args.max_models as u32).collect();
     }
 
-    ServerConfig { port: args.port, game_config, pipelines }
+    ServerConfig { port: args.port, game: args.game.clone(), game_config, pipelines }
 }
 
 /// Load initial models from file paths into the backend's model store.

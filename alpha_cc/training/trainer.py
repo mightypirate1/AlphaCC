@@ -210,6 +210,9 @@ class Trainer:
         self._summary_writer.add_histogram("trainer/wdl/win-pred", wdl_pred[:, 0], global_step=self._global_step)
         self._summary_writer.add_histogram("trainer/wdl/draw-pred", wdl_pred[:, 1], global_step=self._global_step)
         self._summary_writer.add_histogram("trainer/wdl/loss-pred", wdl_pred[:, 2], global_step=self._global_step)
+        wdl_entropy = -(wdl_pred * wdl_pred.clamp_min(1e-6).log()).sum(dim=1)
+        self._summary_writer.add_histogram("trainer/wdl/entropy", wdl_entropy, global_step=self._global_step)
+        log_aggregates("wdl-entropy", wdl_entropy)
         self._summary_writer.add_scalar(
             "trainer/pi/kl-divergence-mean", kl_divergences.mean(), global_step=self._global_step
         )

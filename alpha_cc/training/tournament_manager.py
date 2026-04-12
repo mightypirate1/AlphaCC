@@ -27,7 +27,7 @@ class TournamentManager:
         training_db: TrainingDB,
         summary_writer: SummaryWriter,
         model: DefaultNet,
-        config: "GameConfig" = None,
+        config: GameConfig | None = None,
         onnx_compiled_batch_size_secondary: int | None = None,
     ) -> None:
         self._run_id = run_id

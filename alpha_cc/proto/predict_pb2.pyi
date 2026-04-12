@@ -43,16 +43,16 @@ class ChannelInfo(_message.Message):
     def __init__(self, channel_id: _Optional[int] = ..., model_loaded: bool = ..., model_version: _Optional[int] = ...) -> None: ...
 
 class ServerInfoResponse(_message.Message):
-    __slots__ = ("game_size", "channels", "batch_sizes", "static_mode")
-    GAME_SIZE_FIELD_NUMBER: _ClassVar[int]
+    __slots__ = ("game", "channels", "batch_sizes", "static_mode")
+    GAME_FIELD_NUMBER: _ClassVar[int]
     CHANNELS_FIELD_NUMBER: _ClassVar[int]
     BATCH_SIZES_FIELD_NUMBER: _ClassVar[int]
     STATIC_MODE_FIELD_NUMBER: _ClassVar[int]
-    game_size: int
+    game: str
     channels: _containers.RepeatedCompositeFieldContainer[ChannelInfo]
     batch_sizes: _containers.RepeatedScalarFieldContainer[int]
     static_mode: bool
-    def __init__(self, game_size: _Optional[int] = ..., channels: _Optional[_Iterable[_Union[ChannelInfo, _Mapping]]] = ..., batch_sizes: _Optional[_Iterable[int]] = ..., static_mode: bool = ...) -> None: ...
+    def __init__(self, game: _Optional[str] = ..., channels: _Optional[_Iterable[_Union[ChannelInfo, _Mapping]]] = ..., batch_sizes: _Optional[_Iterable[int]] = ..., static_mode: bool = ...) -> None: ...
 
 class LoadModelRequest(_message.Message):
     __slots__ = ("channel_id", "onnx_bytes", "version")

@@ -15,7 +15,7 @@ from rich.table import Table
 from tqdm_loggable.auto import tqdm
 
 from alpha_cc.agents.mcts.mcts_agent import MCTSAgent
-from alpha_cc.engine import Board
+from alpha_cc.engine import Board, GameConfig
 from alpha_cc.nn.nets.default_net import DefaultNet
 from alpha_cc.proto import predict_pb2, predict_pb2_grpc
 from alpha_cc.runtimes.runtime import RunTime
@@ -72,20 +72,21 @@ def _load_model(addr: str, channel_id: int, onnx_bytes: bytes, version: int = 0)
 # ---------------------------------------------------------------------------
 
 
-def _ensure_onnx_bytes(path: Path, game_size: int, batch_size: int | None) -> bytes:
+def _ensure_onnx_bytes(path: Path, game: str, batch_size: int | None) -> bytes:
     """Return ONNX bytes.  Auto-converts PyTorch state dicts (.pth/.pt)."""
     suffix = path.suffix.lower()
     if suffix == ".onnx":
         return path.read_bytes()
 
     if suffix in (".pth", ".pt"):
-        model = DefaultNet(game_size)
+        config = GameConfig(game)
+        model = DefaultNet(config)
         state_dict = torch.load(str(path), map_location="cpu", weights_only=True)
         model.load_state_dict(state_dict)
         model.eval()
 
         batch = batch_size or 1
-        dummy = torch.zeros(batch, 2, game_size, game_size)
+        dummy = torch.zeros(batch, config.state_channels, config.board_size, config.board_size)
         dynamic_axes = (
             None
             if batch_size is not None
@@ -262,7 +263,7 @@ def _play_one_game(
     nn_service_addr: str,
     white_channel: int,
     black_channel: int,
-    size: int,
+    game: str,
     n_rollouts: int,
     rollout_depth: int,
     n_threads: int,
@@ -284,7 +285,8 @@ def _play_one_game(
         n_threads=n_threads,
     )
 
-    board = Board(size)
+    config = GameConfig(game)
+    board = Board(config.board_size)
     config = RunTimeConfig(max_game_length=max_game_length)
     runtime = RunTime(board, (white_agent, black_agent), config=config)
     winner = runtime.play_game(training=False)
@@ -313,7 +315,7 @@ def info(nn_service_addr: str) -> None:
     console = Console()
     resp = _get_server_info(nn_service_addr)
 
-    console.print(f"\n[bold]Game size:[/bold] {resp.game_size}")
+    console.print(f"\n[bold]Game:[/bold] {resp.game}")
     console.print(f"[bold]Mode:[/bold] {'static' if resp.static_mode else 'redis-polling'}")
 
     table = Table(title="Channels")
@@ -356,7 +358,7 @@ def load_models(nn_service_addr: str, model: tuple[tuple[int, str], ...], batch_
     for channel_id, path_str in model:
         path = Path(path_str)
         console.print(f"Loading [bold]{path.name}[/bold] -> channel {channel_id} ... ", end="")
-        onnx_bytes = _ensure_onnx_bytes(path, server_info.game_size, batch_size)
+        onnx_bytes = _ensure_onnx_bytes(path, server_info.game, batch_size)
         resp = _load_model(nn_service_addr, channel_id, onnx_bytes)
         if resp.success:
             console.print("[green]OK[/green]")
@@ -401,7 +403,7 @@ def run(
         for channel_id, path_str in model:
             path = Path(path_str)
             console.print(f"Loading [bold]{path.name}[/bold] -> channel {channel_id} ... ", end="")
-            onnx_bytes = _ensure_onnx_bytes(path, server_info.game_size, batch_size)
+            onnx_bytes = _ensure_onnx_bytes(path, server_info.game, batch_size)
             resp = _load_model(nn_service_addr, channel_id, onnx_bytes)
             if resp.success:
                 console.print("[green]OK[/green]")
@@ -435,9 +437,9 @@ def run(
 
     results = TournamentResults(channels=channel_ids)
 
-    game_size = server_info.game_size
+    game = server_info.game
     game_args = [
-        (nn_service_addr, w, b, game_size, n_rollouts, rollout_depth, n_threads, max_game_length) for w, b in schedule
+        (nn_service_addr, w, b, game, n_rollouts, rollout_depth, n_threads, max_game_length) for w, b in schedule
     ]
 
     with ProcessPoolExecutor(max_workers=parallel_games) as pool:

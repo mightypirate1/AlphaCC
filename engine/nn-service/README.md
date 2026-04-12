@@ -28,7 +28,7 @@ export ORT_DYLIB_PATH=$(find $(python3 -c "import onnxruntime; print(onnxruntime
 CUDA EP requires cuDNN and CUDA runtime libs on `LD_LIBRARY_PATH`. These are typically installed as pip dependencies of `onnxruntime-gpu` (via `nvidia-cudnn-cu12` etc). Important: use the libs from the **same venv** as onnxruntime-gpu to avoid version mismatches.
 
 ```bash
-VENV_SITE=$(.venv/bin/python3 -c "import site; print(site.getsitepackages()[0])")
+VENV_SITE=$(../.venv/bin/python3 -c "import site; print(site.getsitepackages()[0])")
 export LD_LIBRARY_PATH=$(find "$VENV_SITE/nvidia" -name "lib" -type d | tr '\n' ':')${VENV_SITE}/onnxruntime/capi:$LD_LIBRARY_PATH
 ```
 
@@ -38,7 +38,7 @@ export LD_LIBRARY_PATH=$(find "$VENV_SITE/nvidia" -name "lib" -type d | tr '\n' 
 ./target/release/nn-service serve-static \
     --nn-path model_a.onnx \
     --nn-path model_b.onnx \
-    --game-size 7 \
+    --game "cc:9" \
     --batch-size 32
 ```
 

@@ -6,7 +6,7 @@ import torch
 from alpha_cc.agents import Agent, GreedyAgent
 from alpha_cc.agents.mcts.mcts_agent import MCTSAgent
 from alpha_cc.agents.mcts.standalone_mcts_agent import StandaloneMCTSAgent
-from alpha_cc.engine import Board
+from alpha_cc.engine import Board, GameConfig
 from alpha_cc.nn.nets.default_net import DefaultNet
 from alpha_cc.runtimes.runtime import RunTime, RunTimeConfig
 
@@ -36,7 +36,7 @@ def _play_game(
 
 @main.command()
 @click.argument("weights", type=click.Path(exists=True, dir_okay=False))
-@click.option("--size", type=int, default=9)
+@click.option("--game", type=str, default="cc:9")
 @click.option("--n-rollouts", type=int, default=100)
 @click.option("--rollout-depth", type=int, default=100)
 @click.option("--rollout-gamma", type=float, default=1.0)
@@ -47,7 +47,7 @@ def _play_game(
 @click.option("--as-player-2", is_flag=True)
 def local(
     weights: str,
-    size: int,
+    game: str,
     n_rollouts: int,
     rollout_depth: int,
     rollout_gamma: float,
@@ -57,9 +57,10 @@ def local(
     opponent: str | None,
     as_player_2: bool,
 ) -> None:
+    config = GameConfig(game)
     def get_agent(path: str) -> StandaloneMCTSAgent:
         agent = StandaloneMCTSAgent(
-            DefaultNet(size),
+            DefaultNet(config),
             rollout_gamma=rollout_gamma,
             n_rollouts=n_rollouts,
             rollout_depth=rollout_depth,
@@ -73,12 +74,12 @@ def local(
                 raise ValueError("Cannot specify both --opponent and --vs-greedy")
             return get_agent(opponent)
         if vs_greedy:
-            return GreedyAgent(size)
+            return GreedyAgent(config.board_size)
         return get_agent(weights)
 
     _play_game(
         agents=(get_agent(weights), get_opponent()),
-        size=size,
+        size=config.board_size,
         as_player_2=as_player_2,
         training=training,
     )
@@ -88,7 +89,7 @@ def local(
 @click.option("--nn-service-addr", type=str, required=True)
 @click.option("--channel", type=int, default=0)
 @click.option("--opponent-channel", type=int, default=None)
-@click.option("--size", type=int, default=9)
+@click.option("--game", type=str, default="cc:9")
 @click.option("--n-rollouts", type=int, default=100)
 @click.option("--rollout-depth", type=int, default=100)
 @click.option("--rollout-gamma", type=float, default=1.0)
@@ -102,7 +103,7 @@ def remote(
     nn_service_addr: str,
     channel: int,
     opponent_channel: int | None,
-    size: int,
+    game: str,
     n_rollouts: int,
     rollout_depth: int,
     rollout_gamma: float,
@@ -124,15 +125,16 @@ def remote(
             pruning_tree=pruning,
         )
 
+    config = GameConfig(game)
     def get_opponent() -> Agent:
         if vs_greedy:
-            return GreedyAgent(size)
+            return GreedyAgent(config.board_size)
         opp_ch = opponent_channel if opponent_channel is not None else channel
         return get_agent(opp_ch, opponent_pruning_tree)
 
     _play_game(
         agents=(get_agent(channel, pruning_tree), get_opponent()),
-        size=size,
+        size=config.board_size,
         as_player_2=as_player_2,
         training=training,
     )
@@ -141,7 +143,7 @@ def remote(
 @main.command("export-onnx")
 @click.argument("weights", type=click.Path(exists=True, dir_okay=False))
 @click.argument("output", type=click.Path(dir_okay=False))
-@click.option("--size", type=int, default=9)
+@click.option("--game", type=str, default="cc:9")
 @click.option("--batch-size", type=int, default=None, help="Fixed batch dimension. If omitted, batch dim is dynamic.")
 def export_onnx(
     weights: str,

@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\rpredict.proto\x12\x07predict\"[\n\x0ePredictRequest\x12\x12\n\nrequest_id\x18\x01 \x01(\x04\x12\x14\n\x0cstate_tensor\x18\x02 \x01(\x0c\x12\r\n\x05moves\x18\x03 \x01(\x0c\x12\x10\n\x08model_id\x18\x04 \x01(\r\"L\n\x0fPredictResponse\x12\x12\n\nrequest_id\x18\x01 \x01(\x04\x12\x11\n\tpi_logits\x18\x02 \x01(\x0c\x12\x12\n\nwdl_logits\x18\x03 \x01(\x0c\"\x13\n\x11ServerInfoRequest\"N\n\x0b\x43hannelInfo\x12\x12\n\nchannel_id\x18\x01 \x01(\r\x12\x14\n\x0cmodel_loaded\x18\x02 \x01(\x08\x12\x15\n\rmodel_version\x18\x03 \x01(\r\"y\n\x12ServerInfoResponse\x12\x11\n\tgame_size\x18\x01 \x01(\r\x12&\n\x08\x63hannels\x18\x02 \x03(\x0b\x32\x14.predict.ChannelInfo\x12\x13\n\x0b\x62\x61tch_sizes\x18\x03 \x03(\r\x12\x13\n\x0bstatic_mode\x18\x04 \x01(\x08\"K\n\x10LoadModelRequest\x12\x12\n\nchannel_id\x18\x01 \x01(\r\x12\x12\n\nonnx_bytes\x18\x02 \x01(\x0c\x12\x0f\n\x07version\x18\x03 \x01(\r\"3\n\x11LoadModelResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\r\n\x05\x65rror\x18\x02 \x01(\t2U\n\x11PredictionService\x12@\n\x07Predict\x12\x17.predict.PredictRequest\x1a\x18.predict.PredictResponse(\x01\x30\x01\x32\xa1\x01\n\x11ManagementService\x12H\n\rGetServerInfo\x12\x1a.predict.ServerInfoRequest\x1a\x1b.predict.ServerInfoResponse\x12\x42\n\tLoadModel\x12\x19.predict.LoadModelRequest\x1a\x1a.predict.LoadModelResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\rpredict.proto\x12\x07predict\"[\n\x0ePredictRequest\x12\x12\n\nrequest_id\x18\x01 \x01(\x04\x12\x14\n\x0cstate_tensor\x18\x02 \x01(\x0c\x12\r\n\x05moves\x18\x03 \x01(\x0c\x12\x10\n\x08model_id\x18\x04 \x01(\r\"L\n\x0fPredictResponse\x12\x12\n\nrequest_id\x18\x01 \x01(\x04\x12\x11\n\tpi_logits\x18\x02 \x01(\x0c\x12\x12\n\nwdl_logits\x18\x03 \x01(\x0c\"\x13\n\x11ServerInfoRequest\"N\n\x0b\x43hannelInfo\x12\x12\n\nchannel_id\x18\x01 \x01(\r\x12\x14\n\x0cmodel_loaded\x18\x02 \x01(\x08\x12\x15\n\rmodel_version\x18\x03 \x01(\r\"t\n\x12ServerInfoResponse\x12\x0c\n\x04game\x18\x01 \x01(\t\x12&\n\x08\x63hannels\x18\x02 \x03(\x0b\x32\x14.predict.ChannelInfo\x12\x13\n\x0b\x62\x61tch_sizes\x18\x03 \x03(\r\x12\x13\n\x0bstatic_mode\x18\x04 \x01(\x08\"K\n\x10LoadModelRequest\x12\x12\n\nchannel_id\x18\x01 \x01(\r\x12\x12\n\nonnx_bytes\x18\x02 \x01(\x0c\x12\x0f\n\x07version\x18\x03 \x01(\r\"3\n\x11LoadModelResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\r\n\x05\x65rror\x18\x02 \x01(\t2U\n\x11PredictionService\x12@\n\x07Predict\x12\x17.predict.PredictRequest\x1a\x18.predict.PredictResponse(\x01\x30\x01\x32\xa1\x01\n\x11ManagementService\x12H\n\rGetServerInfo\x12\x1a.predict.ServerInfoRequest\x1a\x1b.predict.ServerInfoResponse\x12\x42\n\tLoadModel\x12\x19.predict.LoadModelRequest\x1a\x1a.predict.LoadModelResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -40,13 +40,13 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_CHANNELINFO']._serialized_start=218
   _globals['_CHANNELINFO']._serialized_end=296
   _globals['_SERVERINFORESPONSE']._serialized_start=298
-  _globals['_SERVERINFORESPONSE']._serialized_end=419
-  _globals['_LOADMODELREQUEST']._serialized_start=421
-  _globals['_LOADMODELREQUEST']._serialized_end=496
-  _globals['_LOADMODELRESPONSE']._serialized_start=498
-  _globals['_LOADMODELRESPONSE']._serialized_end=549
-  _globals['_PREDICTIONSERVICE']._serialized_start=551
-  _globals['_PREDICTIONSERVICE']._serialized_end=636
-  _globals['_MANAGEMENTSERVICE']._serialized_start=639
-  _globals['_MANAGEMENTSERVICE']._serialized_end=800
+  _globals['_SERVERINFORESPONSE']._serialized_end=414
+  _globals['_LOADMODELREQUEST']._serialized_start=416
+  _globals['_LOADMODELREQUEST']._serialized_end=491
+  _globals['_LOADMODELRESPONSE']._serialized_start=493
+  _globals['_LOADMODELRESPONSE']._serialized_end=544
+  _globals['_PREDICTIONSERVICE']._serialized_start=546
+  _globals['_PREDICTIONSERVICE']._serialized_end=631
+  _globals['_MANAGEMENTSERVICE']._serialized_start=634
+  _globals['_MANAGEMENTSERVICE']._serialized_end=795
 # @@protoc_insertion_point(module_scope)
