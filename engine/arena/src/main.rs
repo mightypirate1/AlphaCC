@@ -65,13 +65,13 @@ struct Cli {
     #[arg(long, default_value = "1.0")]
     gamma: f32,
 
-    /// MCTS c_puct_init
-    #[arg(long, default_value = "2.0")]
-    c_puct_init: f32,
+    /// MCTS c_visit (σ transform)
+    #[arg(long, default_value = "50.0")]
+    c_visit: f32,
 
-    /// MCTS c_puct_base
-    #[arg(long, default_value = "10000.0")]
-    c_puct_base: f32,
+    /// MCTS c_scale (σ transform)
+    #[arg(long, default_value = "1.0")]
+    c_scale: f32,
 
     /// Enable MCTS tree pruning
     #[arg(long)]
@@ -107,8 +107,8 @@ fn main() -> anyhow::Result<()> {
         n_threads: cli.n_threads,
         rollout_depth: cli.rollout_depth,
         gamma: cli.gamma,
-        c_puct_init: cli.c_puct_init,
-        c_puct_base: cli.c_puct_base,
+        c_visit: cli.c_visit,
+        c_scale: cli.c_scale,
         pruning_tree: cli.pruning_tree,
     };
 

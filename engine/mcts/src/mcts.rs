@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
 use alpha_cc_core::Board;
-use alpha_cc_nn::NNQuantizedPi;
-use alpha_cc_nn::PredictionSource;
+use alpha_cc_nn::{softmax, PredictionSource};
 use crate::mcts_node::MCTSNode;
 use crate::outcome::Outcome;
 use crate::noise;
@@ -13,6 +12,30 @@ pub struct RolloutResult {
     pub value: f32,
     pub mcts_wdl: [f32; 3],
     pub greedy_backup_wdl: [f32; 3],
+    pub search_stats: SearchStats,
+}
+
+#[derive(Clone, Default)]
+pub struct SearchStats {
+    pub prior_entropy: f32,
+    pub target_entropy: f32,
+    pub logit_std: f32,
+    pub sigma_q_std: f32,
+}
+
+fn entropy(probs: &[f32]) -> f32 {
+    -probs.iter()
+        .filter(|&&p| p > 0.0)
+        .map(|&p| p * p.ln())
+        .sum::<f32>()
+}
+
+fn std_dev(values: &[f32]) -> f32 {
+    if values.is_empty() { return 0.0; }
+    let n = values.len() as f32;
+    let mean = values.iter().sum::<f32>() / n;
+    let variance = values.iter().map(|&x| (x - mean) * (x - mean)).sum::<f32>() / n;
+    variance.sqrt()
 }
 
 pub struct MCTS<B: Board, T: PredictionSource<B>> {
@@ -25,13 +48,24 @@ pub struct MCTS<B: Board, T: PredictionSource<B>> {
 #[derive(Clone)]
 pub struct MCTSParams {
     pub gamma: f32,
-    pub dirichlet_weight: f32,
-    pub dirichlet_leaf_weight: f32,
-    pub dirichlet_alpha: f32,
-    pub c_puct_init: f32,
-    pub c_puct_base: f32,
+    pub c_visit: f32,
+    pub c_scale: f32,
+    pub gumbel: GumbelParams,
 }
 
+#[derive(Clone)]
+pub struct GumbelParams {
+    pub all_at_least_once: bool,
+    pub base_count: usize,
+    pub floor_count: usize,
+    pub keep_frac: f32,
+}
+
+/// σ(q) = (c_visit + N_max) * c_scale * q
+#[inline]
+fn sigma(q: f32, n_max: u32, c_visit: f32, c_scale: f32) -> f32 {
+    (c_visit + n_max as f32) * c_scale * q
+}
 
 impl<B: Board, T: PredictionSource<B>> MCTS<B, T> {
     pub fn new(
@@ -57,7 +91,7 @@ impl<B: Board, T: PredictionSource<B>> MCTS<B, T> {
         model_id: u32,
         board: &B,
         remaining_depth: usize,
-        root_noise: &Option<Vec<f32>>,
+        forced_action: Option<usize>,
         thread_id: usize,
     ) -> (f32, Option<Outcome>) {
         let info = board.get_info();
@@ -71,7 +105,7 @@ impl<B: Board, T: PredictionSource<B>> MCTS<B, T> {
                 return (-data.get_v(), None);
             }
 
-            let a = self.find_best_action(&data, root_noise);
+            let a = forced_action.unwrap_or_else(|| self.find_best_action(&data));
             let moves = board.legal_moves();
             let s_prime = board.apply_move(&moves[a]);
             self.tree.record_action(thread_id, &s_prime, a);
@@ -79,7 +113,7 @@ impl<B: Board, T: PredictionSource<B>> MCTS<B, T> {
             data.apply_virtual_loss(a);
             drop(data);
 
-            let (v, outcome) = self.rollout(model_id, &s_prime, remaining_depth - 1, &None, thread_id);
+            let (v, outcome) = self.rollout(model_id, &s_prime, remaining_depth - 1, None, thread_id);
 
             let data = self.tree.get_data(board)
                 .expect("node data disappeared mid-rollout");
@@ -100,14 +134,10 @@ impl<B: Board, T: PredictionSource<B>> MCTS<B, T> {
     fn new_leaf_for(&self, board: &B, service: &T, model_id: u32) -> MCTSNode {
         let nn_pred = service.predict(board, model_id);
         let v = nn_pred.expected_value();
-        let mut pi = nn_pred.pi();
-        let num_actions = pi.len();
-
-        if self.mcts_params.dirichlet_leaf_weight > 0.0 {
-            noise::apply_dirichlet_noise(&mut pi, &self.mcts_params);
-        }
-
-        MCTSNode::new(pi, v, nn_pred.wdl_logits(), num_actions)
+        let pi_logits = nn_pred.pi_logits();
+        let num_actions = pi_logits.len();
+        let wdl = nn_pred.wdl();
+        MCTSNode::new(pi_logits, v, [wdl[0], wdl[1], wdl[2]], num_actions)
     }
 
     pub fn notify_move_applied(&self, board: &B) {
@@ -141,95 +171,132 @@ impl<B: Board, T: PredictionSource<B>> MCTS<B, T> {
         board: &B,
         n_rollouts: usize,
         rollout_depth: usize,
-        temperature: f32,
     ) -> RolloutResult {
-        let n_threads = self.services.len().min(n_rollouts);
-        let rollouts_per_thread = n_rollouts / n_threads;
-        let remainder = n_rollouts % n_threads;
-
         let tree = &self.tree;
-        let params = &self.mcts_params;
         let model_id = self.model_id;
+        let gumbel = &self.mcts_params.gumbel;
 
-        let noise = if let Some(node) = tree.get_data(board) {
-            noise::generate_dirichlet_noise(&node.pi, params).ok()
-        } else {
+        // Ensure root node exists.
+        if tree.get_data(board).is_none() {
             let node = self.new_leaf_for(board, &self.services[0], model_id);
-            let pi = node.pi.clone();
             tree.insert(board, node);
-            noise::generate_dirichlet_noise(&pi, params).ok()
-        };
+        }
 
-        let value_sum: f64 = std::thread::scope(|s| {
-            let handles: Vec<_> = (0..n_threads).map(|thread_id| {
-                let board = board.clone();
-                let extra = if thread_id < remainder { 1 } else { 0 };
-                let count = rollouts_per_thread + extra;
-                let noise = noise.clone();
-                s.spawn(move || {
-                    let mut local_sum = 0.0f64;
-                    for _ in 0..count {
-                        self.tree.begin_rollout(thread_id);
-                        let (v, _outcome) = self.rollout(model_id, &board, rollout_depth, &noise, thread_id);
-                        local_sum += (-v) as f64;
-                    }
-                    local_sum
-                })
-            }).collect();
+        let root = tree.get_data(board).unwrap();
+        let num_actions = root.num_actions();
+        let logits = root.pi_logits.clone();
+        drop(root);
 
-            handles.into_iter()
-                .map(|h| h.join().unwrap())
-                .sum()
-        });
+        // Sample Gumbel noise and compute initial scores.
+        let gumbels: Vec<f32> = (0..num_actions).map(|_| noise::gumbel()).collect();
+        let gumbel_scores: Vec<f32> = (0..num_actions)
+            .map(|a| gumbels[a] + logits[a])
+            .collect();
 
-        // Merge thread paths into the tracking tree.
-        tree.finalize_rollouts(board);
+        // Initial candidate set: all actions or top base_count.
+        let mut candidates: Vec<usize> = (0..num_actions).collect();
+        candidates.sort_by(|&a, &b| gumbel_scores[b].partial_cmp(&gumbel_scores[a]).unwrap());
+        if !gumbel.all_at_least_once {
+            candidates.truncate(gumbel.base_count.min(num_actions));
+        }
 
-        let mean_value = (value_sum / n_rollouts as f64) as f32;
+        let mut sim_budget = n_rollouts;
 
-        // Read root node's blended WDL (Bayesian prior + empirical counts)
-        let root_wdl = if let Some(data) = self.tree.get_data(board) {
-            let wdl = data.blended_wdl();
-            [wdl.win, wdl.draw, wdl.loss]
-        } else {
-            [0.0, 1.0, 0.0] // pure uncertainty fallback
-        };
+        // Sequential halving loop.
+        while sim_budget > 0 && !candidates.is_empty() {
+            let sims_this_round = candidates.len().min(sim_budget);
+            let actions_this_round: Vec<usize> = candidates[..sims_this_round].to_vec();
 
-        // Build pi from root node visit counts
-        let pi = if let Some(data) = self.tree.get_data(board) {
-            let mut weights: Vec<f32> = (0..data.num_actions())
-                .map(|a| data.get_n(a) as f32)
-                .collect();
-            if temperature != 1.0 {
-                let inv_temp = 1.0 / temperature;
-                let max_w = weights.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-                if max_w > 0.0 {
-                    for w in weights.iter_mut() {
-                        // Divide by max before exponentiating to prevent overflow
-                        *w = (*w / max_w).powf(inv_temp);
-                    }
+            // Run rollouts in parallel, one per candidate action (forced at root).
+            let n_threads = self.services.len().min(sims_this_round);
+            let rollouts_per_thread = sims_this_round / n_threads;
+            let remainder = sims_this_round % n_threads;
+
+            std::thread::scope(|s| {
+                let handles: Vec<_> = (0..n_threads).map(|thread_id| {
+                    let board = board.clone();
+                    let start = thread_id * rollouts_per_thread + thread_id.min(remainder);
+                    let count = rollouts_per_thread + if thread_id < remainder { 1 } else { 0 };
+                    let actions = &actions_this_round[start..start + count];
+                    s.spawn(move || {
+                        for &action in actions {
+                            self.tree.begin_rollout(thread_id);
+                            self.rollout(model_id, &board, rollout_depth, Some(action), thread_id);
+                        }
+                    })
+                }).collect();
+                for h in handles {
+                    h.join().unwrap();
                 }
+            });
+
+            tree.finalize_rollouts(board);
+            sim_budget -= sims_this_round;
+
+            // Re-score and narrow candidates.
+            if sim_budget > 0 {
+                let root = tree.get_data(board).unwrap();
+                let n_max = (0..num_actions).map(|a| root.get_n(a)).max().unwrap_or(0);
+                let c_visit = self.mcts_params.c_visit;
+                let c_scale = self.mcts_params.c_scale;
+
+                candidates.sort_by(|&a, &b| {
+                    let sa = gumbels[a] + sigma(root.completed_q(a), n_max, c_visit, c_scale);
+                    let sb = gumbels[b] + sigma(root.completed_q(b), n_max, c_visit, c_scale);
+                    sb.partial_cmp(&sa).unwrap()
+                });
+                drop(root);
+
+                let next_size = (candidates.len() as f32 * gumbel.keep_frac) as usize;
+                let next_size = next_size.max(gumbel.floor_count).min(candidates.len());
+                candidates.truncate(next_size);
             }
-            let sum: f32 = weights.iter().sum();
-            if sum > 0.0 {
-                weights.iter().map(|&w| w / sum).collect()
-            } else {
-                let n = weights.len();
-                vec![1.0 / n as f32; n]
-            }
-        } else {
-            let moves = board.legal_moves();
-            let n = moves.len();
-            vec![1.0 / n as f32; n]
+        }
+
+        // Compute improved policy target over ALL actions.
+        let root = tree.get_data(board).unwrap();
+        let n_max = (0..num_actions).map(|a| root.get_n(a)).max().unwrap_or(0);
+        let c_visit = self.mcts_params.c_visit;
+        let c_scale = self.mcts_params.c_scale;
+
+        let sigma_q_values: Vec<f32> = (0..num_actions)
+            .map(|a| sigma(root.completed_q(a), n_max, c_visit, c_scale))
+            .collect();
+        let improved_logits: Vec<f32> = (0..num_actions)
+            .map(|a| logits[a] + sigma_q_values[a])
+            .collect();
+        let pi = softmax(&improved_logits);
+
+        let prior_pi = softmax(&logits);
+        let search_stats = SearchStats {
+            prior_entropy: entropy(&prior_pi),
+            target_entropy: entropy(&pi),
+            logit_std: std_dev(&logits),
+            sigma_q_std: std_dev(&sigma_q_values),
         };
+
+        // Value: mean of backed-up Q across all visited actions, weighted by visit count.
+        let total_n: u32 = (0..num_actions).map(|a| root.get_n(a)).sum();
+        let value = if total_n > 0 {
+            (0..num_actions)
+                .map(|a| root.get_n(a) as f32 * root.get_q(a))
+                .sum::<f32>() / total_n as f32
+        } else {
+            root.get_v()
+        };
+
+        let wdl = root.blended_wdl();
+        let mcts_wdl = [wdl.win, wdl.draw, wdl.loss];
+        drop(root);
 
         let greedy_backup_wdl = self.greedy_backup_wdl(board, rollout_depth);
 
         RolloutResult {
             pi,
-            value: mean_value,
-            mcts_wdl: root_wdl,
+            value,
+            mcts_wdl,
             greedy_backup_wdl,
+            search_stats,
         }
     }
 
@@ -268,25 +335,28 @@ impl<B: Board, T: PredictionSource<B>> MCTS<B, T> {
         }
     }
 
-    fn find_best_action(&self, data: &MCTSNode, root_noise: &Option<Vec<f32>>) -> usize {
-        let prm = &self.mcts_params;
-        let sum_n_f = data.total_visits() as f32;
-        let c_puct = prm.c_puct_init + ((sum_n_f + prm.c_puct_base + 1.0) / prm.c_puct_base).ln();
+    /// Select action using the improved policy proportional rule:
+    /// argmax_a [ π'(a) - N(a) / (1 + Σ N(b)) ]
+    /// where π' = softmax(logits + σ(completedQ))
+    fn find_best_action(&self, data: &MCTSNode) -> usize {
+        let n_max = (0..data.num_actions()).map(|a| data.get_n(a)).max().unwrap_or(0);
+        let sum_n = data.total_visits() as f32;
+        let denom = 1.0 + sum_n;
+        let c_visit = self.mcts_params.c_visit;
+        let c_scale = self.mcts_params.c_scale;
+
+        let improved_logits: Vec<f32> = (0..data.num_actions())
+            .map(|a| data.pi_logits[a] + sigma(data.completed_q(a), n_max, c_visit, c_scale))
+            .collect();
+        let pi_improved = softmax(&improved_logits);
 
         let mut best_action = 0;
-        let mut best_u = f32::MIN;
-        let mut pi = data.pi.clone();
-        if let Some(noise) = root_noise {
-            noise::blend_with_noise(&mut pi, noise, prm.dirichlet_weight);
-        }
-        for (i, pi_a) in pi.iter().enumerate() {
-            let n_a = data.get_n(i) as f32;
-            let prior_weight = c_puct * sum_n_f.sqrt() / (1.0 + n_a);
-
-            let u = data.get_q(i) + prior_weight * pi_a;
-            if u > best_u {
-                best_u = u;
-                best_action = i;
+        let mut best_score = f32::NEG_INFINITY;
+        for a in 0..data.num_actions() {
+            let score = pi_improved[a] - (data.get_n(a) as f32 / denom);
+            if score > best_score {
+                best_score = score;
+                best_action = a;
             }
         }
         best_action

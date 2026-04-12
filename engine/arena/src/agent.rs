@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use alpha_cc_nn::{BoardEncoding, NNQuantizedPi};
+use alpha_cc_nn::BoardEncoding;
 use alpha_cc_mcts::{MCTS, MCTSParams};
 
 /// Raw NN output for a position.
@@ -144,12 +144,12 @@ fn ai_thread<B: BoardEncoding>(
             total_rollouts = 0;
         }
 
-        let result = mcts.run_rollout_threads(&board, rollouts_per_batch, rollout_depth, 1.0);
+        let result = mcts.run_rollout_threads(&board, rollouts_per_batch, rollout_depth);
         total_rollouts += rollouts_per_batch;
 
         let nn = match mcts.get_node_snapshot(&board) {
             Some(node) => NNData {
-                pi: node.pi,
+                pi: alpha_cc_nn::softmax(&node.pi_logits),
                 value: node.v.dequantize(),
             },
             None => NNData::default(),

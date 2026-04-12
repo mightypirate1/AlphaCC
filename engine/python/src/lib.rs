@@ -27,8 +27,6 @@ fn alpha_cc(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyFetchStats>()?;
     m.add_function(wrap_pyfunction!(create_move_mask, m)?)?;
     m.add_function(wrap_pyfunction!(create_move_index_map, m)?)?;
-    m.add_function(wrap_pyfunction!(preds_from_logits, m)?)?;
-    m.add_function(wrap_pyfunction!(build_inference_request, m)?)?;
     Ok(())
 }
 

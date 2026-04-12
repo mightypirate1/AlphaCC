@@ -13,7 +13,7 @@ const W_SCALE: f32 = 65536.0;
 /// Moves are not stored — regenerate via `find_all_moves(board)` when needed.
 pub struct MCTSNode {
 
-    pub pi: Vec<f32>,
+    pub pi_logits: Vec<f32>,
     pub v: NNQuantizedValue,
     pub nn_wdl: [f32; 3],
     pub n: Vec<AtomicU32>,
@@ -33,9 +33,9 @@ impl Clone for MCTSNode {
 }
 
 impl MCTSNode {
-    pub fn new(pi: Vec<f32>, v: f32, nn_wdl: [f32; 3], num_actions: usize) -> Self {
+    pub fn new(pi_logits: Vec<f32>, v: f32, nn_wdl: [f32; 3], num_actions: usize) -> Self {
         Self {
-            pi,
+            pi_logits,
             v: NNQuantizedValue::quantize(v),
             nn_wdl,
             n: (0..num_actions).map(|_| AtomicU32::new(0)).collect(),
@@ -50,7 +50,7 @@ impl MCTSNode {
     /// Create an owned snapshot (cloning atomic values).
     pub fn snapshot(&self) -> Self {
         MCTSNode {
-            pi: self.pi.clone(),
+            pi_logits: self.pi_logits.clone(),
             v: self.v,
             nn_wdl: self.nn_wdl,
             n: self.n.iter().map(|a| AtomicU32::new(a.load(Relaxed))).collect(),
@@ -64,7 +64,7 @@ impl MCTSNode {
 
     /// Estimated heap bytes for this node (for memory diagnostics).
     pub fn estimated_bytes(&self) -> usize {
-        let n_actions = self.pi.len();
+        let n_actions = self.pi_logits.len();
         std::mem::size_of::<Self>()
             + n_actions * std::mem::size_of::<f32>()
             + n_actions * std::mem::size_of::<AtomicU32>()
@@ -96,7 +96,7 @@ impl MCTSNode {
 
     #[inline]
     pub fn num_actions(&self) -> usize {
-        self.pi.len()
+        self.pi_logits.len()
     }
 
     #[inline]
@@ -106,9 +106,14 @@ impl MCTSNode {
         self.w[action].load(Relaxed) as f32 / (n as f32 * W_SCALE)
     }
 
+    /// Q value for action, using V(node) as the estimate for unvisited actions.
     #[inline]
-    pub fn get_pi(&self, action: usize) -> f32 {
-        self.pi[action]
+    pub fn completed_q(&self, action: usize) -> f32 {
+        if self.get_n(action) == 0 {
+            self.get_v()
+        } else {
+            self.get_q(action)
+        }
     }
 
     #[inline]

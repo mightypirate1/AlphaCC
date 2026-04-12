@@ -3,7 +3,6 @@ use std::sync::Mutex;
 use rand::RngExt;
 
 use alpha_cc_nn::BoardEncoding;
-use alpha_cc_nn::inference_utils::softmax;
 use alpha_cc_nn::NNPred;
 use crate::client::PredictClient;
 use crate::io;

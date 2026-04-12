@@ -45,7 +45,10 @@ impl PyRolloutResult {
     #[pyo3(signature = (pi, value, mcts_wdl, greedy_backup_wdl=None))]
     fn new(pi: Vec<f32>, value: f32, mcts_wdl: [f32; 3], greedy_backup_wdl: Option<[f32; 3]>) -> Self {
         let greedy_backup_wdl = greedy_backup_wdl.unwrap_or(mcts_wdl);
-        Self(alpha_cc_mcts::RolloutResult { pi, value, mcts_wdl, greedy_backup_wdl })
+        Self(alpha_cc_mcts::RolloutResult {
+            pi, value, mcts_wdl, greedy_backup_wdl,
+            search_stats: alpha_cc_mcts::SearchStats::default(),
+        })
     }
 
     #[getter]
@@ -69,6 +72,26 @@ impl PyRolloutResult {
     fn greedy_backup_wdl(&self) -> [f32; 3] {
         self.0.greedy_backup_wdl
     }
+
+    #[getter]
+    fn prior_entropy(&self) -> f32 {
+        self.0.search_stats.prior_entropy
+    }
+
+    #[getter]
+    fn target_entropy(&self) -> f32 {
+        self.0.search_stats.target_entropy
+    }
+
+    #[getter]
+    fn logit_std(&self) -> f32 {
+        self.0.search_stats.logit_std
+    }
+
+    #[getter]
+    fn sigma_q_std(&self) -> f32 {
+        self.0.search_stats.sigma_q_std
+    }
 }
 
 #[gen_stub_pyclass]
@@ -80,16 +103,17 @@ pub struct PyMCTS(MCTS);
 impl PyMCTS {
     #[allow(clippy::too_many_arguments)]
     #[new]
-    #[pyo3(signature = (nn_service_addr, channel, gamma, dirichlet_weight, dirichlet_leaf_weight, dirichlet_alpha, c_puct_init, c_puct_base, n_threads=1, pruning_tree=false, debug_prints=false, dummy_preds=false))]
+    #[pyo3(signature = (nn_service_addr, channel, gamma, c_visit=50.0, c_scale=1.0, all_at_least_once=false, base_count=16, floor_count=5, keep_frac=0.5, n_threads=1, pruning_tree=false, debug_prints=false, dummy_preds=false))]
     fn new(
         nn_service_addr: String,
         channel: u32,
         gamma: f32,
-        dirichlet_weight: f32,
-        dirichlet_leaf_weight: f32,
-        dirichlet_alpha: f32,
-        c_puct_init: f32,
-        c_puct_base: f32,
+        c_visit: f32,
+        c_scale: f32,
+        all_at_least_once: bool,
+        base_count: usize,
+        floor_count: usize,
+        keep_frac: f32,
         n_threads: usize,
         pruning_tree: bool,
         debug_prints: bool,
@@ -106,11 +130,14 @@ impl PyMCTS {
             channel,
             alpha_cc_mcts::MCTSParams {
                 gamma,
-                dirichlet_weight,
-                dirichlet_leaf_weight,
-                dirichlet_alpha,
-                c_puct_init,
-                c_puct_base,
+                c_visit,
+                c_scale,
+                gumbel: alpha_cc_mcts::GumbelParams {
+                    all_at_least_once,
+                    base_count,
+                    floor_count,
+                    keep_frac,
+                },
             },
             pruning_tree,
             debug_prints,
@@ -118,18 +145,17 @@ impl PyMCTS {
     }
 
     fn run(&self, board: &PyBoard, rollout_depth: usize) -> f32 {
-        self.0.run_rollout_threads(&board.0, 1, rollout_depth, 1.0).value
+        self.0.run_rollout_threads(&board.0, 1, rollout_depth).value
     }
 
-    #[pyo3(signature = (board, n_rollouts, rollout_depth, temperature=1.0))]
+    #[pyo3(signature = (board, n_rollouts, rollout_depth))]
     fn run_rollouts(
         &self,
         board: &PyBoard,
         n_rollouts: usize,
         rollout_depth: usize,
-        temperature: f32,
     ) -> PyRolloutResult {
-        PyRolloutResult(self.0.run_rollout_threads(&board.0, n_rollouts, rollout_depth, temperature))
+        PyRolloutResult(self.0.run_rollout_threads(&board.0, n_rollouts, rollout_depth))
     }
 
     fn get_node(&self, board: &PyBoard) -> Option<PyMCTSNode> {

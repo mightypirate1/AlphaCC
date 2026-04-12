@@ -6,8 +6,6 @@ use alpha_cc_nn::NNPred;
 use crate::client::PredictClient;
 use crate::io;
 
-use alpha_cc_nn::inference_utils::softmax;
-
 #[derive(Default)]
 pub struct FetchStatsAccumulator {
     total_fetch_time_us: u64,

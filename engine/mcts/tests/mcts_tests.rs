@@ -1,16 +1,19 @@
 use alpha_cc_core::cc::CCBoard;
 use alpha_cc_core::Board;
-use alpha_cc_mcts::{MCTS, MCTSParams};
+use alpha_cc_mcts::{MCTS, MCTSParams, GumbelParams};
 use alpha_cc_nn::mock::MockPredictor;
 
 fn default_params() -> MCTSParams {
     MCTSParams {
         gamma: 1.0,
-        dirichlet_weight: 0.0,
-        dirichlet_leaf_weight: 0.0,
-        dirichlet_alpha: 0.15,
-        c_puct_init: 2.0,
-        c_puct_base: 10000.0,
+        c_visit: 50.0,
+        c_scale: 1.0,
+        gumbel: GumbelParams {
+            all_at_least_once: false,
+            base_count: 16,
+            floor_count: 5,
+            keep_frac: 0.5,
+        },
     }
 }
 
@@ -27,7 +30,7 @@ fn run_rollouts_returns_policy_and_value() {
     let board = CCBoard::create(3);
     let mcts = make_mcts(MockPredictor::uniform(0.5), false);
 
-    let result = mcts.run_rollout_threads(&board, 10, 5, 1.0);
+    let result = mcts.run_rollout_threads(&board, 10, 5);
 
     assert_eq!(result.pi.len(), board.legal_moves().len());
     let sum: f32 = result.pi.iter().sum();
@@ -40,7 +43,7 @@ fn rollouts_increase_visit_counts() {
     let board = CCBoard::create(3);
     let mcts = make_mcts(MockPredictor::uniform(0.0), false);
 
-    mcts.run_rollout_threads(&board, 50, 5, 1.0);
+    mcts.run_rollout_threads(&board, 50, 5);
 
     let node = mcts.get_node_snapshot(&board).expect("root should be in tree");
     let total_visits: u32 = (0..node.num_actions()).map(|a| node.get_n(a)).sum();
@@ -52,7 +55,7 @@ fn biased_predictor_favors_first_move() {
     let board = CCBoard::create(3);
     let mcts = make_mcts(MockPredictor::biased(0.0, 0.9), false);
 
-    let result = mcts.run_rollout_threads(&board, 100, 5, 1.0);
+    let result = mcts.run_rollout_threads(&board, 100, 5);
 
     // The first move should get the most visits since the prior strongly favors it
     let max_idx = result.pi.iter().enumerate().max_by(|a, b| a.1.partial_cmp(b.1).unwrap()).unwrap().0;
@@ -64,10 +67,10 @@ fn value_differs_based_on_predictor() {
     let board = CCBoard::create(3);
 
     let mcts_pos = make_mcts(MockPredictor::uniform(0.8), false);
-    let value_pos = mcts_pos.run_rollout_threads(&board, 30, 5, 1.0).value;
+    let value_pos = mcts_pos.run_rollout_threads(&board, 30, 5).value;
 
     let mcts_neg = make_mcts(MockPredictor::uniform(-0.8), false);
-    let value_neg = mcts_neg.run_rollout_threads(&board, 30, 5, 1.0).value;
+    let value_neg = mcts_neg.run_rollout_threads(&board, 30, 5).value;
 
     // The two predictors disagree strongly, so the MCTS values should differ
     assert!((value_pos - value_neg).abs() > 0.1,
@@ -79,11 +82,11 @@ fn successive_rollout_calls_accumulate() {
     let board = CCBoard::create(3);
     let mcts = make_mcts(MockPredictor::uniform(0.0), false);
 
-    mcts.run_rollout_threads(&board, 20, 5, 1.0);
+    mcts.run_rollout_threads(&board, 20, 5);
     let node1 = mcts.get_node_snapshot(&board).unwrap();
     let visits1: u32 = (0..node1.num_actions()).map(|a| node1.get_n(a)).sum();
 
-    mcts.run_rollout_threads(&board, 20, 5, 1.0);
+    mcts.run_rollout_threads(&board, 20, 5);
     let node2 = mcts.get_node_snapshot(&board).unwrap();
     let visits2: u32 = (0..node2.num_actions()).map(|a| node2.get_n(a)).sum();
 
@@ -101,7 +104,7 @@ fn can_play_a_complete_game() {
 
     let mut moves_played = 0;
     while !board.get_info().game_over && moves_played < 200 {
-        let result = mcts.run_rollout_threads(&board, 10, 5, 1.0);
+        let result = mcts.run_rollout_threads(&board, 10, 5);
         let action = result.pi.iter().enumerate().max_by(|a, b| a.1.partial_cmp(b.1).unwrap()).unwrap().0;
         let moves = board.legal_moves();
         board = board.apply(&moves[action]);
@@ -122,11 +125,11 @@ fn pruning_tree_reduces_node_count_after_move() {
     let mcts = make_mcts(MockPredictor::uniform(0.0), true);
 
     // Build up a tree with many nodes
-    mcts.run_rollout_threads(&board, 100, 10, 1.0);
+    mcts.run_rollout_threads(&board, 100, 10);
     let nodes_before = mcts.get_all_nodes().len();
 
     // Play a move
-    let result = mcts.run_rollout_threads(&board, 10, 5, 1.0);
+    let result = mcts.run_rollout_threads(&board, 10, 5);
     let action = result.pi.iter().enumerate().max_by(|a, b| a.1.partial_cmp(b.1).unwrap()).unwrap().0;
     let moves = board.legal_moves();
     let new_board = board.apply(&moves[action]);
@@ -144,7 +147,7 @@ fn pruning_preserves_chosen_subtree() {
     let mcts = make_mcts(MockPredictor::biased(0.0, 0.8), true);
 
     // Build up a tree
-    mcts.run_rollout_threads(&board, 100, 10, 1.0);
+    mcts.run_rollout_threads(&board, 100, 10);
 
     // The biased predictor favors action 0. Play it.
     let moves = board.legal_moves();
@@ -162,7 +165,7 @@ fn pruning_does_not_remove_explored_children_of_played_move() {
     let mcts = make_mcts(MockPredictor::uniform(0.0), true);
 
     // Deep search to populate children of the first move's subtree
-    mcts.run_rollout_threads(&board, 200, 15, 1.0);
+    mcts.run_rollout_threads(&board, 200, 15);
 
     // Play action 0
     let moves = board.legal_moves();
@@ -190,7 +193,7 @@ fn without_pruning_tree_grows_unbounded() {
 
     // Play several moves, never pruning
     for _ in 0..5 {
-        mcts.run_rollout_threads(&board, 30, 5, 1.0);
+        mcts.run_rollout_threads(&board, 30, 5);
         let moves = board.legal_moves();
         if moves.is_empty() { break; }
         board = board.apply(&moves[0]);
@@ -210,7 +213,7 @@ fn with_pruning_tree_stays_bounded() {
     let mut max_nodes = 0;
     for _ in 0..10 {
         if board.get_info().game_over { break; }
-        mcts.run_rollout_threads(&board, 30, 5, 1.0);
+        mcts.run_rollout_threads(&board, 30, 5);
         let nodes = mcts.get_all_nodes().len();
         if nodes > max_nodes { max_nodes = nodes; }
         let moves = board.legal_moves();
@@ -235,7 +238,7 @@ fn zero_depth_rollout_uses_nn_value() {
     let mcts = make_mcts(MockPredictor::uniform(0.42), false);
 
     // depth=0 means just evaluate the leaf, no search
-    let result = mcts.run_rollout_threads(&board, 10, 0, 1.0);
+    let result = mcts.run_rollout_threads(&board, 10, 0);
 
     // With depth 0, pi should still be well-formed
     assert_eq!(result.pi.len(), board.legal_moves().len());
@@ -246,7 +249,7 @@ fn clear_tree_resets_state() {
     let board = CCBoard::create(3);
     let mcts = make_mcts(MockPredictor::uniform(0.0), false);
 
-    mcts.run_rollout_threads(&board, 50, 5, 1.0);
+    mcts.run_rollout_threads(&board, 50, 5);
     assert!(mcts.get_node_snapshot(&board).is_some());
 
     mcts.clear_tree();

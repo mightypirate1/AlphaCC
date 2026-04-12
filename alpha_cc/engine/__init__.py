@@ -9,8 +9,6 @@ from alpha_cc_engine import (
     Move,
     NNPred,
     RolloutResult,
-    build_inference_request,
     create_move_index_map,
     create_move_mask,
-    preds_from_logits,
 )

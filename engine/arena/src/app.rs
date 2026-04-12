@@ -75,8 +75,8 @@ pub struct AppConfig {
     pub n_threads: usize,
     pub rollout_depth: usize,
     pub gamma: f32,
-    pub c_puct_init: f32,
-    pub c_puct_base: f32,
+    pub c_visit: f32,
+    pub c_scale: f32,
     pub pruning_tree: bool,
 }
 
@@ -175,11 +175,14 @@ impl<B: BoardEncoding + GameVisual + 'static, R: GameRenderer<Coord = B::Coord>>
     fn mcts_params(&self) -> alpha_cc_mcts::MCTSParams {
         alpha_cc_mcts::MCTSParams {
             gamma: self.config.gamma,
-            dirichlet_weight: 0.0,
-            dirichlet_leaf_weight: 0.0,
-            dirichlet_alpha: 0.15,
-            c_puct_init: self.config.c_puct_init,
-            c_puct_base: self.config.c_puct_base,
+            c_visit: self.config.c_visit,
+            c_scale: self.config.c_scale,
+            gumbel: alpha_cc_mcts::GumbelParams {
+                all_at_least_once: false,
+                base_count: 16,
+                floor_count: 5,
+                keep_frac: 0.5,
+            },
         }
     }
 

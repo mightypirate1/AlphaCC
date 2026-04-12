@@ -8,7 +8,7 @@ pub mod game_config;
 pub mod game;
 pub mod cc_encoding;
 
-pub use nn_dtypes::{NNQuantizedPi, NNQuantizedValue, NNQuantizedWDL};
+pub use nn_dtypes::NNQuantizedValue;
 pub use nn_pred::NNPred;
 pub use prediction_source::{PredictionSource, FetchStats};
 pub use inference_utils::softmax;

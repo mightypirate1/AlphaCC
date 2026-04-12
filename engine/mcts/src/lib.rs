@@ -4,6 +4,6 @@ pub mod outcome;
 pub mod tree;
 pub mod noise;
 
-pub use mcts::{MCTS, MCTSParams, RolloutResult};
+pub use mcts::{MCTS, MCTSParams, GumbelParams, RolloutResult, SearchStats};
 pub use mcts_node::MCTSNode;
 pub use outcome::Outcome;

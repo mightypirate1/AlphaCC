@@ -14,8 +14,8 @@ impl From<alpha_cc_nn::NNPred> for PyNNPred {
 #[pymethods]
 impl PyNNPred {
     #[new]
-    fn new(pi: Vec<f32>, wdl: [f32; 3]) -> Self {
-        PyNNPred(alpha_cc_nn::NNPred::new(pi, wdl))
+    fn new(pi_logits: Vec<f32>, wdl_logits: [f32; 3]) -> Self {
+        PyNNPred(alpha_cc_nn::NNPred::new(&pi_logits, wdl_logits))
     }
 
     #[getter]
@@ -24,13 +24,23 @@ impl PyNNPred {
     }
 
     #[getter]
-    fn get_wdl(&self) -> [f32; 3] {
+    fn get_pi_logits(&self) -> Vec<f32> {
+        self.0.pi_logits()
+    }
+
+    #[getter]
+    fn get_wdl(&self) -> Vec<f32> {
         self.0.wdl()
     }
 
     #[getter]
+    fn get_wdl_logits(&self) -> [f32; 3] {
+        self.0.wdl_logits()
+    }
+
+    #[getter]
     fn get_value(&self) -> f32 {
-        self.0.value()
+        self.0.expected_value()
     }
 
     fn __repr__(&self) -> String {

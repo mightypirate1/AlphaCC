@@ -6,7 +6,7 @@ from tqdm_loggable.auto import tqdm
 from alpha_cc.agents.mcts.mcts_agent import MCTSAgent
 from alpha_cc.agents.mcts.mcts_experience import Experience
 from alpha_cc.agents.mcts.mcts_node_py import MCTSNodePy
-from alpha_cc.agents.mcts.training_data import TrainingData
+from alpha_cc.agents.mcts.training_data import SearchStatsAccumulator, TrainingData
 from alpha_cc.agents.value_assignment import ValueAssignmentStrategy
 from alpha_cc.engine import Board
 from alpha_cc.state import GameState
@@ -40,6 +40,7 @@ class TrainingRunTime:
 
         trajectory: list[Experience] = []
         internal_nodes: dict[GameState, MCTSNodePy] = {}
+        search_stats = SearchStatsAccumulator()
 
         with tqdm(desc="training", total=max_game_length) as pbar:
             while not board.info.game_over:  # main termination condition
@@ -52,6 +53,7 @@ class TrainingRunTime:
                     rollout_depth=rollout_depth,
                     temperature=action_temperature,
                 )
+                search_stats.record(result)
                 experience = Experience(
                     state=GameState(board),
                     result=result,
@@ -80,6 +82,7 @@ class TrainingRunTime:
             trajectory=self._value_assignment_strategy(trajectory, final_board=board),
             internal_nodes=internal_nodes,
             worker_stats=agent.get_worker_stats(),
+            search_stats=search_stats,
             winner=board.info.winner,
         )
         agent.on_game_end()

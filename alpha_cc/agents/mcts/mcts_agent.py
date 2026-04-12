@@ -14,11 +14,12 @@ class MCTSAgent(Agent):
         n_rollouts: int = 100,
         rollout_depth: int = 500,
         rollout_gamma: float = 1.0,
-        dirichlet_weight: float = 0.0,
-        dirichlet_leaf_weight: float = 0.0,
-        dirichlet_alpha: float = 0.15,
-        c_puct_init: float = 2.0,
-        c_puct_base: float = 10000.0,
+        c_visit: float = 50.0,
+        c_scale: float = 1.0,
+        all_at_least_once: bool = False,
+        base_count: int = 16,
+        floor_count: int = 5,
+        keep_frac: float = 0.5,
         argmax_delay: int | None = None,
         n_threads: int = 1,
         pruning_tree: bool = False,
@@ -33,12 +34,13 @@ class MCTSAgent(Agent):
             nn_service_addr,
             pred_channel,
             rollout_gamma,
-            dirichlet_weight,
-            dirichlet_leaf_weight,
-            dirichlet_alpha,
-            c_puct_init,
-            c_puct_base,
-            n_threads,
+            c_visit=c_visit,
+            c_scale=c_scale,
+            all_at_least_once=all_at_least_once,
+            base_count=base_count,
+            floor_count=floor_count,
+            keep_frac=keep_frac,
+            n_threads=n_threads,
             pruning_tree=pruning_tree,
             debug_prints=debug_prints,
             dummy_preds=dummy_preds,
@@ -80,4 +82,4 @@ class MCTSAgent(Agent):
     ) -> RolloutResult:
         n_rollouts = n_rollouts if n_rollouts is not None else self._n_rollouts
         rollout_depth = rollout_depth if rollout_depth is not None else self._rollout_depth
-        return self._mcts.run_rollouts(board, n_rollouts, rollout_depth, temperature)
+        return self._mcts.run_rollouts(board, n_rollouts, rollout_depth)

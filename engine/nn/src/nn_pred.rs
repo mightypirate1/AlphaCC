@@ -12,7 +12,7 @@ impl NNPred {
         let wdl = softmax(&wdl_logits);
         NNPred {
             pi_logits: pi_logits.into(),
-            wdl_logits: wdl_logits.into(),
+            wdl_logits,
             expected_value: wdl[0] - wdl[2],
         }
     }
@@ -23,6 +23,10 @@ impl NNPred {
 
     pub fn wdl(&self) -> Vec<f32> {
         softmax(&self.wdl_logits)
+    }
+
+    pub fn pi_logits(&self) -> Vec<f32> {
+        self.pi_logits.clone()
     }
 
     pub fn wdl_logits(&self) -> [f32; 3] {
