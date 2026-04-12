@@ -8,8 +8,10 @@ from alpha_cc.agents.mcts.training_data import TrainingData
 from alpha_cc.agents.value_assignment import (
     DefaultAssignmentStrategy,
 )
-from alpha_cc.engine import Board
+from alpha_cc.engine import Board, GameConfig
 from alpha_cc.nn.nets.default_net import DefaultNet
+
+_TEST_CONFIG = GameConfig("cc:5")
 from alpha_cc.runtimes import TrainingRunTime
 from alpha_cc.training import Trainer, TrainingDataset
 
@@ -18,7 +20,7 @@ from .mocks import MockFileWriter
 
 @pytest.fixture
 def nn() -> DefaultNet:
-    return DefaultNet(5)
+    return DefaultNet(_TEST_CONFIG)
 
 
 @pytest.fixture
@@ -45,7 +47,7 @@ def summary_writer() -> SummaryWriter:
 
 @pytest.fixture
 def trainer(nn: DefaultNet, summary_writer: SummaryWriter) -> Trainer:
-    return Trainer(5, nn, epochs_per_update=1, batch_size=8, summary_writer=summary_writer)
+    return Trainer(_TEST_CONFIG, nn, epochs_per_update=1, batch_size=8, summary_writer=summary_writer)
 
 
 @pytest.fixture

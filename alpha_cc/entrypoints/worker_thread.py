@@ -15,7 +15,7 @@ from alpha_cc.agents.value_assignment import (
 )
 from alpha_cc.config import Environment
 from alpha_cc.db import GamesDB, TrainingDB
-from alpha_cc.engine import Board
+from alpha_cc.engine import Board, GameConfig
 from alpha_cc.logs import init_rootlogger
 from alpha_cc.runtimes.tournament_runtime import TournamentRuntime
 from alpha_cc.runtimes.training_runtime import TrainingRunTime
@@ -25,7 +25,7 @@ logger = logging.getLogger(__file__)
 
 
 @click.command("alpha-cc-worker")
-@click.option("--size", type=int, default=9)
+@click.option("--game", type=str, default="cc:9")
 @click.option("--n-rollouts", type=str, default="100")
 @click.option("--rollout-depth", type=str, default="100")
 @click.option("--max-game-length", type=str)
@@ -51,7 +51,7 @@ logger = logging.getLogger(__file__)
 @click.option("--debug-prints", is_flag=True, default=False)
 @click.option("--verbose", is_flag=True, default=False)
 def main(
-    size: int,
+    game: str,
     n_rollouts: str,
     rollout_depth: str,
     max_game_length: str | None,
@@ -101,16 +101,17 @@ def main(
 
     init_rootlogger(verbose=verbose)
     create_and_register_signal_handler()
+    config = GameConfig(game)
     training_db = TrainingDB(host=Environment.redis_host_main)
     games_db = GamesDB(host=Environment.redis_host_main)
 
     wdl_weights = (wdl_weight_game, wdl_weight_mcts, wdl_weight_greedy)
     value_assignment_strategy = create_value_assignment_strategy(
-        size, wdl_gamma, heuristic, non_terminal_value_weight, wdl_lambda, wdl_weights, wdl_smoothing
+        config.board_size, wdl_gamma, heuristic, non_terminal_value_weight, wdl_lambda, wdl_weights, wdl_smoothing
     )
-    training_runtime = TrainingRunTime(Board(size), value_assignment_strategy)
+    training_runtime = TrainingRunTime(Board(config.board_size), value_assignment_strategy)
     tournament_runtime = TournamentRuntime(
-        size, training_db, games_db, max_game_length=max_game_length_schedule.as_int(0)
+        config.board_size, training_db, games_db, max_game_length=max_game_length_schedule.as_int(0)
     )
 
     # the trainer needs to start and flush the db, so we wait

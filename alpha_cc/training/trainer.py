@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import logging
+from typing import TYPE_CHECKING
 
 import numpy as np
 import torch
@@ -14,13 +17,16 @@ from alpha_cc.nn.nets import DefaultNet
 from alpha_cc.training import train_ops
 from alpha_cc.training.training_dataset import TrainingDataset
 
+if TYPE_CHECKING:
+    from alpha_cc.engine import GameConfig
+
 logger = logging.getLogger(__name__)
 
 
 class Trainer:
     def __init__(
         self,
-        board_size: int,
+        config: "GameConfig",
         nn: DefaultNet,
         policy_weight: float = 1.0,
         value_weight: float = 1.0,
@@ -42,8 +48,9 @@ class Trainer:
         self._batch_size = batch_size
         self._num_dataloader_workers = num_dataloader_workers
         self._device = torch.device(device)
-        self._policy_log_softmax = PolicyLogSoftmax(board_size)
-        self._policy_softmax = PolicySoftmax(board_size)
+        self._config = config
+        self._policy_log_softmax = PolicyLogSoftmax(config)
+        self._policy_softmax = PolicySoftmax(config)
         self._optimizer = torch.optim.AdamW(nn.parameters(), lr=lr, weight_decay=l2_reg)
         self._global_step = 0
         self._eval_step = 0
@@ -66,7 +73,7 @@ class Trainer:
     def optimizer(self) -> torch.optim.Optimizer:
         return self._optimizer
 
-    def compile(self, board_size: int, mode: str = "max-autotune") -> None:
+    def compile(self, mode: str = "max-autotune") -> None:
         """JIT-compile the training step and model for faster training. The original
         model is preserved at `self.nn` for ONNX export and state_dict access."""
         logger.info(f"Compiling training step with torch.compile(mode={mode!r})...")
@@ -85,10 +92,11 @@ class Trainer:
         )
         # Warm up the full training step (forward + backward + optimizer) so compilation
         # completes before workers start, not while they compete for CPU.
-        bs, n = board_size, self._batch_size
-        dummy_x = torch.zeros(n, 2, bs, bs, device=self._device)
-        dummy_mask = torch.ones(n, bs, bs, bs, bs, dtype=torch.bool, device=self._device)
-        dummy_pi = torch.full((n, bs, bs, bs, bs), 1.0 / (bs**4), device=self._device)
+        cfg = self._config
+        bs, n = cfg.board_size, self._batch_size
+        dummy_x = torch.zeros(n, cfg.state_channels, bs, bs, device=self._device)
+        dummy_mask = torch.ones(n, *cfg.policy_shape, dtype=torch.bool, device=self._device)
+        dummy_pi = torch.full((n, *cfg.policy_shape), 1.0 / cfg.policy_size, device=self._device)
         dummy_wdl = torch.full((n, 3), 1.0 / 3.0, device=self._device)
         dummy_weight = torch.ones(n, device=self._device)
         dummy_is_internal = torch.zeros(n, dtype=torch.bool, device=self._device)
@@ -309,10 +317,12 @@ class Trainer:
                             td_err = torch.where(is_internal[:n_real].squeeze(), torch.zeros_like(td_err), td_err)
                             td_list.append((td_err * weight[:n_real].squeeze()).cpu())
                             # KL(target || pred) over legal moves, unweighted
-                            log_pred = self._policy_log_softmax(current_pi_unsoftmaxed[:n_real], pi_mask[:n_real])
-                            log_target = torch.log(target_pi[:n_real].clamp_min(1e-6))
-                            kl = target_pi[:n_real] * (log_target - log_pred)
-                            kl_list.append(torch.where(pi_mask[:n_real], kl, 0.0).reshape(n_real, -1).sum(dim=1).cpu())
+                            log_pred = self._policy_log_softmax(current_pi_unsoftmaxed[:n_real], pi_mask[:n_real]).reshape(n_real, -1)
+                            target_flat = target_pi[:n_real].reshape(n_real, -1)
+                            mask_flat = pi_mask[:n_real].reshape(n_real, -1)
+                            log_target = torch.log(target_flat.clamp_min(1e-6))
+                            kl = target_flat * (log_target - log_pred)
+                            kl_list.append(torch.where(mask_flat, kl, 0.0).sum(dim=1).cpu())
                     batch_size = n_real
                     samples_seen += batch_size
                     batch_losses = torch.tensor(

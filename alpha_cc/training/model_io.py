@@ -1,8 +1,13 @@
+from __future__ import annotations
+
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import torch
+
+if TYPE_CHECKING:
+    from alpha_cc.engine import GameConfig
 
 from alpha_cc.config import Environment
 from alpha_cc.training.training_checkpoint import TrainingCheckpoint
@@ -12,13 +17,13 @@ logger = logging.getLogger(__name__)
 
 def serialize_model(
     model: torch.nn.Module,
-    board_size: int,
+    config: "GameConfig",
     compiled_batch_size: int | None = None,
 ) -> bytes:
     model.eval()
     device = next(model.parameters()).device
     batch = compiled_batch_size or 1
-    dummy = torch.zeros(batch, 2, board_size, board_size, device=device)
+    dummy = torch.zeros(batch, config.state_channels, config.board_size, config.board_size, device=device)
     tmp_path = Path(Environment.model_dir) / "temp.onnx"
     dynamic_axes = (
         None

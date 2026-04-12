@@ -17,6 +17,7 @@ use mcts::*;
 fn alpha_cc(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyBoard>()?;
     m.add_class::<PyBoardInfo>()?;
+    m.add_class::<PyGameConfig>()?;
     m.add_class::<PyHexCoord>()?;
     m.add_class::<PyMove>()?;
     m.add_class::<PyMCTS>()?;

@@ -13,6 +13,7 @@ from tqdm_loggable.auto import tqdm
 from alpha_cc.agents.mcts.training_data import TrainingData
 from alpha_cc.config import Environment
 from alpha_cc.db import TrainingDB
+from alpha_cc.engine import GameConfig
 from alpha_cc.logs import init_rootlogger
 from alpha_cc.nn.nets.default_net import DefaultNet
 from alpha_cc.runtimes import TournamentRuntime
@@ -33,7 +34,7 @@ checkpoint_lock = threading.Lock()
 
 @click.command("alpha-cc-trainer")
 @click.option("--run-id", type=str, default="dbg-00")
-@click.option("--size", type=int, default=9)
+@click.option("--game", type=str, default="cc:9")
 @click.option("--n-train-samples", type=int, default=1024)
 @click.option("--epochs-per-update", type=int, default=1)
 @click.option("--tournament-freq", type=int, default=10)
@@ -62,7 +63,7 @@ checkpoint_lock = threading.Lock()
 @click.option("--num-terminal-before-nn", type=int, default=0)
 def main(
     run_id: str,
-    size: int,
+    game: str,
     n_train_samples: int,
     epochs_per_update: int,
     tournament_freq: int,
@@ -94,13 +95,14 @@ def main(
     torch._dynamo.config.suppress_errors = True
     torch.set_float32_matmul_precision("high")
     _patch_fx_traceback()
+    config = GameConfig(game)
     summary_writer = create_summary_writer(run_id)
     device = "cuda" if gpu and torch.cuda.is_available() else "cpu"
     db = TrainingDB(host=Environment.redis_host_main)
-    tournament_runtime = TournamentRuntime(size, db)
+    tournament_runtime = TournamentRuntime(config.board_size, db)
     trainer = Trainer(
-        size,
-        DefaultNet(size, n_blocks=n_blocks, hidden_channels=hidden_channels),
+        config,
+        DefaultNet(config, n_blocks=n_blocks, hidden_channels=hidden_channels),
         epochs_per_update=epochs_per_update,
         policy_weight=policy_weight,
         value_weight=value_weight,
@@ -114,7 +116,7 @@ def main(
 
     curr_index, champion_index, existing_checkpoint = initialize_training(
         run_id,
-        size,
+        config,
         db,
         trainer,
         init_run_id,
@@ -127,7 +129,7 @@ def main(
     if existing_checkpoint is None:
         db.flush_db()  # safe fresh start
         db.nn_warmup_init(num_terminal_before_nn)
-        curr_index, onnx_payload = publish_weights(trainer.nn, db, size, onnx_compiled_batch_size)
+        curr_index, onnx_payload = publish_weights(trainer.nn, db, config, onnx_compiled_batch_size)
         model_io.save_weights(run_id, curr_index, trainer.nn.state_dict(), onnx_payload)
         champion_index = curr_index
         replay_buffer = TrainingDataset(
@@ -147,8 +149,8 @@ def main(
         summary_writer=summary_writer,
         run_id=run_id,
         champion_index=champion_index,
-        model=DefaultNet(size, n_blocks=n_blocks, hidden_channels=hidden_channels),
-        board_size=size,
+        model=DefaultNet(config, n_blocks=n_blocks, hidden_channels=hidden_channels),
+        config=config,
         onnx_compiled_batch_size_secondary=onnx_compiled_batch_size_secondary,
     )
     create_and_register_signal_handler(
@@ -161,12 +163,12 @@ def main(
     )
     db.model_set_current(0, curr_index)
     if gpu:
-        trainer.compile(board_size=size, mode="max-autotune")
+        trainer.compile(mode="max-autotune")
 
     stats_device = "cuda" if stats_gpu and torch.cuda.is_available() else "cpu"
     stats_trainer = Trainer(
-        size,
-        DefaultNet(size, n_blocks=n_blocks, hidden_channels=hidden_channels),
+        config,
+        DefaultNet(config, n_blocks=n_blocks, hidden_channels=hidden_channels),
         epochs_per_update=epochs_per_update,
         policy_weight=policy_weight,
         value_weight=value_weight,
@@ -182,10 +184,10 @@ def main(
     stats_thread.start()
 
     export_thread = ExportThread(
-        model=DefaultNet(size, n_blocks=n_blocks, hidden_channels=hidden_channels),
+        model=DefaultNet(config, n_blocks=n_blocks, hidden_channels=hidden_channels),
         db=db,
         run_id=run_id,
-        board_size=size,
+        config=config,
         onnx_compiled_batch_size=onnx_compiled_batch_size,
         summary_writer=summary_writer,
     )
@@ -258,10 +260,10 @@ def await_samples(db: TrainingDB, n_train_samples: int) -> list[TrainingData]:
 def publish_weights(
     model: torch.nn.Module,
     db: TrainingDB,
-    board_size: int,
+    config: GameConfig,
     compiled_batch_size: int | None = None,
 ) -> tuple[int, bytes]:
-    payload = model_io.serialize_model(model, board_size, compiled_batch_size)
+    payload = model_io.serialize_model(model, config, compiled_batch_size)
     curr_idx = db.weights_incr_weights_index()
     db.weights_publish(payload, curr_idx, batch_size=compiled_batch_size, set_latest=True)
     db.model_set_current(0, curr_idx)
@@ -271,7 +273,7 @@ def publish_weights(
 
 def initialize_training(
     run_id: str,
-    size: int,
+    config: GameConfig,
     db: TrainingDB,
     trainer: Trainer,
     init_run_id: str | None,
@@ -306,9 +308,9 @@ def initialize_training(
         logger.info(f"overriding champion weights with: {run_id=}, weight_index={init_champion_weight_index}")
         init_weights = model_io.load_weights(checkpoint.run_id, init_champion_weight_index)
         # re-serialize the overridden champion as ONNX
-        champion_model = DefaultNet(size, n_blocks=n_blocks, hidden_channels=hidden_channels)
+        champion_model = DefaultNet(config, n_blocks=n_blocks, hidden_channels=hidden_channels)
         champion_model.load_state_dict(init_weights)
-        checkpoint.champion_payload = model_io.serialize_model(champion_model, size, onnx_compiled_batch_size)
+        checkpoint.champion_payload = model_io.serialize_model(champion_model, config, onnx_compiled_batch_size)
         checkpoint.champion_index = init_champion_weight_index
 
     if init_weights_index is not None and init_weights_index != checkpoint.current_index:
@@ -331,7 +333,7 @@ def initialize_training(
     # publish the weights to redis so the nn-service can load them
     if checkpoint.current_index != checkpoint.champion_index:
         db.weights_publish(checkpoint.champion_payload, checkpoint.champion_index, batch_size=onnx_compiled_batch_size)
-    current_payload = model_io.serialize_model(trainer.nn, size, onnx_compiled_batch_size)
+    current_payload = model_io.serialize_model(trainer.nn, config, onnx_compiled_batch_size)
     db.weights_publish(current_payload, checkpoint.current_index, batch_size=onnx_compiled_batch_size, set_latest=True)
     return checkpoint.current_index, checkpoint.champion_index, checkpoint
 

@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use alpha_cc_nn::GameConfig;
+use alpha_cc_nn::Game;
 use alpha_cc_nn_service::backends::{Backend, VersionedModel};
 use alpha_cc_nn_service::backends::onnx::OnnxBackend;
 
@@ -115,7 +115,7 @@ pub fn run_benchmarks(
     iters: usize,
 ) -> anyhow::Result<()> {
     let batch_sizes = [1, 8, 32, 64, 128, 256, 512, 1024];
-    let game_config = GameConfig::from_game::<alpha_cc_core::cc::CCBoard>(game_size);
+    let game_config = Game::parse(&format!("cc:{game_size}")).config();
 
     println!("Model: {nn_path}");
     println!("Warmup: {warmup}, Iterations: {iters}");

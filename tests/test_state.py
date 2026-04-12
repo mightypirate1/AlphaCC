@@ -66,8 +66,11 @@ def test_pickling(board_size: int) -> None:
 
 @pytest.mark.parametrize("board_size", [3, 5, 7, 9])
 def test_nn(board_size: int) -> None:
+    from alpha_cc.engine import GameConfig
+
+    config = GameConfig(f"cc:{board_size}")
     state = GameState(Board(board_size))
-    nn = DefaultNet(board_size)
+    nn = DefaultNet(config)
     pi, v = nn(state_tensor(state).unsqueeze(0))
-    assert pi.shape == (1, board_size, board_size, board_size, board_size)
+    assert pi.shape == (1, *config.policy_shape)
     assert v.shape == (1, 3)

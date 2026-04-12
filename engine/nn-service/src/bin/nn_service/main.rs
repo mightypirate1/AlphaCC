@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use clap::{Args, Parser, Subcommand};
 
-use alpha_cc_nn::GameConfig;
+use alpha_cc_nn::Game;
 use alpha_cc_nn_service::backends::{Backend, VersionedModel};
 use alpha_cc_nn_service::backends::onnx::OnnxBackend;
 use alpha_cc_nn_service::server::config::{
@@ -117,22 +117,8 @@ enum Command {
     },
 }
 
-fn parse_game_config(game: &str) -> GameConfig {
-    let parts: Vec<&str> = game.splitn(2, ':').collect();
-    match parts[0] {
-        "cc" => {
-            let size: usize = parts.get(1)
-                .unwrap_or(&"9")
-                .parse()
-                .unwrap_or_else(|e| panic!("invalid board size in --game '{game}': {e}"));
-            GameConfig::from_game::<alpha_cc_core::cc::CCBoard>(size)
-        }
-        _ => panic!("unknown game '{}'. Supported: cc", parts[0]),
-    }
-}
-
 fn build_server_config(args: &ServeArgs) -> ServerConfig {
-    let game_config = parse_game_config(&args.game);
+    let game_config = Game::parse(&args.game).config();
     let pad_item_len = game_config.pad_item_len();
     let pipeline_cfg = PipelineConfig { intake_buffer: args.intake_buffer, outtake_buffer: args.outtake_buffer };
 
