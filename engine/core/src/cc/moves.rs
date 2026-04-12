@@ -1,33 +1,7 @@
 use std::collections::HashSet;
-use std::collections::HashMap;
 use indexmap::IndexSet;
 use crate::Move;
-use crate::cc::{CCBoard, HexCoord, MAX_SIZE};
-
-
-pub fn create_move_mask(moves: Vec<Move<HexCoord>>) -> [[[[bool; MAX_SIZE]; MAX_SIZE]; MAX_SIZE]; MAX_SIZE] {
-    /*
-    notice that this mask needs to be cropped to match the board size
-     */
-
-    let mut mask = [[[[false; MAX_SIZE]; MAX_SIZE]; MAX_SIZE]; MAX_SIZE];
-    for r#move in moves {
-        let from_x = r#move.from_coord.x as usize;
-        let from_y = r#move.from_coord.y as usize;
-        let to_x = r#move.to_coord.x as usize;
-        let to_y = r#move.to_coord.y as usize;
-        mask[from_x][from_y][to_x][to_y] = true;
-    }
-    mask
-}
-
-pub fn create_move_index_map(moves: Vec<Move<HexCoord>>) -> HashMap<usize, (HexCoord, HexCoord)> {
-    let mut move_index_map:HashMap<usize, (HexCoord, HexCoord)> = HashMap::new();
-    for (i, r#move) in moves.iter().enumerate() {
-        move_index_map.insert(i, (r#move.from_coord, r#move.to_coord));
-    }
-    move_index_map
-}
+use crate::cc::{CCBoard, HexCoord};
 
 
 pub fn find_all_moves(board: &CCBoard) -> Vec<Move<HexCoord>> {

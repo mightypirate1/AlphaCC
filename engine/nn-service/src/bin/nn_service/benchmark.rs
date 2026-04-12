@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use alpha_cc_nn::GameConfig;
 use alpha_cc_nn_service::backends::{Backend, VersionedModel};
 use alpha_cc_nn_service::backends::onnx::OnnxBackend;
 
@@ -114,7 +115,7 @@ pub fn run_benchmarks(
     iters: usize,
 ) -> anyhow::Result<()> {
     let batch_sizes = [1, 8, 32, 64, 128, 256, 512, 1024];
-    let game_size_i64 = game_size as i64;
+    let game_config = GameConfig::from_game::<alpha_cc_core::cc::CCBoard>(game_size);
 
     println!("Model: {nn_path}");
     println!("Warmup: {warmup}, Iterations: {iters}");
@@ -124,7 +125,7 @@ pub fn run_benchmarks(
     let model = OnnxBackend::load_session_from_file(nn_path, None, true)
         .unwrap_or_else(|e| panic!("failed to load ONNX model: {e}"));
     let backend = OnnxBackend::new(
-        vec![VersionedModel { model, version: 0 }], game_size_i64, false, 1, None, true,
+        vec![VersionedModel { model, version: 0 }], game_config, false, 1, None, true,
     );
     let results = bench_pipeline(&backend, game_size, &batch_sizes, warmup, iters);
 

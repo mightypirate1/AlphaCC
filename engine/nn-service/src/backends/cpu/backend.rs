@@ -3,6 +3,7 @@ use std::sync::Mutex;
 use ort::session::Session;
 use ort::value::Tensor;
 
+use alpha_cc_nn::GameConfig;
 use crate::backends::{Backend, DecodedPrediction, ModelStore, VersionedModel};
 use crate::io;
 use crate::server::types::StateBytes;
@@ -18,15 +19,15 @@ impl CpuSession {
 
 pub struct CpuBackend {
     models: ModelStore<CpuSession>,
-    game_size: i64,
+    game_config: GameConfig,
     verbose: bool,
 }
 
 impl CpuBackend {
-    pub fn new(models: Vec<VersionedModel<CpuSession>>, game_size: i64, verbose: bool, max_models: usize) -> Self {
+    pub fn new(models: Vec<VersionedModel<CpuSession>>, game_config: GameConfig, verbose: bool, max_models: usize) -> Self {
         Self {
             models: ModelStore::new(models, max_models),
-            game_size,
+            game_config,
             verbose,
         }
     }
@@ -53,14 +54,16 @@ impl CpuBackend {
 pub struct CpuEncoded {
     pub data: Vec<f32>,
     pub batch_size: usize,
-    pub game_size: usize,
+    pub board_size: usize,
+    pub state_channels: usize,
+    pub policy_size: usize,
 }
 
 pub struct CpuInferred {
     pub policy: Vec<f32>,
     pub wdl: Vec<f32>,
     pub batch_size: usize,
-    pub game_size: usize,
+    pub policy_size: usize,
 }
 
 impl Backend for CpuBackend {
@@ -70,16 +73,22 @@ impl Backend for CpuBackend {
 
     fn encode(&self, batch: Vec<StateBytes>) -> CpuEncoded {
         let n = batch.len();
-        let s = self.game_size as usize;
         let data: Vec<f32> = batch.iter()
             .flat_map(|item| io::state_bytes_as_f32s(item))
             .copied()
             .collect();
-        CpuEncoded { data, batch_size: n, game_size: s }
+        CpuEncoded {
+            data,
+            batch_size: n,
+            board_size: self.game_config.board_size,
+            state_channels: self.game_config.state_channels,
+            policy_size: self.game_config.policy_size,
+        }
     }
 
     fn inference(&self, model_id: u32, input: CpuEncoded) -> CpuInferred {
-        let s = input.game_size;
+        let s = input.board_size;
+        let c = input.state_channels;
         let n = input.batch_size;
         if self.verbose {
             log::debug!("Inference model_id={model_id} batch_size={n}");
@@ -90,7 +99,7 @@ impl Backend for CpuBackend {
             if let Some(vm) = guard.as_ref().as_ref() {
                 let mut session = vm.model.lock();
 
-                let input_tensor = Tensor::from_array(([n, 2, s, s], input.data))
+                let input_tensor = Tensor::from_array(([n, c, s, s], input.data))
                     .expect("failed to create input tensor");
 
                 let inputs = vec![
@@ -107,7 +116,7 @@ impl Backend for CpuBackend {
                     policy: policy_slice.to_vec(),
                     wdl: value_slice.to_vec(),
                     batch_size: n,
-                    game_size: s,
+                    policy_size: input.policy_size,
                 };
             }
             drop(guard);
@@ -117,10 +126,10 @@ impl Backend for CpuBackend {
     }
 
     fn decode(&self, output: CpuInferred) -> Vec<DecodedPrediction> {
-        let s4 = output.game_size.pow(4);
+        let ps = output.policy_size;
         let mut decoded = Vec::with_capacity(output.batch_size);
         for i in 0..output.batch_size {
-            let pi_row = &output.policy[i * s4..(i + 1) * s4];
+            let pi_row = &output.policy[i * ps..(i + 1) * ps];
             let wdl_row = &output.wdl[i * 3..(i + 1) * 3];
             let pi_bytes: Vec<u8> = bytemuck::cast_slice(pi_row).to_vec();
             let wdl_bytes: Vec<u8> = bytemuck::cast_slice(wdl_row).to_vec();
@@ -130,7 +139,7 @@ impl Backend for CpuBackend {
     }
 
     fn respond(&self, pi_bytes: Vec<u8>, wdl_bytes: Vec<u8>, move_bytes: Vec<u8>) -> DecodedPrediction {
-        crate::backends::respond::respond(&pi_bytes, wdl_bytes, &move_bytes, self.game_size as usize)
+        crate::backends::respond::respond(&pi_bytes, wdl_bytes, &move_bytes, &self.game_config)
     }
 
     fn compile_model(&self, model: CpuSession) -> anyhow::Result<CpuSession> {

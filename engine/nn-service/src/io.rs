@@ -1,44 +1,23 @@
-use alpha_cc_core::{Board, Coord};
+use alpha_cc_nn::BoardEncoding;
 use crate::proto::PredictResponse;
 
 /// Encode a board into the wire format for the prediction service.
 ///
 /// Returns `(state_tensor_bytes, moves_bytes)`:
-/// - `state_tensor_bytes`: one-hot `[2, s, s]` as flattened little-endian f32s.
-///   Channel 0 = current player (matrix == 1), channel 1 = opponent (matrix == 2).
-///   Matches `state_tensor()` in `alpha_cc.state.state_tensors`.
-/// - `moves_bytes`: each legal move as 4 consecutive bytes `[fx, fy, tx, ty]`.
-///   Matches `action_indexer()` in `alpha_cc.engine.engine_utils`.
-pub fn encode_request<B: Board>(board: &B) -> (Vec<u8>, Vec<u8>) {
+/// - `state_tensor_bytes`: flattened `[channels, s, s]` as little-endian f32s.
+/// - `moves_bytes`: each legal move as `MOVE_BYTES` consecutive bytes.
+pub fn encode_request<B: BoardEncoding>(board: &B) -> (Vec<u8>, Vec<u8>) {
     let (s, _) = board.get_sizes();
     let s = s as usize;
-    // One-hot encode into [2, s, s] flattened f32s, then to bytes.
-    let mut tensor_data = vec![0.0f32; 2 * s * s];
-    #[allow(clippy::needless_range_loop)]
-    for x in 0..s {
-        for y in 0..s {
-            let idx = x * s + y;
-            let coord = B::Coord::new(x as u8, y as u8, s as u8);
-            match board.get_content(&coord) {
-                1 => tensor_data[idx] = 1.0,
-                2 => tensor_data[s * s + idx] = 1.0,
-                _ => {}
-            }
-        }
-    }
-    let state_bytes: &[u8] = bytemuck::cast_slice(&tensor_data);
-    let state_bytes = state_bytes.to_vec();
 
-    // Encode legal moves: 4 bytes per move.
+    let mut tensor_data = vec![0.0f32; B::STATE_CHANNELS * s * s];
+    board.encode_state(&mut tensor_data);
+    let state_bytes: Vec<u8> = bytemuck::cast_slice(&tensor_data).to_vec();
+
     let moves = board.legal_moves();
-    let mut moves_bytes = Vec::with_capacity(moves.len() * 4);
-    for m in &moves {
-        let (from_x, from_y) = m.from_coord.xy();
-        let (to_x, to_y) = m.to_coord.xy();
-        moves_bytes.push(from_x);
-        moves_bytes.push(from_y);
-        moves_bytes.push(to_x);
-        moves_bytes.push(to_y);
+    let mut moves_bytes = vec![0u8; moves.len() * B::MOVE_BYTES];
+    for (i, mv) in moves.iter().enumerate() {
+        B::encode_move(mv, &mut moves_bytes[i * B::MOVE_BYTES..]);
     }
 
     (state_bytes, moves_bytes)

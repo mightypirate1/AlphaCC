@@ -13,14 +13,14 @@ use super::game_move::PyMove;
 #[pyfunction]
 pub fn create_move_mask(moves: Vec<PyMove>) -> [[[[bool; MAX_SIZE]; MAX_SIZE]; MAX_SIZE]; MAX_SIZE] {
     let inner_moves: Vec<alpha_cc_core::Move<HexCoord>> = moves.into_iter().map(|m| m.0).collect();
-    alpha_cc_core::cc::moves::create_move_mask(inner_moves)
+    alpha_cc_nn::cc_encoding::create_move_mask(inner_moves)
 }
 
 #[gen_stub_pyfunction]
 #[pyfunction]
 pub fn create_move_index_map(moves: Vec<PyMove>) -> HashMap<usize, (PyHexCoord, PyHexCoord)> {
     let inner_moves: Vec<alpha_cc_core::Move<HexCoord>> = moves.into_iter().map(|m| m.0).collect();
-    let inner_map = alpha_cc_core::cc::moves::create_move_index_map(inner_moves);
+    let inner_map = alpha_cc_nn::cc_encoding::create_move_index_map(inner_moves);
     inner_map.into_iter()
         .map(|(k, (a, b))| (k, (PyHexCoord(a), PyHexCoord(b))))
         .collect()

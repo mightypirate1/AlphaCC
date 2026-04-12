@@ -8,6 +8,7 @@ use std::collections::HashMap;
 
 use clap::{Args, Parser, Subcommand};
 
+use alpha_cc_nn::GameConfig;
 use alpha_cc_nn_service::backends::{Backend, VersionedModel};
 use alpha_cc_nn_service::backends::onnx::OnnxBackend;
 use alpha_cc_nn_service::server::config::{
@@ -27,9 +28,9 @@ struct ServeArgs {
     /// Path(s) to ONNX model files for initial preload.
     #[arg(long)]
     nn_path: Vec<String>,
-    /// Game board size.
-    #[arg(long, default_value = "9")]
-    game_size: usize,
+    /// Game identifier (e.g. "cc:9", "cc:5").
+    #[arg(long, default_value = "cc:9")]
+    game: String,
     /// gRPC listen port.
     #[arg(long, default_value = "50055")]
     port: u16,
@@ -116,8 +117,23 @@ enum Command {
     },
 }
 
+fn parse_game_config(game: &str) -> GameConfig {
+    let parts: Vec<&str> = game.splitn(2, ':').collect();
+    match parts[0] {
+        "cc" => {
+            let size: usize = parts.get(1)
+                .unwrap_or(&"9")
+                .parse()
+                .unwrap_or_else(|e| panic!("invalid board size in --game '{game}': {e}"));
+            GameConfig::from_game::<alpha_cc_core::cc::CCBoard>(size)
+        }
+        _ => panic!("unknown game '{}'. Supported: cc", parts[0]),
+    }
+}
+
 fn build_server_config(args: &ServeArgs) -> ServerConfig {
-    let pad_item_len = 2 * args.game_size * args.game_size * std::mem::size_of::<f32>();
+    let game_config = parse_game_config(&args.game);
+    let pad_item_len = game_config.pad_item_len();
     let pipeline_cfg = PipelineConfig { intake_buffer: args.intake_buffer, outtake_buffer: args.outtake_buffer };
 
     let mut pipelines = vec![PipelineChannelConfig {
@@ -156,7 +172,7 @@ fn build_server_config(args: &ServeArgs) -> ServerConfig {
         pipelines[0].model_ids = (0..args.max_models as u32).collect();
     }
 
-    ServerConfig { port: args.port, game_size: args.game_size, pipelines }
+    ServerConfig { port: args.port, game_config, pipelines }
 }
 
 /// Load initial models from file paths into the backend's model store.
@@ -232,12 +248,12 @@ fn main() -> anyhow::Result<()> {
             let rt = tokio::runtime::Runtime::new()?;
             if common.cpu {
                 use alpha_cc_nn_service::backends::cpu::CpuBackend;
-                let backend = CpuBackend::new(vec![], config.game_size as i64, common.verbose, common.max_models);
+                let backend = CpuBackend::new(vec![], config.game_config.clone(), common.verbose, common.max_models);
                 load_models(&backend, &common.nn_path, false);
                 log::info!("Loaded {} model(s) (CPU)", common.nn_path.len());
                 rt.block_on(run_server(config, backend, reload_freq, redis_host))
             } else {
-                let backend = OnnxBackend::new(vec![], config.game_size as i64, common.verbose, common.max_models, common.trt_cache_path, common.trt);
+                let backend = OnnxBackend::new(vec![], config.game_config.clone(), common.verbose, common.max_models, common.trt_cache_path, common.trt);
                 load_models(&backend, &common.nn_path, false);
                 log::info!("Loaded {} model(s) (GPU)", common.nn_path.len());
                 rt.block_on(run_server(config, backend, reload_freq, redis_host))
@@ -249,12 +265,12 @@ fn main() -> anyhow::Result<()> {
             let rt = tokio::runtime::Runtime::new()?;
             if common.cpu {
                 use alpha_cc_nn_service::backends::cpu::CpuBackend;
-                let backend = CpuBackend::new(vec![], config.game_size as i64, common.verbose, common.max_models);
+                let backend = CpuBackend::new(vec![], config.game_config.clone(), common.verbose, common.max_models);
                 load_models(&backend, &common.nn_path, true);
                 log::info!("Loaded {} model(s) (CPU, static)", common.nn_path.len());
                 rt.block_on(run_static(config, backend))
             } else {
-                let backend = OnnxBackend::new(vec![], config.game_size as i64, common.verbose, common.max_models, common.trt_cache_path, common.trt);
+                let backend = OnnxBackend::new(vec![], config.game_config.clone(), common.verbose, common.max_models, common.trt_cache_path, common.trt);
                 load_models(&backend, &common.nn_path, true);
                 log::info!("Loaded {} model(s) (GPU, static)", common.nn_path.len());
                 rt.block_on(run_static(config, backend))
