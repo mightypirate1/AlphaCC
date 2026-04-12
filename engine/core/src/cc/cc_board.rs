@@ -19,6 +19,25 @@ pub const MAX_SIZE: usize = 9;
 
 pub type CCBoardMatrix = [[dtypes::BoardContent; MAX_SIZE]; MAX_SIZE];
 
+/// Typed cell content for Chinese Checkers.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum CCContent {
+    Empty = 0,
+    Player1 = 1,
+    Player2 = 2,
+}
+
+impl From<i8> for CCContent {
+    fn from(v: i8) -> Self {
+        match v {
+            1 => Self::Player1,
+            2 => Self::Player2,
+            _ => Self::Empty,
+        }
+    }
+}
+
 
 #[derive(Clone, bitcode::Encode, bitcode::Decode)]
 pub struct CCBoard {

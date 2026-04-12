@@ -10,6 +10,7 @@ pub trait Coord {
 
 pub trait Board: Clone + Eq + Hash + Send + Sync {
     type Coord: Coord;
+    type Content: Copy;
 
     fn apply_move(&self, r#move: &Move<Self::Coord>) -> Self;
     fn legal_moves(&self) -> Vec<Move<Self::Coord>>;
@@ -20,6 +21,7 @@ pub trait Board: Clone + Eq + Hash + Send + Sync {
 
     // playable size, and stored size
     fn get_sizes(&self) -> (BoardSize, BoardSize);
+    fn get_cell(&self, coord: &Self::Coord) -> Self::Content;
     fn get_content(&self, coord: &Self::Coord) -> i8;
     fn get_content_unflipped(&self, coord: &Self::Coord) -> i8 {
         if self.get_info().current_player == 1 {
@@ -50,6 +52,7 @@ impl Coord for crate::cc::HexCoord {
 
 impl Board for crate::cc::CCBoard {
     type Coord = crate::cc::HexCoord;
+    type Content = crate::cc::CCContent;
 
     fn apply_move(&self, r#move: &Move<Self::Coord>) -> Self {
         self.apply(r#move)
@@ -59,6 +62,9 @@ impl Board for crate::cc::CCBoard {
     }
     fn get_info(&self) -> BoardInfo {
         self.get_info()
+    }
+    fn get_cell(&self, coord: &Self::Coord) -> Self::Content {
+        crate::cc::CCContent::from(self.get_content(coord))
     }
     fn get_content(&self, coord: &Self::Coord) -> i8 {
         self.get_content(coord)
