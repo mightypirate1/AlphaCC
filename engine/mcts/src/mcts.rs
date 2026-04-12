@@ -100,7 +100,6 @@ impl<B: Board, T: PredictionSource<B>> MCTS<B, T> {
     fn new_leaf_for(&self, board: &B, service: &T, model_id: u32) -> MCTSNode {
         let nn_pred = service.predict(board, model_id);
         let v = nn_pred.expected_value();
-        let nn_wdl = nn_pred.quant_wdl();
         let mut pi = nn_pred.pi();
         let num_actions = pi.len();
 
@@ -108,7 +107,7 @@ impl<B: Board, T: PredictionSource<B>> MCTS<B, T> {
             noise::apply_dirichlet_noise(&mut pi, &self.mcts_params);
         }
 
-        MCTSNode::new(pi, v, nn_wdl, num_actions)
+        MCTSNode::new(pi, v, nn_pred.wdl_logits(), num_actions)
     }
 
     pub fn notify_move_applied(&self, board: &B) {
@@ -153,11 +152,10 @@ impl<B: Board, T: PredictionSource<B>> MCTS<B, T> {
         let model_id = self.model_id;
 
         let noise = if let Some(node) = tree.get_data(board) {
-            let pi = NNQuantizedPi::dequantize_vec(&node.pi);
-            noise::generate_dirichlet_noise(&pi, params).ok()
+            noise::generate_dirichlet_noise(&node.pi, params).ok()
         } else {
             let node = self.new_leaf_for(board, &self.services[0], model_id);
-            let pi = NNQuantizedPi::dequantize_vec(&node.pi);
+            let pi = node.pi.clone();
             tree.insert(board, node);
             noise::generate_dirichlet_noise(&pi, params).ok()
         };
@@ -277,7 +275,7 @@ impl<B: Board, T: PredictionSource<B>> MCTS<B, T> {
 
         let mut best_action = 0;
         let mut best_u = f32::MIN;
-        let mut pi = NNQuantizedPi::dequantize_vec(&data.pi);
+        let mut pi = data.pi.clone();
         if let Some(noise) = root_noise {
             noise::blend_with_noise(&mut pi, noise, prm.dirichlet_weight);
         }

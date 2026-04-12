@@ -61,11 +61,8 @@ impl PredictionClient {
             .block_on(self.client.predict(state_tensor, moves, self.model_id))
             .map_err(|e| Error::other(format!("prediction failed: {e}")))?;
         let (pi_logits, wdl_logits) = io::decode_response(&resp);
-        let pi = softmax(&pi_logits);
-        let wdl_sm = softmax(&wdl_logits);
-
         self.stats.record_fetch(start.elapsed());
-        Ok(NNPred::new(pi, [wdl_sm[0], wdl_sm[1], wdl_sm[2]]))
+        Ok(NNPred::new(&pi_logits, wdl_logits))
     }
 
     pub fn get_fetch_stats(&mut self) -> FetchStats {

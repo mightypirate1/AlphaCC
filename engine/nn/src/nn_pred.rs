@@ -1,39 +1,36 @@
-use crate::nn_dtypes::{NNQuantizedPi, NNQuantizedWDL};
+use crate::inference_utils::softmax;
 
 #[derive(Clone, bitcode::Encode, bitcode::Decode)]
 pub struct NNPred {
-    quant_pi: Vec<NNQuantizedPi>,
-    quant_wdl: NNQuantizedWDL,
+    pi_logits: Vec<f32>,
+    wdl_logits: [f32; 3],
+    expected_value: f32,
 }
 
 impl NNPred {
-    pub fn new(pi: Vec<f32>, wdl: [f32; 3]) -> Self {
+    pub fn new(pi_logits: &[f32], wdl_logits: [f32; 3]) -> Self {
+        let wdl = softmax(&wdl_logits);
         NNPred {
-            quant_pi: NNQuantizedPi::quantize_vec(&pi),
-            quant_wdl: NNQuantizedWDL::quantize(wdl),
+            pi_logits: pi_logits.into(),
+            wdl_logits: wdl_logits.into(),
+            expected_value: wdl[0] - wdl[2],
         }
     }
 
     pub fn pi(&self) -> Vec<f32> {
-        self.quant_pi.iter().map(|q| q.dequantize()).collect()
+        softmax(&self.pi_logits)
     }
 
-    pub fn wdl(&self) -> [f32; 3] {
-        self.quant_wdl.dequantize()
+    pub fn wdl(&self) -> Vec<f32> {
+        softmax(&self.wdl_logits)
     }
 
-    pub fn quant_wdl(&self) -> NNQuantizedWDL {
-        self.quant_wdl
+    pub fn wdl_logits(&self) -> [f32; 3] {
+        self.wdl_logits
     }
 
-    /// Expected value = P(win) - P(loss), computed efficiently in quantized space.
     pub fn expected_value(&self) -> f32 {
-        self.quant_wdl.expected_value()
-    }
-
-    /// Backward-compatible alias for expected_value().
-    pub fn value(&self) -> f32 {
-        self.expected_value()
+        self.expected_value
     }
 
     pub fn serialize(&self) -> Vec<u8> {

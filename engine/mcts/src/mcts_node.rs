@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicI32, AtomicU32, Ordering::Relaxed};
 
 use alpha_cc_core::WDL;
-use alpha_cc_nn::{NNQuantizedPi, NNQuantizedValue, NNQuantizedWDL};
+use alpha_cc_nn::{NNQuantizedValue};
 
 use crate::outcome::Outcome;
 
@@ -13,9 +13,9 @@ const W_SCALE: f32 = 65536.0;
 /// Moves are not stored — regenerate via `find_all_moves(board)` when needed.
 pub struct MCTSNode {
 
-    pub pi: Vec<NNQuantizedPi>,
+    pub pi: Vec<f32>,
     pub v: NNQuantizedValue,
-    pub nn_wdl: NNQuantizedWDL,
+    pub nn_wdl: [f32; 3],
     pub n: Vec<AtomicU32>,
     pub w: Vec<AtomicI32>,
     /// Empirical WDL outcome counters (ticked by rollouts that reach terminals).
@@ -33,9 +33,9 @@ impl Clone for MCTSNode {
 }
 
 impl MCTSNode {
-    pub fn new(pi: Vec<f32>, v: f32, nn_wdl: NNQuantizedWDL, num_actions: usize) -> Self {
+    pub fn new(pi: Vec<f32>, v: f32, nn_wdl: [f32; 3], num_actions: usize) -> Self {
         Self {
-            pi: NNQuantizedPi::quantize_vec(&pi),
+            pi,
             v: NNQuantizedValue::quantize(v),
             nn_wdl,
             n: (0..num_actions).map(|_| AtomicU32::new(0)).collect(),
@@ -66,7 +66,7 @@ impl MCTSNode {
     pub fn estimated_bytes(&self) -> usize {
         let n_actions = self.pi.len();
         std::mem::size_of::<Self>()
-            + n_actions * std::mem::size_of::<NNQuantizedPi>()
+            + n_actions * std::mem::size_of::<f32>()
             + n_actions * std::mem::size_of::<AtomicU32>()
             + n_actions * std::mem::size_of::<AtomicI32>()
     }
@@ -82,7 +82,7 @@ impl MCTSNode {
 
     /// Bayesian-blended WDL: NN prior (pseudo-count 1) mixed with empirical counts.
     pub fn blended_wdl(&self) -> WDL {
-        let nn = self.nn_wdl.dequantize();
+        let nn = self.nn_wdl;
         let nw = self.n_win.load(Relaxed) as f32;
         let nd = self.n_draw.load(Relaxed) as f32;
         let nl = self.n_loss.load(Relaxed) as f32;
@@ -108,7 +108,7 @@ impl MCTSNode {
 
     #[inline]
     pub fn get_pi(&self, action: usize) -> f32 {
-        self.pi[action].dequantize()
+        self.pi[action]
     }
 
     #[inline]

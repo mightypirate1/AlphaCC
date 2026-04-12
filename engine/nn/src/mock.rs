@@ -45,6 +45,7 @@ impl<B: Board> PredictionSource<B> for MockPredictor {
         } else {
             vec![1.0 / n as f32; n]
         };
-        NNPred::new(pi, self.wdl)
+        let pi_logits: Vec<f32> = pi.iter().map(|pia| pia.ln()).collect();
+        NNPred::new(&pi_logits, self.wdl)
     }
 }

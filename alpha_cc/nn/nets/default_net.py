@@ -52,7 +52,7 @@ class DefaultNet(torch.nn.Module):
             ResBlock(ch, ch, 5),
             torch.nn.Conv2d(ch, policy_channels, 5, padding=2),
         )
-        self._value_head = torch.nn.Sequential(
+        self._wdl_head = torch.nn.Sequential(
             torch.nn.Dropout(dropout),
             torch.nn.Linear(ch + ch // 2, ch // 2),
             torch.nn.ReLU(),
@@ -74,7 +74,7 @@ class DefaultNet(torch.nn.Module):
         # value head — WDL logits, shape (n, 3)
         x_local = self._value_local_encoder(x_enc)
         x_global = self._value_global_encoder(x_enc)
-        x_wdl = self._value_head(torch.cat([x_local, x_global], dim=1))
+        x_wdl = self._wdl_head(torch.cat([x_local, x_global], dim=1))
         return x_pi, x_wdl
 
     def param_groups(self) -> dict[str, torch.nn.Module]:
@@ -83,7 +83,7 @@ class DefaultNet(torch.nn.Module):
             "value-local-encoder": self._value_local_encoder,
             "value-global-encoder": self._value_global_encoder,
             "policy-head": self._policy_head,
-            "value-head": self._value_head,
+            "wdl-head": self._wdl_head,
         }
 
     @torch.no_grad()

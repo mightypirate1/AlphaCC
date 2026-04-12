@@ -149,7 +149,7 @@ fn ai_thread<B: BoardEncoding>(
 
         let nn = match mcts.get_node_snapshot(&board) {
             Some(node) => NNData {
-                pi: NNQuantizedPi::dequantize_vec(&node.pi),
+                pi: node.pi,
                 value: node.v.dequantize(),
             },
             None => NNData::default(),
