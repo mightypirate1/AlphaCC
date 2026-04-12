@@ -38,6 +38,24 @@ impl From<i8> for CCContent {
     }
 }
 
+impl crate::board::CellContent for CCContent {
+    fn flip(self) -> Self {
+        match self {
+            Self::Player1 => Self::Player2,
+            Self::Player2 => Self::Player1,
+            Self::Empty => Self::Empty,
+        }
+    }
+
+    fn player(self) -> i8 {
+        match self {
+            Self::Player1 => 1,
+            Self::Player2 => 2,
+            Self::Empty => 0,
+        }
+    }
+}
+
 
 #[derive(Clone, bitcode::Encode, bitcode::Decode)]
 pub struct CCBoard {

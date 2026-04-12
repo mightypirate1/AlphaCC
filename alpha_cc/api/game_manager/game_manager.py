@@ -9,6 +9,7 @@ from alpha_cc.api.game_manager.show_mode_job import ShowModeJob
 from alpha_cc.config import Environment
 from alpha_cc.db.games_db import GamesDB
 from alpha_cc.db.models import DBGameState
+from alpha_cc.engine import GameConfig
 from alpha_cc.nn.nets import DefaultNet
 from alpha_cc.state import GameState
 
@@ -24,7 +25,7 @@ def get_agent(size: int) -> StandaloneMCTSAgent:
         9: WEIGHT_DIR / "api/test-00-size-9.pth",
     }
     model = StandaloneMCTSAgent(
-        DefaultNet(size),
+        DefaultNet(GameConfig(f"cc:{size}")),
         n_rollouts=500,
         rollout_depth=100,
         rollout_gamma=0.99,

@@ -25,7 +25,7 @@ class DefaultNet(torch.nn.Module):
         ch = hidden_channels
         board_size = config.board_size
         in_channels = config.state_channels + CoordinateChannels.EXTRA_CHANNELS
-        # policy head outputs (board_size² channels × board_size × board_size spatial)
+        # policy head outputs (board_size**2 channels * board_size * board_size spatial)
         # which reshapes to policy_shape
         policy_channels = config.policy_size // (board_size * board_size)
         self._board_size = board_size

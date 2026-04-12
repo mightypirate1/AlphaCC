@@ -17,7 +17,6 @@ from alpha_cc.agents.mcts.mcts_experience import ProcessedExperience
 from alpha_cc.agents.mcts.mcts_node_py import MCTSNodePy
 from alpha_cc.agents.mcts.training_data import TrainingData
 from alpha_cc.state.game_state import GameState
-from alpha_cc.state.state_tensors import state_tensor
 
 # Implausibly high init values so new samples rank highest until measured.
 # wdl_error: cross-entropy typically in [0, 2].  kl_div: rarely exceeds ~10.
@@ -241,4 +240,3 @@ class TrainingDataset(Dataset):
         self._experiences.append(exp)
         self._kl_div.append(_INIT_KL_DIV * priority_scale)
         self._td_error.append(_INIT_TD_ERROR * priority_scale)
-

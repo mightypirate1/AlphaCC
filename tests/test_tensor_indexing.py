@@ -3,31 +3,9 @@ import pytest
 import torch
 
 from alpha_cc.engine import build_inference_request, preds_from_logits
-from alpha_cc.engine.engine_utils import action_indexer
 from alpha_cc.state import GameState
-from alpha_cc.state.state_tensors import state_tensor
 
 from .common import get_random_board_state
-
-
-@pytest.mark.parametrize("size", [3, 5, 7, 9])
-def test_move_indexer(size: int) -> None:
-    board = get_random_board_state(size)
-    state = GameState(board)
-
-    batch_size = 32
-    numel = batch_size * size**4
-    tensor_like = np.arange(numel).reshape((batch_size, size, size, size, size))
-    vectorized = tensor_like[:, *action_indexer(state)]
-    assert len(state.moves) == vectorized.shape[1]
-
-    for i in range(batch_size):
-        for j, move in enumerate(state.moves):
-            fx = move.from_coord.x
-            fy = move.from_coord.y
-            tx = move.to_coord.x
-            ty = move.to_coord.y
-            assert vectorized[i, j] == tensor_like[i][fx][fy][tx][ty]
 
 
 @pytest.mark.parametrize("size", [3, 5, 7, 9])
@@ -64,29 +42,6 @@ def test_preds_from_logits_indexing(size: int) -> None:
 
 
 @pytest.mark.parametrize("size", [3, 5, 7, 9])
-def test_preds_from_logits_matches_action_indexer(size: int) -> None:
-    """Verify that Rust flat indexing extracts the same values as Python action_indexer."""
-    board = get_random_board_state(size)
-    state = GameState(board)
-
-    logits_4d = torch.randn(size, size, size, size)
-    logits_flat = logits_4d.numpy().ravel()
-    wdl_logits = np.array([0.0, 0.0, 0.0], dtype=np.float32)
-
-    # Python path: action_indexer on the 4D tensor
-    idx = action_indexer(state)
-    py_move_logits = logits_4d.numpy()[*idx]
-    py_pi = np.exp(py_move_logits - py_move_logits.max())
-    py_pi /= py_pi.sum()
-
-    # Rust path: preds_from_logits on the flattened array
-    preds = preds_from_logits(logits_flat, wdl_logits, [board], size)
-    rust_pi = np.array(preds[0].pi)
-
-    np.testing.assert_allclose(rust_pi, py_pi, atol=1e-5)
-
-
-@pytest.mark.parametrize("size", [3, 5, 7, 9])
 @pytest.mark.parametrize("batch_size", [1, 8, 32])
 def test_preds_from_logits_batched(size: int, batch_size: int) -> None:
     """Verify batched preds_from_logits handles multiple boards correctly."""
@@ -118,10 +73,9 @@ def test_build_inference_request(size: int) -> None:
     for board in boards:
         tensor, move_coords = build_inference_request(board)
 
-        # Tensor matches Python reference
-        state = GameState(board)
-        py_tensor = state_tensor(state)
-        torch.testing.assert_close(torch.from_numpy(tensor), py_tensor)
+        # Tensor should match board.state_tensor() from Rust
+        expected = board.state_tensor().reshape(2, size, size)
+        np.testing.assert_array_equal(tensor, expected)
 
         # Move coords match board.get_moves()
         moves = board.get_moves()

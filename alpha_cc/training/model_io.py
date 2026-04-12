@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 def serialize_model(
     model: torch.nn.Module,
-    config: "GameConfig",
+    config: GameConfig,
     compiled_batch_size: int | None = None,
 ) -> bytes:
     model.eval()

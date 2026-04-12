@@ -12,21 +12,20 @@ use ratatui::style::Style;
 use ratatui::widgets::{Block, Borders};
 use ratatui::Terminal;
 
-use alpha_cc_core::Board;
-use alpha_cc_core::cc::HexCoord;
+use alpha_cc_core::board::{CellContent, Coord};
+use alpha_cc_nn::BoardEncoding;
 use crate::agent::{AiHandle, AiUpdate};
 use crate::game::GameState;
-use crate::hex::backend::RenderBackend;
-use crate::hex::glyph_backend::GlyphBackend;
-use crate::hex::layers::{self, BoardView};
-use crate::hex::layout::HexLayout;
 use crate::input::{self, AppEvent};
 use crate::modal::{TemperatureModal, TemperatureModalWidget};
+use crate::renderer::GameRenderer;
 use crate::sidebar::{EvalBarWidget, MoveListWidget, PVWidget};
 use crate::status_bar::{
     CurrentPlayerWidget, PolicyBarsWidget, ToggleState, TogglesPanelWidget,
 };
+use crate::styling;
 use crate::theme;
+use crate::visual::{BoardView, GameVisual};
 
 // ── Player config ──
 
@@ -46,32 +45,23 @@ impl PlayerConfig {
 
 #[derive(Clone, Copy)]
 enum DragTarget {
-    SidebarLeft,     // dragging the left edge of the moves sidebar
-    PvTop,           // dragging the top edge of the PV panel
-    PolicyBarsTop,   // dragging the border between board and policy bars
+    SidebarLeft,
+    PvTop,
+    PolicyBarsTop,
 }
 
 // ── App state machine ──
 
 #[derive(Clone)]
-enum Phase {
+enum Phase<C: Coord> {
     HumanTurn,
     PieceSelected {
-        piece: HexCoord,
+        piece: C,
         /// (action_index, display_destination)
-        legal: Vec<(usize, HexCoord)>,
+        legal: Vec<(usize, C)>,
     },
-    /// AI is thinking. `deadline` is when it should pick a move.
     AiThinking { deadline: Instant },
     GameOver,
-}
-
-// ── Renderer choice ──
-
-#[derive(Clone, Copy, PartialEq)]
-pub enum RendererKind {
-    Glyph,
-    // Future: Tauri, etc.
 }
 
 // ── Config passed from CLI ──
@@ -80,7 +70,6 @@ pub struct AppConfig {
     pub p1: PlayerConfig,
     pub p2: PlayerConfig,
     pub board_size: u8,
-    pub renderer: RendererKind,
     pub nn_addr: String,
     pub think_time: Duration,
     pub n_threads: usize,
@@ -93,7 +82,6 @@ pub struct AppConfig {
 
 // ── Main App ──
 
-/// Latest analysis received from an AI, tagged with the board it's for.
 #[derive(Clone, Default)]
 struct LatestAnalysis {
     board_hash: u64,
@@ -105,15 +93,15 @@ struct LatestAnalysis {
     rollouts: usize,
 }
 
-pub struct App {
+pub struct App<B: BoardEncoding + GameVisual, R: GameRenderer<Coord = B::Coord>> {
     config: AppConfig,
-    game: GameState,
-    phase: Phase,
+    game: GameState<B>,
+    phase: Phase<B::Coord>,
     toggles: ToggleState,
-    renderer: RendererKind,
+    renderer: R,
     view_index: usize,
-    ai_p1: Option<AiHandle>,
-    ai_p2: Option<AiHandle>,
+    ai_p1: Option<AiHandle<B>>,
+    ai_p2: Option<AiHandle<B>>,
     analysis_p1: LatestAnalysis,
     analysis_p2: LatestAnalysis,
     pv_moves: Vec<String>,
@@ -128,17 +116,16 @@ pub struct App {
     toggles_area: Rect,
     pv_area: Rect,
     policy_bars_area: Rect,
-    hovered_move: Option<usize>, // index into legal moves, from hovering over policy bars
-    move_list_scroll: usize,     // scroll offset for the move list
-    move_list_latched: bool,     // true = auto-scroll to bottom
+    hovered_move: Option<usize>,
+    move_list_scroll: usize,
+    move_list_latched: bool,
     dragging: Option<DragTarget>,
     should_quit: bool,
 }
 
-impl App {
-    pub fn new(config: AppConfig) -> Self {
-        let game = GameState::new(config.board_size);
-        let renderer = config.renderer;
+impl<B: BoardEncoding + GameVisual + 'static, R: GameRenderer<Coord = B::Coord>> App<B, R> {
+    pub fn new(config: AppConfig, initial_board: B, renderer: R) -> Self {
+        let game = GameState::new(initial_board);
         use crate::status_bar::EvalMode;
         let eval_mode = match (&config.p1, &config.p2) {
             (PlayerConfig::Ai { .. }, PlayerConfig::Ai { .. }) => EvalMode::Both,
@@ -196,7 +183,7 @@ impl App {
         }
     }
 
-    fn ai_for(&self, player: i8) -> Option<&AiHandle> {
+    fn ai_for(&self, player: i8) -> Option<&AiHandle<B>> {
         if player == 1 { self.ai_p1.as_ref() } else { self.ai_p2.as_ref() }
     }
 
@@ -208,7 +195,6 @@ impl App {
         if player == 1 { &mut self.analysis_p1 } else { &mut self.analysis_p2 }
     }
 
-    /// Ensure the AI handle for `player` exists. Creates it if needed.
     fn ensure_ai(&mut self, player: i8) {
         let slot = if player == 1 { &self.ai_p1 } else { &self.ai_p2 };
         if slot.is_some() { return; }
@@ -228,7 +214,6 @@ impl App {
         if player == 1 { self.ai_p1 = Some(ai); } else { self.ai_p2 = Some(ai); }
     }
 
-    /// Update the board for all AI threads and set their thinking state.
     fn sync_ai_state(&mut self) {
         let board = self.game.current_board();
         let cp = board.get_info().current_player;
@@ -238,7 +223,6 @@ impl App {
                 ai.set_board(board);
                 let should_think = match self.player_config(player) {
                     PlayerConfig::Ai { .. } => {
-                        // Think if it's our turn, or if pondering is on
                         cp == player || self.toggles.pondering
                     }
                     PlayerConfig::Human => false,
@@ -260,7 +244,6 @@ impl App {
         }
 
         if self.game.is_game_over() {
-            // Stop all thinking
             if let Some(ai) = &self.ai_p1 { ai.set_thinking(false); }
             if let Some(ai) = &self.ai_p2 { ai.set_thinking(false); }
             self.phase = Phase::GameOver;
@@ -302,7 +285,6 @@ impl App {
             }
             AppEvent::ToggleDataSource => self.toggles.data_source = self.toggles.data_source.toggle(),
             AppEvent::TogglePolicy => {
-                // Policy cycle always includes Both ("any AI with data")
                 self.toggles.policy_mode = self.toggles.policy_mode.cycle(true, true);
             }
             AppEvent::TogglePolicyScale => self.toggles.policy_scale = self.toggles.policy_scale.cycle(),
@@ -311,12 +293,9 @@ impl App {
             AppEvent::ToggleSampling => self.toggles.toggle_sampling(),
             AppEvent::TogglePonder => {
                 self.toggles.pondering = !self.toggles.pondering;
-                self.sync_ai_state(); // immediately starts or stops pondering
+                self.sync_ai_state();
             }
-            AppEvent::ToggleRenderer => {
-                // Only one renderer for now — toggle is a no-op until more are added
-                let _ = self.renderer;
-            }
+            AppEvent::ToggleRenderer => {}
             AppEvent::ToggleBrailleBars => self.toggles.braille_bars = !self.toggles.braille_bars,
             AppEvent::OpenTemperatureModal => {
                 let modal = TemperatureModal {
@@ -362,35 +341,27 @@ impl App {
             AppEvent::ScrollUp(col, row) => self.handle_scroll(-3, col, row),
             AppEvent::ScrollDown(col, row) => self.handle_scroll(3, col, row),
             AppEvent::PauseResume | AppEvent::Tick | AppEvent::Resize(_, _) => {}
-            // Modal events handled by handle_modal_event when modal is open
             AppEvent::ModalLeft | AppEvent::ModalRight | AppEvent::ModalConfirm
             | AppEvent::ModalCancel | AppEvent::ModalClick(_, _) => {}
         }
     }
 
     fn handle_mouse_down(&mut self, col: u16, row: u16) {
-        // Try hex detection via the backend first
-        let (world_w, world_h) = (self.board_area.width as f32, self.board_area.height as f32);
-        let layout = HexLayout::fit(self.config.board_size, world_w, world_h);
-        let backend = self.get_backend();
-        if let Some(coord) = backend.screen_to_hex(&layout, col, row, self.board_area) {
+        if let Some(coord) = self.renderer.screen_to_coord(col, row, self.board_area) {
             self.handle_click(coord);
             return;
         }
 
-        // Check if click is on the top border of the policy bars (draggable split)
         let pb = self.policy_bars_area;
         if pb.width > 0 && row.abs_diff(pb.y) <= 1 && col >= pb.x && col < pb.x + pb.width {
             self.dragging = Some(DragTarget::PolicyBarsTop);
             return;
         }
-        // Check if click is on the left border of the sidebar (±1 col tolerance)
         let sb = self.sidebar_area;
         if sb.width > 0 && col.abs_diff(sb.x) <= 1 && row >= sb.y && row < sb.y + sb.height {
             self.dragging = Some(DragTarget::SidebarLeft);
             return;
         }
-        // Check if click is on the top border of the PV panel
         let pv = self.pv_area;
         if pv.width > 0 && row.abs_diff(pv.y) <= 1 && col >= pv.x && col < pv.x + pv.width {
             self.dragging = Some(DragTarget::PvTop);
@@ -398,7 +369,6 @@ impl App {
     }
 
     fn handle_scroll(&mut self, delta: i32, col: u16, row: u16) {
-        // Only scroll the move list if the mouse is over the sidebar area
         let sb = self.sidebar_area;
         if sb.width > 0 && col >= sb.x && col < sb.x + sb.width && row >= sb.y && row < sb.y + sb.height {
             let n_moves = self.game.ply();
@@ -407,15 +377,11 @@ impl App {
 
             let new_scroll = (self.move_list_scroll as i32 + delta).clamp(0, max_scroll as i32) as usize;
             self.move_list_scroll = new_scroll;
-
-            // Latch to bottom if we scrolled to the end
             self.move_list_latched = self.move_list_scroll >= max_scroll;
         }
     }
 
-    /// Sync the move list scroll position to the current view_index (history navigation).
     fn move_list_visible_rows(&self) -> usize {
-        // The move list area minus 2 for borders
         self.move_list_area.height.saturating_sub(2).max(1) as usize
     }
 
@@ -428,27 +394,23 @@ impl App {
         let move_idx = self.view_index - 1;
         let visible = self.move_list_visible_rows();
 
-        // Scroll to keep the current move visible
         if move_idx < self.move_list_scroll {
             self.move_list_scroll = move_idx;
         } else if move_idx >= self.move_list_scroll + visible {
             self.move_list_scroll = move_idx.saturating_sub(visible) + 1;
         }
 
-        // Latch if at the latest move
         let n_moves = self.game.ply();
         let max_scroll = n_moves.saturating_sub(visible);
         self.move_list_latched = self.view_index == self.game.len() - 1 && self.move_list_scroll >= max_scroll;
     }
 
     fn handle_mouse_move(&mut self, col: u16, row: u16) {
-        // Check if hovering over the policy bars area
         let pb = self.policy_bars_area;
         if pb.width > 0 && col >= pb.x && col < pb.x + pb.width && row >= pb.y && row < pb.y + pb.height {
             let pi = self.active_pi();
             if !pi.is_empty() {
-                // The bars are centered: compute which bar index this column maps to
-                let inner_x = pb.x + 1; // account for border
+                let inner_x = pb.x + 1;
                 let inner_w = pb.width.saturating_sub(2);
                 let n = pi.len() as u16;
                 let start_x = inner_x + inner_w.saturating_sub(n) / 2;
@@ -465,7 +427,6 @@ impl App {
         let Some(target) = self.dragging else { return };
         match target {
             DragTarget::SidebarLeft => {
-                // Sidebar sits between the click position and the toggles panel
                 let toggles_left = self.toggles_area.x;
                 let new_width = toggles_left.saturating_sub(col);
                 let max_w = self.last_screen_size.0 / 2;
@@ -502,7 +463,6 @@ impl App {
                 self.temperature_modal = None;
             }
             AppEvent::ModalClick(col, row) => {
-                // Check if click is on the slider track
                 let modal_area = TemperatureModal::area(Rect {
                     x: 0, y: 0,
                     width: self.last_screen_size.0,
@@ -519,15 +479,14 @@ impl App {
         }
     }
 
-    fn handle_click(&mut self, display_coord: HexCoord) {
+    fn handle_click(&mut self, display_coord: B::Coord) {
         if !self.viewing_live() { return; }
 
         match &self.phase {
             Phase::HumanTurn => {
                 let board = self.game.current_board();
                 let info = board.get_info();
-                let matrix = board.get_unflipped_matrix();
-                let content = matrix[display_coord.x as usize][display_coord.y as usize];
+                let content = board.get_cell_unflipped(&display_coord).player();
                 if content == info.current_player {
                     self.select_piece(display_coord);
                 }
@@ -536,15 +495,13 @@ impl App {
                 let piece = *piece;
                 let legal = legal.clone();
                 if display_coord == piece {
-                    // Click same piece again → deselect
                     self.phase = Phase::HumanTurn;
                 } else if let Some((action_index, _)) = legal.iter().find(|(_, dest)| *dest == display_coord) {
                     self.apply_move(*action_index);
                 } else {
                     let board = self.game.current_board();
                     let info = board.get_info();
-                    let matrix = board.get_unflipped_matrix();
-                    let content = matrix[display_coord.x as usize][display_coord.y as usize];
+                    let content = board.get_cell_unflipped(&display_coord).player();
                     if content == info.current_player {
                         self.select_piece(display_coord);
                     } else {
@@ -556,12 +513,12 @@ impl App {
         }
     }
 
-    fn select_piece(&mut self, display_coord: HexCoord) {
+    fn select_piece(&mut self, display_coord: B::Coord) {
         let board = self.game.current_board();
         let info = board.get_info();
         let moves = board.legal_moves();
 
-        let legal: Vec<(usize, HexCoord)> = moves.iter().enumerate().filter_map(|(i, mv)| {
+        let legal: Vec<(usize, B::Coord)> = moves.iter().enumerate().filter_map(|(i, mv)| {
             let from_display = if info.current_player == 1 { mv.from_coord } else { mv.from_coord.flip() };
             if from_display == display_coord {
                 let to_display = if info.current_player == 1 { mv.to_coord } else { mv.to_coord.flip() };
@@ -580,7 +537,6 @@ impl App {
         let board_hash = self.game.current_board().compute_hash();
         let cp = self.game.current_board().get_info().current_player;
 
-        // Drain updates from both AIs
         for player in [1i8, 2] {
             loop {
                 let update = match self.ai_for(player) {
@@ -589,7 +545,6 @@ impl App {
                 };
                 match update {
                     Some(AiUpdate::Progress(p)) => {
-                        // Only accept data for the current board position
                         if p.board_hash == board_hash {
                             let a = self.analysis_mut(player);
                             a.board_hash = p.board_hash;
@@ -600,12 +555,11 @@ impl App {
                             a.nn_pi = p.nn.pi;
                             a.rollouts = p.total_rollouts;
                         }
-                        // Stale data for old positions is silently dropped
                     }
                     Some(AiUpdate::Move(m)) => {
                         if m.board_hash == board_hash && matches!(self.phase, Phase::AiThinking { .. }) {
                             self.apply_move(m.action_index);
-                            return; // apply_move changes the game state, stop processing
+                            return;
                         }
                     }
                     None => break,
@@ -613,7 +567,6 @@ impl App {
             }
         }
 
-        // Check if AI's time is up — request a move
         if let Phase::AiThinking { deadline } = self.phase {
             if Instant::now() >= deadline {
                 let player = self.game.current_board().get_info().current_player;
@@ -624,14 +577,28 @@ impl App {
         }
     }
 
-    // ── Build board view for the layer system ──
+    // ── Build board view for the styling engine ──
 
-    fn build_board_view(&self) -> BoardView {
+    fn build_board_view(&self) -> BoardView<B::Coord> {
+        let board = self.game.board_at(self.view_index);
+        let (s, _) = board.get_sizes();
+
+        // Build cells using GameVisual trait
+        let mut cells = Vec::with_capacity(s as usize * s as usize);
+        for x in 0..s {
+            for y in 0..s {
+                let coord = B::Coord::new(x, y, s);
+                let cell = board.get_cell_unflipped(&coord);
+                let visual = B::cell_visual(cell, &coord, s);
+                cells.push((coord, visual));
+            }
+        }
+
         let mut view = BoardView {
-            matrix: self.game.board_at(self.view_index).get_unflipped_matrix(),
-            board_size: self.config.board_size,
+            board_size: s,
             current_player: self.displayed_current_player(),
-            selected_piece: None,
+            cells,
+            selected: None,
             legal_destinations: Vec::new(),
             last_move: None,
             policy: Vec::new(),
@@ -640,15 +607,15 @@ impl App {
 
         if let Phase::PieceSelected { piece, legal } = &self.phase {
             if self.viewing_live() {
-                view.selected_piece = Some(*piece);
+                view.selected = Some(*piece);
                 view.legal_destinations = legal.iter().map(|(_, dest)| *dest).collect();
             }
         }
 
         if self.view_index > 0 {
             let rec = &self.game.move_records()[self.view_index - 1];
-            let board = self.game.board_at(self.view_index - 1);
-            let info = board.get_info();
+            let prev_board = self.game.board_at(self.view_index - 1);
+            let info = prev_board.get_info();
             let player = info.current_player;
             let from = if player == 1 { rec.mv.from_coord } else { rec.mv.from_coord.flip() };
             let to = if player == 1 { rec.mv.to_coord } else { rec.mv.to_coord.flip() };
@@ -657,9 +624,9 @@ impl App {
 
         let pi = self.active_pi();
         if self.viewing_live() && self.toggles.policy_mode.any() && !pi.is_empty() {
-            let board = self.game.current_board();
-            let info = board.get_info();
-            let moves = board.legal_moves();
+            let current_board = self.game.current_board();
+            let info = current_board.get_info();
+            let moves = current_board.legal_moves();
             let weights = self.scale_pi(pi);
             view.policy = moves.iter().enumerate()
                 .filter(|(i, _)| *i < weights.len())
@@ -670,12 +637,11 @@ impl App {
                 .collect();
         }
 
-        // Hovered move from policy bars
         if let Some(move_idx) = self.hovered_move {
             if self.viewing_live() {
-                let board = self.game.current_board();
-                let info = board.get_info();
-                let moves = board.legal_moves();
+                let current_board = self.game.current_board();
+                let info = current_board.get_info();
+                let moves = current_board.legal_moves();
                 if move_idx < moves.len() {
                     let mv = &moves[move_idx];
                     let from = if info.current_player == 1 { mv.from_coord } else { mv.from_coord.flip() };
@@ -688,7 +654,6 @@ impl App {
         view
     }
 
-    /// Convert raw pi values to display weights (0..1) based on the policy scale mode.
     fn scale_pi(&self, pi: &[f32]) -> Vec<f32> {
         use crate::status_bar::PolicyScale;
         if pi.is_empty() { return Vec::new(); }
@@ -706,7 +671,7 @@ impl App {
                 let n = pi.len();
                 if n == 0 { return Vec::new(); }
                 let mut indexed: Vec<(usize, f32)> = pi.iter().cloned().enumerate().collect();
-                indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                indexed.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
                 let mut weights = vec![0.0f32; n];
                 for (rank, &(idx, _)) in indexed.iter().enumerate() {
                     weights[idx] = 1.0 - (rank as f32 / n as f32);
@@ -714,27 +679,18 @@ impl App {
                 weights
             }
             PolicyScale::Spread => {
-                // Rescale so min→0 and max→1, blowing up small differences.
                 let min = pi.iter().cloned().fold(f32::INFINITY, f32::min);
                 let max = pi.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
                 let range = max - min;
                 if range > 1e-9 {
                     pi.iter().map(|&v| (v - min) / range).collect()
                 } else {
-                    vec![0.5; pi.len()] // all equal — flat
+                    vec![0.5; pi.len()]
                 }
             }
         }
     }
 
-    fn get_backend(&self) -> Box<dyn RenderBackend> {
-        match self.renderer {
-            RendererKind::Glyph => Box::new(GlyphBackend),
-        }
-    }
-
-    /// Get the pi for the current position from whichever AI has current data.
-    /// Get the pi for the current position, respecting the policy_mode toggle.
     fn active_pi(&self) -> &[f32] {
         use crate::status_bar::DataSource;
         if !self.toggles.policy_mode.any() { return &[]; }
@@ -743,7 +699,6 @@ impl App {
         let cp = self.game.current_board().get_info().current_player;
         let opponent = if cp == 1 { 2 } else { 1 };
 
-        // Try players in order, filtered by policy_mode
         let candidates: Vec<i8> = [cp, opponent].into_iter().filter(|&p| {
             match p {
                 1 => self.toggles.policy_mode.show_p1(),
@@ -765,7 +720,6 @@ impl App {
         &[]
     }
 
-    /// Get normalized policy bars and the color to render them in.
     fn policy_bars_data(&self) -> (Vec<f32>, ratatui::style::Color) {
         let pi = self.active_pi();
         if pi.is_empty() {
@@ -777,12 +731,6 @@ impl App {
         (bars, color)
     }
 
-    /// Value for a player's eval bar, normalized to P1 perspective.
-    /// Returns the most recent value if the analysis is for the current position,
-    /// otherwise falls back to the last known value (avoids snapping to 0).
-    /// Value from P1's perspective (positive = P1 winning).
-    /// Uses the stored current_player from when the analysis was computed,
-    /// so it stays stable across turn changes.
     fn value_for_player_p1_perspective(&self, player: i8) -> f32 {
         use crate::status_bar::DataSource;
         let a = self.analysis(player);
@@ -790,9 +738,6 @@ impl App {
             DataSource::Mcts => a.mcts_value,
             DataSource::Nn => a.nn_value,
         };
-        // The value was computed from the perspective of a.current_player.
-        // If that was P1, the value is already P1-perspective.
-        // If that was P2, negate to get P1-perspective.
         if a.current_player == 1 { raw } else { -raw }
     }
 
@@ -801,31 +746,26 @@ impl App {
     }
 
     // ── Rendering ──
-    //
-    // Layout:
-    //   [current_player] [eval_bars] | board (top) + policy_bars (bottom) | moves+PV (togglable) | toggles
-    //                                  ↑ draggable split                    ↑ draggable width
 
     fn render(&mut self, frame: &mut ratatui::Frame) {
         let size = frame.area();
         self.last_screen_size = (size.width, size.height);
 
-        // ── Horizontal columns: [player+eval] | board_col | moves_col (if on) | toggles ──
         let show_p1_bar = self.toggles.eval_mode.show_p1();
         let show_p2_bar = self.toggles.eval_mode.show_p2();
         let n_bars = show_p1_bar as u16 + show_p2_bar as u16;
-        let eval_col_width = if n_bars > 0 { 3 + n_bars * 5 } else { 0 }; // player box + bars
+        let eval_col_width = if n_bars > 0 { 3 + n_bars * 5 } else { 0 };
         let toggles_width: u16 = 18;
 
         let mut h_constraints = vec![];
         if eval_col_width > 0 {
             h_constraints.push(Constraint::Length(eval_col_width));
         }
-        h_constraints.push(Constraint::Min(20)); // board column
+        h_constraints.push(Constraint::Min(20));
         if self.toggles.show_moves {
-            h_constraints.push(Constraint::Length(self.sidebar_width)); // moves column
+            h_constraints.push(Constraint::Length(self.sidebar_width));
         }
-        h_constraints.push(Constraint::Length(toggles_width)); // toggles (always)
+        h_constraints.push(Constraint::Length(toggles_width));
 
         let h_chunks = Layout::default()
             .direction(Direction::Horizontal)
@@ -838,7 +778,6 @@ impl App {
         let moves_col = if self.toggles.show_moves { col_idx += 1; Some(h_chunks[col_idx - 1]) } else { None };
         let toggles_area = h_chunks[col_idx];
 
-        // ── Eval column: current_player box on top, then eval bar(s) ──
         if let Some(eval_area) = eval_area {
             let player_box_h: u16 = 4;
             let eval_vert = Layout::default()
@@ -851,7 +790,6 @@ impl App {
                 game_over: self.game.is_game_over(),
             }, eval_vert[0]);
 
-            // Split the bar area horizontally for 1 or 2 bars
             let bar_constraints: Vec<Constraint> = (0..n_bars).map(|_| Constraint::Ratio(1, n_bars as u32)).collect();
             let bar_chunks = Layout::default()
                 .direction(Direction::Horizontal)
@@ -872,7 +810,6 @@ impl App {
             }
         }
 
-        // ── Board column: board on top, policy bars on bottom ──
         let board_vert = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Min(5), Constraint::Length(self.policy_bars_height)])
@@ -889,14 +826,11 @@ impl App {
         frame.render_widget(board_block, board_area);
         self.board_area = board_inner;
 
-        // Build view and resolve hex styles
+        // Build view and resolve styles using the shared engine
         let view = self.build_board_view();
-        let styles = layers::resolve_styles(&view);
-
-        let (world_w, world_h) = (board_inner.width as f32, board_inner.height as f32);
-        let layout = HexLayout::fit(self.config.board_size, world_w, world_h);
-        let backend = self.get_backend();
-        backend.render(&layout, &styles, board_inner, frame.buffer_mut());
+        let styled_cells = styling::resolve_styles(&view);
+        self.renderer.fit(self.config.board_size, board_inner);
+        self.renderer.render(&styled_cells, board_inner, frame.buffer_mut());
 
         // Policy bars
         let (bars, bar_color) = self.policy_bars_data();
@@ -906,7 +840,6 @@ impl App {
             visible: true,
         }, self.policy_bars_area);
 
-        // ── Moves + PV column (togglable) ──
         if let Some(moves_col) = moves_col {
             self.sidebar_area = moves_col;
 
@@ -942,14 +875,12 @@ impl App {
             self.pv_area = Rect::default();
         }
 
-        // ── Toggles panel (always visible, rightmost) ──
         self.toggles_area = toggles_area;
         frame.render_widget(TogglesPanelWidget {
             toggles: &self.toggles,
             game_over: self.game.is_game_over(),
         }, toggles_area);
 
-        // ── Modal overlay ──
         if let Some(modal) = &self.temperature_modal {
             frame.render_widget(TemperatureModalWidget { modal }, size);
         }
@@ -965,7 +896,6 @@ impl App {
         let mut terminal = Terminal::new(backend)?;
         terminal.clear()?;
 
-        // Create AI handles for AI players
         for player in [1i8, 2] {
             self.ensure_ai(player);
         }

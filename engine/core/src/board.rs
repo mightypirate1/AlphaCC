@@ -2,7 +2,14 @@ use std::hash::{Hash, Hasher};
 use crate::{BoardInfo, dtypes::{BoardHash, BoardSize}, Move};
 
 
-pub trait Coord {
+pub trait CellContent: Copy + From<i8> {
+    /// Swap player perspective: P1↔P2, empty stays empty.
+    fn flip(self) -> Self;
+    /// Which player owns this cell (1 or 2), or 0 if empty.
+    fn player(self) -> i8;
+}
+
+pub trait Coord: Copy + Eq + std::hash::Hash + Send {
     fn new(x: BoardSize, y: BoardSize, size: BoardSize) -> Self;
     fn flip(&self) -> Self;
     fn xy(&self) -> (BoardSize, BoardSize);
@@ -10,7 +17,7 @@ pub trait Coord {
 
 pub trait Board: Clone + Eq + Hash + Send + Sync {
     type Coord: Coord;
-    type Content: Copy;
+    type Content: CellContent;
 
     fn apply_move(&self, r#move: &Move<Self::Coord>) -> Self;
     fn legal_moves(&self) -> Vec<Move<Self::Coord>>;
@@ -23,11 +30,11 @@ pub trait Board: Clone + Eq + Hash + Send + Sync {
     fn get_sizes(&self) -> (BoardSize, BoardSize);
     fn get_cell(&self, coord: &Self::Coord) -> Self::Content;
     fn get_content(&self, coord: &Self::Coord) -> i8;
-    fn get_content_unflipped(&self, coord: &Self::Coord) -> i8 {
+    fn get_cell_unflipped(&self, coord: &Self::Coord) -> Self::Content {
         if self.get_info().current_player == 1 {
-            self.get_content(&coord.flip())
+            self.get_cell(coord)
         } else {
-            self.get_content(coord)
+            self.get_cell(&coord.flip()).flip()
         }
     }
     fn compute_hash(&self) -> BoardHash {

@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 class Trainer:
     def __init__(
         self,
-        config: "GameConfig",
+        config: GameConfig,
         nn: DefaultNet,
         policy_weight: float = 1.0,
         value_weight: float = 1.0,
@@ -320,7 +320,9 @@ class Trainer:
                             td_err = torch.where(is_internal[:n_real].squeeze(), torch.zeros_like(td_err), td_err)
                             td_list.append((td_err * weight[:n_real].squeeze()).cpu())
                             # KL(target || pred) over legal moves, unweighted
-                            log_pred = self._policy_log_softmax(current_pi_unsoftmaxed[:n_real], pi_mask[:n_real]).reshape(n_real, -1)
+                            log_pred = self._policy_log_softmax(
+                                current_pi_unsoftmaxed[:n_real], pi_mask[:n_real]
+                            ).reshape(n_real, -1)
                             target_flat = target_pi[:n_real].reshape(n_real, -1)
                             mask_flat = pi_mask[:n_real].reshape(n_real, -1)
                             log_target = torch.log(target_flat.clamp_min(1e-6))

@@ -10,12 +10,12 @@ from alpha_cc.agents.value_assignment import (
 )
 from alpha_cc.engine import Board, GameConfig
 from alpha_cc.nn.nets.default_net import DefaultNet
-
-_TEST_CONFIG = GameConfig("cc:5")
 from alpha_cc.runtimes import TrainingRunTime
 from alpha_cc.training import Trainer, TrainingDataset
 
 from .mocks import MockFileWriter
+
+_TEST_CONFIG = GameConfig("cc:5")
 
 
 @pytest.fixture

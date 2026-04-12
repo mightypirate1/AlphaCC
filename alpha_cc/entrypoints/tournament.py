@@ -285,8 +285,8 @@ def _play_one_game(
         n_threads=n_threads,
     )
 
-    config = GameConfig(game)
-    board = Board(config.board_size)
+    game_config = GameConfig(game)
+    board = Board(game_config.board_size)
     config = RunTimeConfig(max_game_length=max_game_length)
     runtime = RunTime(board, (white_agent, black_agent), config=config)
     winner = runtime.play_game(training=False)

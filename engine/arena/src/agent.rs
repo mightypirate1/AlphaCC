@@ -3,8 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use alpha_cc_nn::NNQuantizedPi;
-use alpha_cc_core::cc::CCBoard;
+use alpha_cc_nn::{BoardEncoding, NNQuantizedPi};
 use alpha_cc_mcts::{MCTS, MCTSParams};
 
 /// Raw NN output for a position.
@@ -36,27 +35,22 @@ pub enum AiUpdate {
 }
 
 /// Shared state between the app and one AI thread.
-struct SharedState {
-    /// The board the AI should think about.
-    board: Mutex<CCBoard>,
-    /// Whether the AI should be doing rollouts.
+struct SharedState<B: BoardEncoding> {
+    board: Mutex<B>,
     should_think: AtomicBool,
-    /// Whether the AI should pick a move (set by app when deadline hits).
     should_move: AtomicBool,
-    /// Whether to sample (true) or argmax (false) when picking a move.
     sample: AtomicBool,
-    /// Signal to shut down the thread.
     shutdown: AtomicBool,
 }
 
 /// Handle held by the app to control one AI player.
-pub struct AiHandle {
-    shared: Arc<SharedState>,
+pub struct AiHandle<B: BoardEncoding> {
+    shared: Arc<SharedState<B>>,
     update_rx: std::sync::mpsc::Receiver<AiUpdate>,
     _thread: thread::JoinHandle<()>,
 }
 
-impl AiHandle {
+impl<B: BoardEncoding + 'static> AiHandle<B> {
     pub fn new(
         nn_addr: String,
         model_id: u32,
@@ -64,7 +58,7 @@ impl AiHandle {
         n_threads: usize,
         rollout_depth: usize,
         pruning_tree: bool,
-        initial_board: CCBoard,
+        initial_board: B,
     ) -> Self {
         let shared = Arc::new(SharedState {
             board: Mutex::new(initial_board),
@@ -86,23 +80,19 @@ impl AiHandle {
         Self { shared, update_rx, _thread: handle }
     }
 
-    /// Update the board the AI is thinking about.
-    pub fn set_board(&self, board: &CCBoard) {
+    pub fn set_board(&self, board: &B) {
         *self.shared.board.lock().unwrap() = board.clone();
     }
 
-    /// Tell the AI to start/stop thinking.
     pub fn set_thinking(&self, on: bool) {
         self.shared.should_think.store(on, Ordering::Relaxed);
     }
 
-    /// Tell the AI to pick a move from its current analysis.
     pub fn request_move(&self, sample: bool) {
         self.shared.sample.store(sample, Ordering::Relaxed);
         self.shared.should_move.store(true, Ordering::Release);
     }
 
-    /// Poll for updates (non-blocking).
     pub fn try_recv(&self) -> Option<AiUpdate> {
         self.update_rx.try_recv().ok()
     }
@@ -116,19 +106,19 @@ impl AiHandle {
 // ── AI thread ──
 
 #[allow(clippy::too_many_arguments)]
-fn ai_thread(
+fn ai_thread<B: BoardEncoding>(
     nn_addr: &str,
     model_id: u32,
     params: MCTSParams,
     n_threads: usize,
     rollout_depth: usize,
     pruning_tree: bool,
-    shared: Arc<SharedState>,
+    shared: Arc<SharedState<B>>,
     update_tx: std::sync::mpsc::Sender<AiUpdate>,
 ) {
     let n = n_threads.max(1);
     let services: Vec<_> = (0..n)
-        .map(|_| alpha_cc_nn_service::NNRemote::connect(nn_addr))
+        .map(|_| alpha_cc_nn_service::NNRemote::<B>::connect(nn_addr))
         .collect();
     let mcts = MCTS::new(services, model_id, params, pruning_tree, false);
     let rollouts_per_batch = n_threads.max(1);
@@ -145,22 +135,18 @@ fn ai_thread(
             continue;
         }
 
-        // Get the current board
         let board = shared.board.lock().unwrap().clone();
         let board_hash = board.compute_hash();
 
-        // If the board changed, notify MCTS for tree pruning and reset rollout count
         if board_hash != last_board_hash {
             mcts.notify_move_applied(&board);
             last_board_hash = board_hash;
             total_rollouts = 0;
         }
 
-        // Do one batch of rollouts
         let result = mcts.run_rollout_threads(&board, rollouts_per_batch, rollout_depth, 1.0);
         total_rollouts += rollouts_per_batch;
 
-        // Extract NN data from the root node
         let nn = match mcts.get_node_snapshot(&board) {
             Some(node) => NNData {
                 pi: NNQuantizedPi::dequantize_vec(&node.pi),
@@ -169,7 +155,6 @@ fn ai_thread(
             None => NNData::default(),
         };
 
-        // Send progress
         let _ = update_tx.send(AiUpdate::Progress(AiProgress {
             board_hash,
             mcts_pi: result.pi.clone(),
@@ -178,7 +163,6 @@ fn ai_thread(
             total_rollouts,
         }));
 
-        // Check if we should pick a move
         if shared.should_move.load(Ordering::Acquire) {
             let sample = shared.sample.load(Ordering::Relaxed);
             let action_index = if sample { sample_from_pi(&result.pi) } else { argmax(&result.pi) };

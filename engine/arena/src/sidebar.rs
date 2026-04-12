@@ -4,18 +4,20 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
+use alpha_cc_core::Board;
+use alpha_cc_core::board::Coord;
 use crate::game::MoveRecord;
 use crate::theme;
 
 // ── Move List ──
 
-pub struct MoveListWidget<'a> {
-    pub moves: &'a [MoveRecord],
+pub struct MoveListWidget<'a, B: Board> {
+    pub moves: &'a [MoveRecord<B>],
     pub view_index: usize,
     pub scroll_offset: usize,
 }
 
-impl Widget for MoveListWidget<'_> {
+impl<B: Board> Widget for MoveListWidget<'_, B> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let block = Block::default()
             .title(" Moves ")
@@ -33,12 +35,11 @@ impl Widget for MoveListWidget<'_> {
             let player = if i % 2 == 0 { 1 } else { 2 };
             let color = if player == 1 { theme::P1 } else { theme::P2 };
             let highlight = if i + 1 == self.view_index { ">" } else { " " };
+            let (fx, fy) = rec.mv.from_coord.xy();
+            let (tx, ty) = rec.mv.to_coord.xy();
             let text = format!(
                 "{}{:>3}. ({},{})→({},{})",
-                highlight,
-                i + 1,
-                rec.mv.from_coord.x, rec.mv.from_coord.y,
-                rec.mv.to_coord.x, rec.mv.to_coord.y,
+                highlight, i + 1, fx, fy, tx, ty,
             );
             (Style::default().fg(color), text)
         }).collect();
