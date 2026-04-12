@@ -252,4 +252,25 @@ impl Backend for OnnxBackend {
     fn model_store(&self) -> &ModelStore<OnnxSession> {
         &self.models
     }
+
+    fn load_model_from_file(&self, path: &str) -> anyhow::Result<OnnxSession> {
+        let session = Session::builder()
+            .map_err(|e| anyhow::anyhow!("session builder: {e}"))?
+            .with_execution_providers(self.execution_providers(None))
+            .map_err(|e| anyhow::anyhow!("execution providers: {e}"))?
+            .commit_from_file(path)
+            .map_err(|e| anyhow::anyhow!("commit_from_file: {e}"))?;
+        let session = OnnxSession::new(session);
+        if self.cuda_allocator.get().is_none() {
+            let alloc = create_cuda_allocator(&session.lock());
+            let info = alloc.0.memory_info();
+            log::info!("[onnx] CUDA allocator device: {:?} (id={})", info.allocation_device(), info.device_id());
+            let _ = self.cuda_allocator.set(alloc);
+        }
+        Ok(session)
+    }
+
+    fn trt_config(&self) -> (Option<String>, bool) {
+        (self.trt_cache_path.clone(), self.use_trt)
+    }
 }

@@ -144,4 +144,12 @@ impl Backend for CpuBackend {
     fn model_store(&self) -> &ModelStore<CpuSession> {
         &self.models
     }
+
+    fn load_model_from_file(&self, path: &str) -> anyhow::Result<CpuSession> {
+        let session = Session::builder()
+            .map_err(|e| anyhow::anyhow!("session builder: {e}"))?
+            .commit_from_file(path)
+            .map_err(|e| anyhow::anyhow!("commit_from_file: {e}"))?;
+        Ok(CpuSession(Mutex::new(session)))
+    }
 }

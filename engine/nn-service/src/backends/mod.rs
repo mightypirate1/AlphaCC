@@ -91,4 +91,11 @@ pub trait Backend: Send + Sync + 'static {
         self.model_from_bytes(bytes)
     }
     fn model_store(&self) -> &ModelStore<Self::Model>;
+
+    /// Load a model from a file path.
+    fn load_model_from_file(&self, path: &str) -> anyhow::Result<Self::Model>;
+
+    /// Backend-specific config for the reloader (TRT cache path, use_trt flag).
+    /// Default: no TRT.
+    fn trt_config(&self) -> (Option<String>, bool) { (None, false) }
 }

@@ -8,8 +8,8 @@ use std::collections::HashMap;
 
 use clap::{Args, Parser, Subcommand};
 
-use alpha_cc_nn_service::backends::VersionedModel;
-use alpha_cc_nn_service::backends::onnx::{OnnxBackend, OnnxSession};
+use alpha_cc_nn_service::backends::{Backend, VersionedModel};
+use alpha_cc_nn_service::backends::onnx::OnnxBackend;
 use alpha_cc_nn_service::server::config::{
     BatcherConfig, PipelineChannelConfig, PipelineConfig, ServerConfig,
 };
@@ -159,6 +159,62 @@ fn build_server_config(args: &ServeArgs) -> ServerConfig {
     ServerConfig { port: args.port, game_size: args.game_size, pipelines }
 }
 
+/// Load initial models from file paths into the backend's model store.
+fn load_models<B: Backend>(backend: &B, paths: &[String], static_mode: bool) {
+    for (i, path) in paths.iter().enumerate() {
+        log::info!("Loading model {i}: {path}");
+        let model = backend.load_model_from_file(path)
+            .unwrap_or_else(|e| panic!("failed to load model {path}: {e}"));
+        let version = if static_mode { i } else { 0 };
+        backend.model_store().set(i, VersionedModel { model, version });
+    }
+}
+
+async fn run_server<B: Backend>(
+    config: ServerConfig,
+    backend: B,
+    reload_freq: u64,
+    redis_host: String,
+) -> anyhow::Result<()> {
+    let addr = format!("[::]:{}", config.port);
+    let poll_interval = std::time::Duration::from_secs(reload_freq);
+
+    let mut batch_size_map: HashMap<usize, Option<usize>> = HashMap::new();
+    for pipeline_cfg in &config.pipelines {
+        for &model_id in &pipeline_cfg.model_ids {
+            batch_size_map.insert(model_id as usize, pipeline_cfg.weight_batch_size);
+        }
+    }
+
+    let (trt_cache_path, use_trt) = backend.trt_config();
+    let server = PredictServer::new(config, backend, false);
+
+    let source = alpha_cc_nn_service::db::TrainingDBRs::from_host(&redis_host)
+        .expect("failed to connect to Redis for model reloading");
+    let _reloader = alpha_cc_nn_service::reloads::spawn_reloader(
+        server.backend(), source, poll_interval, Some("/tmp/healthy".to_string()),
+        trt_cache_path, use_trt, batch_size_map,
+    );
+    log::info!("Model reloader started (poll every {reload_freq}s, redis={redis_host})");
+
+    server.serve(&addr).await
+        .map_err(|e| anyhow::anyhow!("error: {e}"))
+}
+
+async fn run_static<B: Backend>(
+    config: ServerConfig,
+    backend: B,
+) -> anyhow::Result<()> {
+    let addr = format!("[::]:{}", config.port);
+    let server = PredictServer::new(config, backend, true);
+
+    let _ = std::fs::write("/tmp/healthy", "ok");
+    log::info!("Serving static model(s) (no reloader)");
+
+    server.serve(&addr).await
+        .map_err(|e| anyhow::anyhow!("error: {e}"))
+}
+
 fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format(|buf, record| {
@@ -175,9 +231,16 @@ fn main() -> anyhow::Result<()> {
             let config = build_server_config(&common);
             let rt = tokio::runtime::Runtime::new()?;
             if common.cpu {
-                rt.block_on(run_server_cpu(config, common, reload_freq, redis_host))
+                use alpha_cc_nn_service::backends::cpu::CpuBackend;
+                let backend = CpuBackend::new(vec![], config.game_size as i64, common.verbose, common.max_models);
+                load_models(&backend, &common.nn_path, false);
+                log::info!("Loaded {} model(s) (CPU)", common.nn_path.len());
+                rt.block_on(run_server(config, backend, reload_freq, redis_host))
             } else {
-                rt.block_on(run_server_gpu(config, common, reload_freq, redis_host))
+                let backend = OnnxBackend::new(vec![], config.game_size as i64, common.verbose, common.max_models, common.trt_cache_path, common.trt);
+                load_models(&backend, &common.nn_path, false);
+                log::info!("Loaded {} model(s) (GPU)", common.nn_path.len());
+                rt.block_on(run_server(config, backend, reload_freq, redis_host))
             }
         }
         Command::ServeStatic { mut common } => {
@@ -185,137 +248,20 @@ fn main() -> anyhow::Result<()> {
             let config = build_server_config(&common);
             let rt = tokio::runtime::Runtime::new()?;
             if common.cpu {
-                rt.block_on(run_static_cpu(config, common))
+                use alpha_cc_nn_service::backends::cpu::CpuBackend;
+                let backend = CpuBackend::new(vec![], config.game_size as i64, common.verbose, common.max_models);
+                load_models(&backend, &common.nn_path, true);
+                log::info!("Loaded {} model(s) (CPU, static)", common.nn_path.len());
+                rt.block_on(run_static(config, backend))
             } else {
-                rt.block_on(run_static_gpu(config, common))
+                let backend = OnnxBackend::new(vec![], config.game_size as i64, common.verbose, common.max_models, common.trt_cache_path, common.trt);
+                load_models(&backend, &common.nn_path, true);
+                log::info!("Loaded {} model(s) (GPU, static)", common.nn_path.len());
+                rt.block_on(run_static(config, backend))
             }
         }
         Command::Bench { nn_path, game_size, warmup, iters } => {
             benchmark::run_benchmarks(&nn_path, game_size, warmup, iters)
         }
     }
-}
-
-// --- Redis-reloading servers ---
-
-async fn run_server_gpu(
-    config: ServerConfig,
-    args: ServeArgs,
-    reload_freq: u64,
-    redis_host: String,
-) -> anyhow::Result<()> {
-    let addr = format!("[::]:{}", config.port);
-    let n_models = args.nn_path.len();
-    let poll_interval = std::time::Duration::from_secs(reload_freq);
-
-    let mut batch_size_map: HashMap<usize, Option<usize>> = HashMap::new();
-    for pipeline_cfg in &config.pipelines {
-        for &model_id in &pipeline_cfg.model_ids {
-            batch_size_map.insert(model_id as usize, pipeline_cfg.weight_batch_size);
-        }
-    }
-
-    let models: Vec<VersionedModel<OnnxSession>> = args.nn_path.iter().map(|path| {
-        let model = OnnxBackend::load_session_from_file(path, args.trt_cache_path.as_deref(), args.trt)
-            .unwrap_or_else(|e| panic!("failed to load ONNX model {path}: {e}"));
-        VersionedModel { model, version: 0 }
-    }).collect();
-    log::info!("Loaded {n_models} onnx model(s) (GPU)");
-    let reloader_trt_cache_path = args.trt_cache_path.clone();
-    let backend = OnnxBackend::new(models, config.game_size as i64, args.verbose, args.max_models, args.trt_cache_path, args.trt);
-    let server = PredictServer::new(config, backend, false);
-
-    let source = alpha_cc_nn_service::db::TrainingDBRs::from_host(&redis_host)
-        .expect("failed to connect to Redis for model reloading");
-    let _reloader = alpha_cc_nn_service::reloads::spawn_reloader(
-        server.backend(), source, poll_interval, Some("/tmp/healthy".to_string()), reloader_trt_cache_path, args.trt, batch_size_map,
-    );
-    log::info!("Model reloader started (poll every {reload_freq}s, redis={redis_host})");
-
-    server.serve(&addr).await
-        .map_err(|e| anyhow::anyhow!("error: {e}"))
-}
-
-async fn run_server_cpu(
-    config: ServerConfig,
-    args: ServeArgs,
-    reload_freq: u64,
-    redis_host: String,
-) -> anyhow::Result<()> {
-    use alpha_cc_nn_service::backends::cpu::CpuBackend;
-
-    let addr = format!("[::]:{}", config.port);
-    let n_models = args.nn_path.len();
-    let poll_interval = std::time::Duration::from_secs(reload_freq);
-
-    let models = args.nn_path.iter().map(|path| {
-        let model = CpuBackend::load_session_from_file(path)
-            .unwrap_or_else(|e| panic!("failed to load ONNX model {path}: {e}"));
-        VersionedModel { model, version: 0 }
-    }).collect();
-    log::info!("Loaded {n_models} onnx model(s) (CPU)");
-    let backend = CpuBackend::new(models, config.game_size as i64, args.verbose, args.max_models);
-    let server = PredictServer::new(config, backend, false);
-
-    let source = alpha_cc_nn_service::db::TrainingDBRs::from_host(&redis_host)
-        .expect("failed to connect to Redis for model reloading");
-    let _reloader = alpha_cc_nn_service::reloads::spawn_reloader(
-        server.backend(), source, poll_interval, Some("/tmp/healthy".to_string()), None, false, HashMap::new(),
-    );
-    log::info!("Model reloader started (poll every {reload_freq}s, redis={redis_host})");
-
-    server.serve(&addr).await
-        .map_err(|e| anyhow::anyhow!("error: {e}"))
-}
-
-// --- Static servers (no Redis) ---
-
-async fn run_static_gpu(
-    config: ServerConfig,
-    args: ServeArgs,
-) -> anyhow::Result<()> {
-    let addr = format!("[::]:{}", config.port);
-    let n_models = args.nn_path.len();
-
-    let models: Vec<VersionedModel<OnnxSession>> = args.nn_path.iter().enumerate().map(|(i, path)| {
-        log::info!("Loading model {i}: {path}");
-        let model = OnnxBackend::load_session_from_file(path, args.trt_cache_path.as_deref(), args.trt)
-            .unwrap_or_else(|e| panic!("failed to load ONNX model {path}: {e}"));
-        VersionedModel { model, version: i }
-    }).collect();
-    log::info!("Loaded {n_models} onnx model(s) (GPU, static)");
-    let backend = OnnxBackend::new(models, config.game_size as i64, args.verbose, args.max_models, args.trt_cache_path, args.trt);
-    let server = PredictServer::new(config, backend, true);
-
-    // Write health file immediately — no reloader to gate on.
-    let _ = std::fs::write("/tmp/healthy", "ok");
-    log::info!("Serving {n_models} static model(s) (no reloader)");
-
-    server.serve(&addr).await
-        .map_err(|e| anyhow::anyhow!("error: {e}"))
-}
-
-async fn run_static_cpu(
-    config: ServerConfig,
-    args: ServeArgs,
-) -> anyhow::Result<()> {
-    use alpha_cc_nn_service::backends::cpu::CpuBackend;
-
-    let addr = format!("[::]:{}", config.port);
-    let n_models = args.nn_path.len();
-
-    let models = args.nn_path.iter().enumerate().map(|(i, path)| {
-        let model = CpuBackend::load_session_from_file(path)
-            .unwrap_or_else(|e| panic!("failed to load ONNX model {path}: {e}"));
-        VersionedModel { model, version: i }
-    }).collect();
-    log::info!("Loaded {n_models} onnx model(s) (CPU, static)");
-    let backend = CpuBackend::new(models, config.game_size as i64, args.verbose, args.max_models);
-    let server = PredictServer::new(config, backend, true);
-
-    let _ = std::fs::write("/tmp/healthy", "ok");
-    log::info!("Serving {n_models} static model(s) (no reloader)");
-
-    server.serve(&addr).await
-        .map_err(|e| anyhow::anyhow!("error: {e}"))
 }
