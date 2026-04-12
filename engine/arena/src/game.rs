@@ -1,41 +1,40 @@
-use alpha_cc_core::Board;
-use alpha_cc_core::moves::find_all_moves;
-use alpha_cc_core::Move;
+use alpha_cc_core::{Board, Move};
 
-pub struct GameState {
-    history: Vec<Board>,
-    moves: Vec<MoveRecord>,
-    board_size: u8,
+pub struct GameState<B: Board> {
+    history: Vec<B>,
+    moves: Vec<MoveRecord<B>>,
+    initial_board: B,
 }
 
 #[allow(dead_code)]
-pub struct MoveRecord {
+pub struct MoveRecord<B: Board> {
     pub action_index: usize,
-    pub mv: Move,
+    pub mv: Move<B::Coord>,
 }
 
-impl GameState {
-    pub fn new(board_size: u8) -> Self {
+impl<B: Board> GameState<B> {
+    pub fn new(board: B) -> Self {
+        let initial = board.clone();
         Self {
-            history: vec![Board::create(board_size as usize)],
+            history: vec![board],
             moves: Vec::new(),
-            board_size,
+            initial_board: initial,
         }
     }
 
-    pub fn current_board(&self) -> &Board {
+    pub fn current_board(&self) -> &B {
         self.history.last().unwrap()
     }
 
-    pub fn board_at(&self, index: usize) -> &Board {
+    pub fn board_at(&self, index: usize) -> &B {
         &self.history[index]
     }
 
     pub fn apply_move(&mut self, action_index: usize) {
         let board = self.current_board();
-        let moves = find_all_moves(board);
+        let moves = board.legal_moves();
         let mv = moves[action_index].clone();
-        let new_board = board.apply(&mv);
+        let new_board = board.apply_move(&mv);
         self.moves.push(MoveRecord { action_index, mv });
         self.history.push(new_board);
     }
@@ -48,7 +47,7 @@ impl GameState {
         self.moves.len()
     }
 
-    pub fn move_records(&self) -> &[MoveRecord] {
+    pub fn move_records(&self) -> &[MoveRecord<B>] {
         &self.moves
     }
 
@@ -61,14 +60,9 @@ impl GameState {
         self.current_board().get_info().winner
     }
 
-    #[allow(dead_code)]
-    pub fn board_size(&self) -> u8 {
-        self.board_size
-    }
-
     pub fn reset(&mut self) {
         self.history.truncate(1);
-        self.history[0] = Board::create(self.board_size as usize);
+        self.history[0] = self.initial_board.clone();
         self.moves.clear();
     }
 }

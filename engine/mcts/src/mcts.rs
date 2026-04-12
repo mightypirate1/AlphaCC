@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
+use alpha_cc_core::Board;
 use alpha_cc_nn::NNQuantizedPi;
 use alpha_cc_nn::PredictionSource;
-use alpha_cc_core::Board;
-use alpha_cc_core::moves::find_all_moves;
 use crate::mcts_node::MCTSNode;
 use crate::outcome::Outcome;
 use crate::noise;
@@ -16,8 +15,8 @@ pub struct RolloutResult {
     pub greedy_backup_wdl: [f32; 3],
 }
 
-pub struct MCTS<T: PredictionSource> {
-    tree: Arc<Tree>,
+pub struct MCTS<B: Board, T: PredictionSource<B>> {
+    tree: Arc<Tree<B>>,
     services: Vec<T>,
     model_id: u32,
     mcts_params: MCTSParams,
@@ -34,7 +33,7 @@ pub struct MCTSParams {
 }
 
 
-impl<T: PredictionSource> MCTS<T> {
+impl<B: Board, T: PredictionSource<B>> MCTS<B, T> {
     pub fn new(
         services: Vec<T>,
         model_id: u32,
@@ -56,7 +55,7 @@ impl<T: PredictionSource> MCTS<T> {
     fn rollout(
         &self,
         model_id: u32,
-        board: &Board,
+        board: &B,
         remaining_depth: usize,
         root_noise: &Option<Vec<f32>>,
         thread_id: usize,
@@ -73,8 +72,8 @@ impl<T: PredictionSource> MCTS<T> {
             }
 
             let a = self.find_best_action(&data, root_noise);
-            let moves = find_all_moves(board);
-            let s_prime = board.apply(&moves[a]);
+            let moves = board.legal_moves();
+            let s_prime = board.apply_move(&moves[a]);
             self.tree.record_action(thread_id, &s_prime, a);
 
             data.apply_virtual_loss(a);
@@ -98,7 +97,7 @@ impl<T: PredictionSource> MCTS<T> {
         (-v, None)
     }
 
-    fn new_leaf_for(&self, board: &Board, service: &T, model_id: u32) -> MCTSNode {
+    fn new_leaf_for(&self, board: &B, service: &T, model_id: u32) -> MCTSNode {
         let nn_pred = service.predict(board, model_id);
         let v = nn_pred.expected_value();
         let nn_wdl = nn_pred.quant_wdl();
@@ -112,7 +111,7 @@ impl<T: PredictionSource> MCTS<T> {
         MCTSNode::new(pi, v, nn_wdl, num_actions)
     }
 
-    pub fn notify_move_applied(&self, board: &Board) {
+    pub fn notify_move_applied(&self, board: &B) {
         if let Some(action) = self.tree.maybe_prune(board) {
             if self.tree.debug_prints() {
                 let report = self.tree.memory_report();
@@ -122,7 +121,7 @@ impl<T: PredictionSource> MCTS<T> {
     }
 
     /// Get a snapshot of the MCTS node for a board position (if it exists in the tree).
-    pub fn get_node_snapshot(&self, board: &Board) -> Option<MCTSNode> {
+    pub fn get_node_snapshot(&self, board: &B) -> Option<MCTSNode> {
         self.tree.get_data(board).map(|data| data.snapshot())
     }
 
@@ -132,7 +131,7 @@ impl<T: PredictionSource> MCTS<T> {
     }
 
     /// Get snapshots of all nodes in the tree.
-    pub fn get_all_nodes(&self) -> std::collections::HashMap<Board, MCTSNode> {
+    pub fn get_all_nodes(&self) -> std::collections::HashMap<B, MCTSNode> {
         self.tree.iter_data()
             .map(|entry| (entry.key().clone(), entry.value().snapshot()))
             .collect()
@@ -140,7 +139,7 @@ impl<T: PredictionSource> MCTS<T> {
 
     pub fn run_rollout_threads(
         &self,
-        board: &Board,
+        board: &B,
         n_rollouts: usize,
         rollout_depth: usize,
         temperature: f32,
@@ -221,7 +220,7 @@ impl<T: PredictionSource> MCTS<T> {
                 vec![1.0 / n as f32; n]
             }
         } else {
-            let moves = find_all_moves(board);
+            let moves = board.legal_moves();
             let n = moves.len();
             vec![1.0 / n as f32; n]
         };
@@ -238,7 +237,7 @@ impl<T: PredictionSource> MCTS<T> {
 
     /// Walk the tree greedily from `board`, always picking the most-visited child.
     /// Returns the WDL of the deepest reachable node, from the root player's perspective.
-    fn greedy_backup_wdl(&self, board: &Board, max_depth: usize) -> [f32; 3] {
+    fn greedy_backup_wdl(&self, board: &B, max_depth: usize) -> [f32; 3] {
         let mut current = board.clone();
         let mut depth = 0;
 
@@ -264,8 +263,8 @@ impl<T: PredictionSource> MCTS<T> {
                 .max_by_key(|&a| data.get_n(a))
                 .unwrap_or(0);
 
-            let moves = find_all_moves(&current);
-            current = current.apply(&moves[best_action]);
+            let moves = current.legal_moves();
+            current = current.apply_move(&moves[best_action]);
             drop(data);
             depth += 1;
         }

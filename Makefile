@@ -44,7 +44,7 @@ develop: clean venv
 			--index-strategy unsafe-best-match \
     "
 
-install: develop build-engine install-webapp
+install: develop build-engine generate-proto install-webapp
 
 build-engine: generate-stubs
 	@bash -c " \
@@ -61,7 +61,8 @@ generate-proto:
 			--python_out=alpha_cc/proto \
 			--grpc_python_out=alpha_cc/proto \
 			--pyi_out=alpha_cc/proto \
-			engine/nn-service/proto/predict.proto \
+			engine/nn-service/proto/predict.proto && \
+		sed -i 's/^import predict_pb2/from alpha_cc.proto import predict_pb2/' alpha_cc/proto/predict_pb2_grpc.py \
 	"
 
 generate-stubs:

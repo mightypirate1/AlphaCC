@@ -10,15 +10,21 @@ use crate::mcts_node::MCTSNode;
 
 // ── CheapNode: lightweight non-transposing tree for prune tracking ──
 
-struct CheapNode {
+struct CheapNode<B: Board> {
     board_hash: u64,
     visits: u32,
-    children: HashMap<usize, CheapNode>,
+    children: HashMap<usize, CheapNode<B>>,
+    _marker: std::marker::PhantomData<B>,
 }
 
-impl CheapNode {
+impl<B: Board> CheapNode<B> {
     fn new(board_hash: u64) -> Self {
-        Self { board_hash, visits: 0, children: HashMap::new() }
+        Self {
+            board_hash,
+            visits: 0,
+            children: HashMap::new(),
+            _marker: std::marker::PhantomData,
+        }
     }
 
     fn insert_path(&mut self, actions: &[usize], reached_hashes: &[u64]) {
@@ -27,13 +33,13 @@ impl CheapNode {
             if let Some((&child_hash, rest_hashes)) = reached_hashes.split_first() {
                 let child = self.children
                     .entry(first_action)
-                    .or_insert_with(|| CheapNode::new(child_hash));
+                    .or_insert_with(|| CheapNode::<B>::new(child_hash));
                 child.insert_path(rest_actions, rest_hashes);
             }
         }
     }
 
-    fn decrement_all(&self, data: &DashMap<Board, MCTSNode>, board_lookup: &HashMap<u64, Board>) {
+    fn decrement_all(&self, data: &DashMap<B, MCTSNode>, board_lookup: &HashMap<u64, B>) {
         if let Some(board) = board_lookup.get(&self.board_hash) {
             if let Some(node) = data.get(board) {
                 let prev = node.refcount.fetch_sub(self.visits, Relaxed);
@@ -66,14 +72,14 @@ impl CheapNode {
 /// and the action from its parent that led there.
 type RolloutPath = Vec<(u64, usize)>;
 
-struct PruningTree {
-    board_lookup: HashMap<u64, Board>,
+struct PruningTree<B: Board> {
+    board_lookup: HashMap<u64, B>,
     /// Per-thread list of rollout paths. Each inner vec is one rollout's path.
     thread_paths: Vec<Mutex<Vec<RolloutPath>>>,
-    root: Option<CheapNode>,
+    root: Option<CheapNode<B>>,
 }
 
-impl PruningTree {
+impl<B: Board> PruningTree<B> {
     fn new(n_threads: usize) -> Self {
         Self {
             board_lookup: HashMap::new(),
@@ -86,16 +92,16 @@ impl PruningTree {
 
 // ── Tree ──
 
-pub struct Tree {
-    data: DashMap<Board, MCTSNode>,
-    tracking: Option<Mutex<PruningTree>>,
+pub struct Tree<B: Board> {
+    data: DashMap<B, MCTSNode>,
+    tracking: Option<Mutex<PruningTree<B>>>,
     debug_prints: bool,
     /// Tracks all board hashes ever inserted, for re-expansion counting (debug only).
     ever_seen: Option<Mutex<HashSet<u64>>>,
     reexpansion_count: AtomicU64,
 }
 
-impl Tree {
+impl<B: Board> Tree<B> {
     pub fn new(n_threads: usize, pruning_tree: bool, debug_prints: bool) -> Self {
         Self {
             data: DashMap::new(),
@@ -107,7 +113,7 @@ impl Tree {
     }
 
     /// Look up a board position, incrementing its refcount.
-    pub fn visit(&self, board: &Board, _thread_id: usize) -> Option<dashmap::mapref::one::Ref<'_, Board, MCTSNode>> {
+    pub fn visit(&self, board: &B, _thread_id: usize) -> Option<dashmap::mapref::one::Ref<'_, B, MCTSNode>> {
         let node = self.data.get(board)?;
         node.refcount.fetch_add(1, Relaxed);
         Some(node)
@@ -122,7 +128,7 @@ impl Tree {
     }
 
     /// Record the action chosen by a rollout thread (appends to current rollout's path).
-    pub fn record_action(&self, thread_id: usize, board: &Board, action: usize) {
+    pub fn record_action(&self, thread_id: usize, board: &B, action: usize) {
         if let Some(ref tracking_mutex) = self.tracking {
             let tracking = tracking_mutex.lock().unwrap();
             let hash = board.compute_hash();
@@ -134,7 +140,7 @@ impl Tree {
     }
 
     /// Insert a new leaf node.
-    pub fn insert(&self, board: &Board, node: MCTSNode) -> bool {
+    pub fn insert(&self, board: &B, node: MCTSNode) -> bool {
         use dashmap::mapref::entry::Entry;
         let hash = board.compute_hash();
         let inserted = match self.data.entry(board.clone()) {
@@ -157,7 +163,7 @@ impl Tree {
     }
 
     /// Merge thread paths into the tracking tree. Called single-threaded after thread::scope.
-    pub fn finalize_rollouts(&self, root_board: &Board) {
+    pub fn finalize_rollouts(&self, root_board: &B) {
         let Some(ref tracking_mutex) = self.tracking else { return };
         let mut tracking = tracking_mutex.lock().unwrap();
 
@@ -227,7 +233,7 @@ impl Tree {
 
     /// Detect board change, prune, and return the played action.
     /// Panics if tracking is enabled and board is not a child of the root.
-    pub fn maybe_prune(&self, board: &Board) -> Option<usize> {
+    pub fn maybe_prune(&self, board: &B) -> Option<usize> {
         let tracking_mutex = self.tracking.as_ref()?;
         let tracking = tracking_mutex.lock().unwrap();
         let root = tracking.root.as_ref()?;
@@ -244,9 +250,9 @@ impl Tree {
             .clone();
         drop(tracking);
 
-        let moves = alpha_cc_core::moves::find_all_moves(&root_board);
+        let moves = root_board.legal_moves();
         let played_action = moves.iter().enumerate()
-            .find(|(_, m)| root_board.apply(m).compute_hash() == board_hash)
+            .find(|(_, m)| root_board.apply_move(m).compute_hash() == board_hash)
             .map(|(i, _)| i);
 
         match played_action {
@@ -287,11 +293,11 @@ impl Tree {
 
 
     /// Read-only lookup (no refcount increment, no tracking).
-    pub fn get_data(&self, board: &Board) -> Option<dashmap::mapref::one::Ref<'_, Board, MCTSNode>> {
+    pub fn get_data(&self, board: &B) -> Option<dashmap::mapref::one::Ref<'_, B, MCTSNode>> {
         self.data.get(board)
     }
 
-    pub fn iter_data(&self) -> impl Iterator<Item = dashmap::mapref::multiple::RefMulti<'_, Board, MCTSNode>> {
+    pub fn iter_data(&self) -> impl Iterator<Item = dashmap::mapref::multiple::RefMulti<'_, B, MCTSNode>> {
         self.data.iter()
     }
 
@@ -300,7 +306,7 @@ impl Tree {
         let mut dashmap_bytes: usize = 0;
         let mut dashmap_nodes: usize = 0;
         for entry in self.data.iter() {
-            dashmap_bytes += std::mem::size_of::<Board>() + entry.value().estimated_bytes();
+            dashmap_bytes += std::mem::size_of::<B>() + entry.value().estimated_bytes();
             dashmap_nodes += 1;
         }
         dashmap_bytes += dashmap_nodes * 50; // DashMap per-entry overhead estimate
@@ -318,7 +324,7 @@ impl Tree {
                 (0, 0, 0)
             };
 
-        let board_lookup_bytes = board_lookup_entries * (8 + std::mem::size_of::<Board>() + 32);
+        let board_lookup_bytes = board_lookup_entries * (8 + std::mem::size_of::<B>() + 32);
 
         let reexpansion_count = self.reexpansion_count.load(Relaxed);
         let ever_seen_count = self.ever_seen.as_ref()

@@ -1,18 +1,23 @@
 mod app;
 mod agent;
+mod cc;
 mod game;
-mod hex;
 mod input;
 mod modal;
+mod renderer;
 mod sidebar;
 mod status_bar;
+mod styling;
 mod theme;
+mod visual;
 
 use std::time::Duration;
 
 use clap::Parser;
 
-use crate::app::{App, AppConfig, PlayerConfig, RendererKind};
+use alpha_cc_core::cc::CCBoard;
+use crate::app::{App, AppConfig, PlayerConfig};
+use crate::cc::HexRenderer;
 
 /// Interactive AlphaCC game client.
 ///
@@ -39,10 +44,6 @@ struct Cli {
     /// Board size (3, 5, 7, or 9)
     #[arg(long, default_value = "7")]
     board_size: u8,
-
-    /// Renderer: "glyph" (classic characters) or "pixel" (half-block graphics)
-    #[arg(long, default_value = "glyph")]
-    renderer: String,
 
     /// nn-service gRPC address
     #[arg(long, default_value = "http://localhost:50055")]
@@ -87,7 +88,6 @@ fn parse_player(s: &str) -> anyhow::Result<PlayerConfig> {
             .map_err(|_| anyhow::anyhow!("Invalid channel in '{s}'. Expected ai:<number>"))?;
         return Ok(PlayerConfig::Ai { channel });
     }
-    // bare number → ai:<n>
     if let Ok(channel) = s.parse::<u32>() {
         return Ok(PlayerConfig::Ai { channel });
     }
@@ -98,16 +98,10 @@ fn main() -> anyhow::Result<()> {
     env_logger::init();
     let cli = Cli::parse();
 
-    let renderer = match cli.renderer.as_str() {
-        "glyph" | "g" => RendererKind::Glyph,
-        other => anyhow::bail!("Unknown renderer: {other}. Use 'glyph'"),
-    };
-
     let config = AppConfig {
         p1: parse_player(&cli.p1)?,
         p2: parse_player(&cli.p2)?,
         board_size: cli.board_size,
-        renderer,
         nn_addr: cli.nn_addr,
         think_time: Duration::from_secs_f64(cli.think_time),
         n_threads: cli.n_threads,
@@ -118,6 +112,8 @@ fn main() -> anyhow::Result<()> {
         pruning_tree: cli.pruning_tree,
     };
 
-    let mut app = App::new(config);
+    let board = CCBoard::create(cli.board_size as usize);
+    let renderer = HexRenderer::new(cli.board_size);
+    let mut app = App::new(config, board, renderer);
     app.run()
 }

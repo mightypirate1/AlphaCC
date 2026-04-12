@@ -1,11 +1,16 @@
+from __future__ import annotations
+
 import contextlib
 import io
 import logging
 import threading
 import warnings
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import torch
+
+if TYPE_CHECKING:
+    from alpha_cc.engine import GameConfig
 from torch.utils.tensorboard import SummaryWriter
 
 from alpha_cc.db import TrainingDB
@@ -38,7 +43,7 @@ class ExportThread(threading.Thread):
         model: DefaultNet,
         db: TrainingDB,
         run_id: str,
-        board_size: int,
+        config: GameConfig,
         onnx_compiled_batch_size: int | None = None,
         summary_writer: SummaryWriter | None = None,
     ) -> None:
@@ -46,7 +51,7 @@ class ExportThread(threading.Thread):
         self._model = model
         self._db = db
         self._run_id = run_id
-        self._board_size = board_size
+        self._config = config
         self._onnx_compiled_batch_size = onnx_compiled_batch_size
         self._summary_writer = summary_writer
 
@@ -108,7 +113,7 @@ class ExportThread(threading.Thread):
 
         self._model.eval()
         batch = self._onnx_compiled_batch_size or 1
-        dummy = torch.zeros(batch, 2, self._board_size, self._board_size)
+        dummy = torch.zeros(batch, self._config.state_channels, self._config.board_size, self._config.board_size)
         tmp_path = Path(Environment.model_dir) / "temp-export-thread.onnx"
         dynamic_axes = (
             None

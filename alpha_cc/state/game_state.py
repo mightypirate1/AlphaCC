@@ -4,7 +4,7 @@ from typing import NewType
 
 import numpy as np
 
-from alpha_cc.engine import Board, BoardInfo, HexCoord, Move, create_move_index_map, create_move_mask
+from alpha_cc.engine import Board, BoardInfo, HexCoord, Move, create_move_index_map
 
 StateHash = NewType("StateHash", int)
 
@@ -64,11 +64,7 @@ class GameState:
     @property
     def action_mask(self) -> np.ndarray:
         if self._action_mask is None:
-            moves = self.board.get_moves()
-            mask_uncropped = np.array(create_move_mask(moves))
-            d = self.board.info.size
-            action_mask = mask_uncropped[:d, :d, :d, :d]
-            self._action_mask = action_mask
+            self._action_mask = self.board.policy_mask()
         return self._action_mask
 
     @property

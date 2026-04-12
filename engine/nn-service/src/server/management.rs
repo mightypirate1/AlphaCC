@@ -47,7 +47,7 @@ impl<B: Backend> ManagementService for ManagementServiceImpl<B> {
             .collect();
 
         Ok(Response::new(ServerInfoResponse {
-            game_size: self.config.game_size as u32,
+            game: self.config.game.clone(),
             channels,
             batch_sizes,
             static_mode: self.static_mode,

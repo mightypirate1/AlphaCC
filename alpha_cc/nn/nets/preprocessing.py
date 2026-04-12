@@ -1,4 +1,11 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import torch
+
+if TYPE_CHECKING:
+    from alpha_cc.engine import GameConfig
 
 
 class CoordinateChannels(torch.nn.Module):
@@ -6,11 +13,14 @@ class CoordinateChannels(torch.nn.Module):
     Concatenate coordinate channels to the input tensor.
     """
 
+    EXTRA_CHANNELS = 2  # h_coords + w_coords
+
     h_coords: torch.Tensor
     w_coords: torch.Tensor
 
-    def __init__(self, board_size: int) -> None:
+    def __init__(self, config: GameConfig) -> None:
         super().__init__()
+        board_size = config.board_size
         h_coords = torch.linspace(0, 1, board_size).view(1, 1, -1, 1)
         w_coords = torch.linspace(0, 1, board_size).view(1, 1, 1, -1)
         self.register_buffer("h_coords", h_coords)

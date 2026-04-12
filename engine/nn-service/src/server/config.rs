@@ -1,9 +1,12 @@
 use std::time::Duration;
 
+use alpha_cc_nn::GameConfig;
+
 #[derive(Clone, Debug)]
 pub struct ServerConfig {
     pub port: u16,
-    pub game_size: usize,
+    pub game: String,
+    pub game_config: GameConfig,
     pub pipelines: Vec<PipelineChannelConfig>,
 }
 

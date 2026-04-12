@@ -1,27 +1,39 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import numpy as np
 import torch
 
-from alpha_cc.engine.engine_utils import action_indexer
 from alpha_cc.nn.blocks import PolicySoftmax, ResBlock
 from alpha_cc.nn.nets.preprocessing import CoordinateChannels
-from alpha_cc.state import GameState
-from alpha_cc.state.state_tensors import state_tensor
+
+if TYPE_CHECKING:
+    from alpha_cc.engine import GameConfig
+    from alpha_cc.state import GameState
 
 
 class DefaultNet(torch.nn.Module):
     def __init__(
         self,
-        board_size: int,
+        config: GameConfig,
         n_blocks: int = 6,
         hidden_channels: int = 128,
         dropout: float = 0.3,
     ) -> None:
         super().__init__()
         ch = hidden_channels
+        board_size = config.board_size
+        in_channels = config.state_channels + CoordinateChannels.EXTRA_CHANNELS
+        # policy head outputs (board_size**2 channels * board_size * board_size spatial)
+        # which reshapes to policy_shape
+        policy_channels = config.policy_size // (board_size * board_size)
         self._board_size = board_size
-        self._preprocessing = CoordinateChannels(board_size)
+        self._policy_shape = (-1, *config.policy_shape)
+        self._policy_size = config.policy_size
+        self._preprocessing = CoordinateChannels(config)
         self._encoder = torch.nn.Sequential(
-            ResBlock(4, ch, 3),  # 4 channels: two from the state tensor, two that we append here
+            ResBlock(in_channels, ch, 3),
             *(ResBlock(ch, ch, 5) for _ in range(n_blocks - 1)),
         )
         self._value_local_encoder = torch.nn.Sequential(
@@ -38,7 +50,7 @@ class DefaultNet(torch.nn.Module):
         self._policy_head = torch.nn.Sequential(
             torch.nn.Dropout2d(dropout),
             ResBlock(ch, ch, 5),
-            torch.nn.Conv2d(ch, board_size * board_size, 5, padding=2),
+            torch.nn.Conv2d(ch, policy_channels, 5, padding=2),
         )
         self._value_head = torch.nn.Sequential(
             torch.nn.Dropout(dropout),
@@ -46,7 +58,7 @@ class DefaultNet(torch.nn.Module):
             torch.nn.ReLU(),
             torch.nn.Linear(ch // 2, 3),  # WDL logits: (win, draw, loss)
         )
-        self._policy_softmax = PolicySoftmax(board_size)
+        self._policy_softmax = PolicySoftmax(config)
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         # preprocessing
@@ -57,13 +69,7 @@ class DefaultNet(torch.nn.Module):
 
         # policy head
         x_policy = self._policy_head(x_enc)
-        x_pi = x_policy.view(  # form tensor pi
-            -1,
-            self._board_size,  # from_x
-            self._board_size,  # from_y
-            self._board_size,  # to_x
-            self._board_size,  # to_y
-        )
+        x_pi = x_policy.view(self._policy_shape)
 
         # value head — WDL logits, shape (n, 3)
         x_local = self._value_local_encoder(x_enc)
@@ -84,10 +90,14 @@ class DefaultNet(torch.nn.Module):
     def evaluate_state(self, state: GameState) -> tuple[np.ndarray, np.ndarray]:
         """Returns (pi_probs, wdl_probs) where wdl_probs is [win, draw, loss]."""
         self.eval()
-        x = state_tensor(state).unsqueeze(0)
-        x_pi_all, x_wdl_logits = self(x)
-        mask = torch.as_tensor(state.action_mask)
+        board = state.board
+        st = torch.as_tensor(board.state_tensor()).reshape(1, -1, self._board_size, self._board_size).float()
+        x_pi_all, x_wdl_logits = self(st)
+        mask = torch.as_tensor(board.policy_mask().astype(bool)).reshape(self._policy_shape[1:])
         x_pi = self._policy_softmax(x_pi_all, mask)
-        x_pi_vec = x_pi[:, *action_indexer(state)]
+        # Extract legal-move probabilities via flat policy indices
+        pi_flat = x_pi.reshape(1, -1)
+        indices = torch.as_tensor(board.policy_indices(), dtype=torch.long)
+        x_pi_vec = pi_flat[:, indices]
         wdl_probs = torch.nn.functional.softmax(x_wdl_logits, dim=-1)
         return x_pi_vec.squeeze(0).cpu().numpy(), wdl_probs.squeeze(0).cpu().numpy()

@@ -37,7 +37,7 @@ message ChannelInfo {
 }
 
 message ServerInfoResponse {
-  uint32 game_size = 1;
+  string game = 1;
   repeated ChannelInfo channels = 2;
   repeated uint32 batch_sizes = 3;
   bool static_mode = 4;

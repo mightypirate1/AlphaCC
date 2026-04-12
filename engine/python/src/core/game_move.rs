@@ -1,15 +1,17 @@
 use pyo3::prelude::*;
 use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 
+use alpha_cc_core::cc::HexCoord;
+
 use super::hexcoord::PyHexCoord;
 
 #[gen_stub_pyclass]
 #[pyclass(name = "Move", module = "alpha_cc_engine", from_py_object)]
 #[derive(Clone)]
-pub struct PyMove(pub alpha_cc_core::Move);
+pub struct PyMove(pub alpha_cc_core::Move<HexCoord>);
 
-impl From<alpha_cc_core::Move> for PyMove {
-    fn from(m: alpha_cc_core::Move) -> Self { PyMove(m) }
+impl From<alpha_cc_core::Move<HexCoord>> for PyMove {
+    fn from(m: alpha_cc_core::Move<HexCoord>) -> Self { PyMove(m) }
 }
 
 #[gen_stub_pymethods]
@@ -24,11 +26,6 @@ impl PyMove {
     #[getter]
     fn to_coord(&self) -> PyHexCoord {
         PyHexCoord(self.0.to_coord)
-    }
-
-    #[getter]
-    fn path(&self) -> Vec<PyHexCoord> {
-        self.0.path.iter().map(|c| PyHexCoord(*c)).collect()
     }
 
     fn __repr__(&self) -> String {

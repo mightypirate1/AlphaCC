@@ -5,6 +5,7 @@ use ort::memory::{Allocator, AllocationDevice, AllocatorType, MemoryInfo, Memory
 use ort::session::Session;
 use ort::value::{DynTensor, DynValue};
 
+use alpha_cc_nn::GameConfig;
 use crate::backends::{Backend, DecodedPrediction, ModelStore, VersionedModel};
 use crate::server::types::StateBytes;
 use super::{encoder, inference, decoder};
@@ -96,14 +97,14 @@ pub struct OnnxBackend {
     /// Lazily initialized on the first model load. Requires a Session reference
     /// to create, so it can't be constructed when starting with zero models.
     cuda_allocator: OnceLock<SyncAllocator>,
-    game_size: i64,
+    game_config: GameConfig,
     verbose: bool,
     trt_cache_path: Option<String>,
     use_trt: bool,
 }
 
 impl OnnxBackend {
-    pub fn new(models: Vec<VersionedModel<OnnxSession>>, game_size: i64, verbose: bool, max_models: usize, trt_cache_path: Option<String>, use_trt: bool) -> Self {
+    pub fn new(models: Vec<VersionedModel<OnnxSession>>, game_config: GameConfig, verbose: bool, max_models: usize, trt_cache_path: Option<String>, use_trt: bool) -> Self {
         let cuda_allocator = OnceLock::new();
         // Eagerly initialize if we have a model at startup
         if let Some(first) = models.first() {
@@ -121,7 +122,7 @@ impl OnnxBackend {
         Self {
             models: ModelStore::new(models, max_models),
             cuda_allocator,
-            game_size,
+            game_config,
             verbose,
             trt_cache_path,
             use_trt,
@@ -197,9 +198,8 @@ impl Backend for OnnxBackend {
     type Inferred = (DynTensor, DynTensor);
 
     fn encode(&self, batch: Vec<StateBytes>) -> DynValue {
-        encoder::encode(batch, self.game_size, self.allocator())
+        encoder::encode(batch, &self.game_config, self.allocator())
     }
-
 
     fn inference(&self, model_id: u32, input: DynValue) -> (DynTensor, DynTensor) {
         let batch_size = match input.dtype() {
@@ -213,7 +213,7 @@ impl Backend for OnnxBackend {
             let guard = self.models.load(model_id as usize);
             if let Some(vm) = guard.as_ref().as_ref() {
                 let mut session = vm.model.lock();
-                return inference::nn_inference(&mut session, self.allocator(), &input, self.game_size, batch_size);
+                return inference::nn_inference(&mut session, self.allocator(), &input, &self.game_config, batch_size);
             }
             drop(guard);
             log::warn!("model_id={model_id} not loaded yet, waiting...");
@@ -222,11 +222,11 @@ impl Backend for OnnxBackend {
     }
 
     fn decode(&self, output: (DynTensor, DynTensor)) -> Vec<DecodedPrediction> {
-        decoder::decode(output, self.game_size)
+        decoder::decode(output, &self.game_config)
     }
 
     fn respond(&self, pi_bytes: Vec<u8>, wdl_bytes: Vec<u8>, move_bytes: Vec<u8>) -> DecodedPrediction {
-        crate::backends::respond::respond(&pi_bytes, wdl_bytes, &move_bytes, self.game_size as usize)
+        crate::backends::respond::respond(&pi_bytes, wdl_bytes, &move_bytes, &self.game_config)
     }
 
     fn compile_model(&self, model: OnnxSession) -> anyhow::Result<OnnxSession> {
@@ -251,5 +251,26 @@ impl Backend for OnnxBackend {
 
     fn model_store(&self) -> &ModelStore<OnnxSession> {
         &self.models
+    }
+
+    fn load_model_from_file(&self, path: &str) -> anyhow::Result<OnnxSession> {
+        let session = Session::builder()
+            .map_err(|e| anyhow::anyhow!("session builder: {e}"))?
+            .with_execution_providers(self.execution_providers(None))
+            .map_err(|e| anyhow::anyhow!("execution providers: {e}"))?
+            .commit_from_file(path)
+            .map_err(|e| anyhow::anyhow!("commit_from_file: {e}"))?;
+        let session = OnnxSession::new(session);
+        if self.cuda_allocator.get().is_none() {
+            let alloc = create_cuda_allocator(&session.lock());
+            let info = alloc.0.memory_info();
+            log::info!("[onnx] CUDA allocator device: {:?} (id={})", info.allocation_device(), info.device_id());
+            let _ = self.cuda_allocator.set(alloc);
+        }
+        Ok(session)
+    }
+
+    fn trt_config(&self) -> (Option<String>, bool) {
+        (self.trt_cache_path.clone(), self.use_trt)
     }
 }

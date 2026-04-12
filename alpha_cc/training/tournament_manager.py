@@ -1,7 +1,13 @@
+from __future__ import annotations
+
 import logging
 import threading
+from typing import TYPE_CHECKING
 
 from torch.utils.tensorboard import SummaryWriter
+
+if TYPE_CHECKING:
+    from alpha_cc.engine import GameConfig
 
 from alpha_cc.db import TrainingDB
 from alpha_cc.db.models import TournamentResult
@@ -21,7 +27,7 @@ class TournamentManager:
         training_db: TrainingDB,
         summary_writer: SummaryWriter,
         model: DefaultNet,
-        board_size: int = 9,
+        config: GameConfig,
         onnx_compiled_batch_size_secondary: int | None = None,
     ) -> None:
         self._run_id = run_id
@@ -30,7 +36,7 @@ class TournamentManager:
         self._training_db = training_db
         self._summary_writer = summary_writer
         self._tournament_thread: threading.Thread | None = None
-        self._board_size = board_size
+        self._config = config
         self._model = model
         self._onnx_compiled_batch_size_secondary = onnx_compiled_batch_size_secondary
 
@@ -78,7 +84,7 @@ class TournamentManager:
         # Challenger: always compile (it's the freshly trained model)
         challenger_weights = load_weights(self._run_id, challenger_idx)
         self._model.load_state_dict(challenger_weights)
-        challenger_payload = serialize_model(self._model, self._board_size, bs)
+        challenger_payload = serialize_model(self._model, self._config, bs)
         self._training_db.weights_publish(challenger_payload, challenger_idx, batch_size=bs)
         logger.info(f"published secondary variant for challenger idx={challenger_idx} (batch_size={bs})")
 
@@ -86,7 +92,7 @@ class TournamentManager:
         if not self._training_db.weights_exists(self._champion_index, batch_size=bs):
             champion_weights = load_weights(self._run_id, self._champion_index)
             self._model.load_state_dict(champion_weights)
-            champion_payload = serialize_model(self._model, self._board_size, bs)
+            champion_payload = serialize_model(self._model, self._config, bs)
             self._training_db.weights_publish(champion_payload, self._champion_index, batch_size=bs)
             logger.info(f"published secondary variant for champion idx={self._champion_index} (batch_size={bs})")
         else:

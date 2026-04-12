@@ -17,7 +17,6 @@ from alpha_cc.agents.mcts.mcts_experience import ProcessedExperience
 from alpha_cc.agents.mcts.mcts_node_py import MCTSNodePy
 from alpha_cc.agents.mcts.training_data import TrainingData
 from alpha_cc.state.game_state import GameState
-from alpha_cc.state.state_tensors import state_tensor
 
 # Implausibly high init values so new samples rank highest until measured.
 # wdl_error: cross-entropy typically in [0, 2].  kl_div: rarely exceeds ~10.
@@ -88,10 +87,11 @@ class TrainingDataset(Dataset):
         self, index: int
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         exp = self._experiences[index]
+        board = exp.state.board
 
-        x = state_tensor(exp.state)
-        pi_mask = torch.as_tensor(exp.state.action_mask)
-        pi_target = self._create_pi_target_tensor(exp)
+        x = torch.as_tensor(board.state_tensor()).reshape(-1, board.info.size, board.info.size).float()
+        pi_mask = torch.as_tensor(board.policy_mask().astype(bool))
+        pi_target = torch.as_tensor(board.scatter_policy(np.array(exp.pi_target, dtype=np.float32)))
         wdl_target = torch.as_tensor(exp.wdl_target)
         weight = torch.as_tensor(exp.weight)
         is_internal_node = torch.as_tensor(exp.is_internal_node)
@@ -240,23 +240,3 @@ class TrainingDataset(Dataset):
         self._experiences.append(exp)
         self._kl_div.append(_INIT_KL_DIV * priority_scale)
         self._td_error.append(_INIT_TD_ERROR * priority_scale)
-
-    def _create_pi_target_tensor(self, exp: ProcessedExperience) -> torch.Tensor:
-        """
-        The neural net and the MCTS speak different lanugages:
-        - nn thinks a policy is a big tensor encoding all moves (including legal ones)
-        - mcts things a policy is a vector for only the legal moves
-
-        This is because neural nets need a fixes size output with semantic consistency,
-        and MCTS is more natural to write with illegal moves not even considered.
-
-        This method translates mcts-style pi targets into nn pi targets.
-
-        """
-
-        size = exp.state.board.info.size
-        pi_target = np.zeros((size, size, size, size))
-        for i in range(len(exp.state.moves)):
-            from_coord, to_coord = exp.state.action_mask_indices[i]
-            pi_target[from_coord.x, from_coord.y, to_coord.x, to_coord.y] = exp.pi_target[i]
-        return torch.as_tensor(pi_target)

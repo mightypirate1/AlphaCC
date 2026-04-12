@@ -1,8 +1,7 @@
-use crate::hexcoord::HexCoord;
+use crate::board::Coord;
 
 #[derive(Clone)]
-pub struct Move {
-    pub from_coord: HexCoord,
-    pub to_coord: HexCoord,
-    pub path: Vec<HexCoord>,
+pub struct Move<C: Coord> {
+    pub from_coord: C,
+    pub to_coord: C,
 }
