@@ -1,7 +1,7 @@
 use std::io::Error;
 use std::time::Instant;
 
-use alpha_cc_core::Board;
+use alpha_cc_core::cc::CCBoard;
 use alpha_cc_nn::NNPred;
 use crate::client::PredictClient;
 use crate::io;
@@ -53,7 +53,7 @@ impl PredictionClient {
         }
     }
 
-    pub fn fetch_pred(&mut self, board: &Board) -> Result<NNPred, Error> {
+    pub fn fetch_pred(&mut self, board: &CCBoard) -> Result<NNPred, Error> {
         let start = Instant::now();
 
         let (state_tensor, moves) = io::encode_request(board);

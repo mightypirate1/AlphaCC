@@ -1,7 +1,6 @@
 use ratatui::style::Color;
 
-use alpha_cc_core::HexCoord;
-use alpha_cc_core::BoardMatrix;
+use alpha_cc_core::cc::{HexCoord, CCBoardMatrix};
 use crate::theme;
 
 /// Visual properties for a single hex cell, as determined by the layer stack.
@@ -25,7 +24,7 @@ impl Default for HexStyle {
 
 /// Input data that layers use to decide styling.
 pub struct BoardView {
-    pub matrix: BoardMatrix,
+    pub matrix: CCBoardMatrix,
     pub board_size: u8,
     pub current_player: i8,
     pub selected_piece: Option<HexCoord>,
@@ -99,7 +98,7 @@ pub fn resolve_styles(view: &BoardView) -> Vec<(u8, u8, HexStyle)> {
     result
 }
 
-fn base_style(matrix: &BoardMatrix, x: u8, y: u8, board_size: u8) -> HexStyle {
+fn base_style(matrix: &CCBoardMatrix, x: u8, y: u8, board_size: u8) -> HexStyle {
     let content = matrix[x as usize][y as usize];
     match content {
         1 => HexStyle {

@@ -8,10 +8,10 @@ use super::game_move::PyMove;
 #[gen_stub_pyclass]
 #[pyclass(name = "Board", module = "alpha_cc_engine", from_py_object)]
 #[derive(Clone)]
-pub struct PyBoard(pub alpha_cc_core::Board);
+pub struct PyBoard(pub alpha_cc_core::cc::CCBoard);
 
-impl From<alpha_cc_core::Board> for PyBoard {
-    fn from(b: alpha_cc_core::Board) -> Self { PyBoard(b) }
+impl From<alpha_cc_core::cc::CCBoard> for PyBoard {
+    fn from(b: alpha_cc_core::cc::CCBoard) -> Self { PyBoard(b) }
 }
 
 #[gen_stub_pymethods]
@@ -23,12 +23,12 @@ impl PyBoard {
         match py_args.len() {
             1 => {
                 if let Ok(size) = py_args.get_item(0).unwrap().extract::<usize>() {
-                    return PyBoard(alpha_cc_core::Board::create(size))
+                    return PyBoard(alpha_cc_core::cc::CCBoard::create(size))
                 }
                 panic!("expected a single int as input");
             },
             0 => {
-                PyBoard(alpha_cc_core::Board::create(9))
+                PyBoard(alpha_cc_core::cc::CCBoard::create(9))
             },
             _ => { unreachable!() }
         }
@@ -51,7 +51,7 @@ impl PyBoard {
         self.0.get_next_states().into_iter().map(PyBoard::from).collect()
     }
 
-    fn get_matrix(&self) -> alpha_cc_core::BoardMatrix {
+    fn get_matrix(&self) -> alpha_cc_core::cc::CCBoardMatrix {
         self.0.get_matrix()
     }
 
@@ -59,7 +59,7 @@ impl PyBoard {
         PyBoard(self.0.apply(&mv.0))
     }
 
-    fn get_unflipped_matrix(&self) -> alpha_cc_core::BoardMatrix {
+    fn get_unflipped_matrix(&self) -> alpha_cc_core::cc::CCBoardMatrix {
         self.0.get_unflipped_matrix()
     }
 
@@ -70,7 +70,7 @@ impl PyBoard {
     fn __setstate__(&mut self, py: Python, state: Py<PyAny>) -> PyResult<()> {
         let py_bytes = state.extract::<Bound<'_, PyBytes>>(py)?;
         let bytes = py_bytes.as_bytes();
-        self.0 = alpha_cc_core::Board::deserialize_rs(bytes);
+        self.0 = alpha_cc_core::cc::CCBoard::deserialize_rs(bytes);
         Ok(())
     }
 

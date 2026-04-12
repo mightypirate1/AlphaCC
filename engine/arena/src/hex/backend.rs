@@ -1,7 +1,7 @@
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 
-use alpha_cc_core::HexCoord;
+use alpha_cc_core::cc::HexCoord;
 use super::layers::HexStyle;
 use super::layout::HexLayout;
 

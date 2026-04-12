@@ -4,7 +4,7 @@ use std::thread;
 use std::time::Duration;
 
 use alpha_cc_nn::NNQuantizedPi;
-use alpha_cc_core::Board;
+use alpha_cc_core::cc::CCBoard;
 use alpha_cc_mcts::{MCTS, MCTSParams};
 
 /// Raw NN output for a position.
@@ -38,7 +38,7 @@ pub enum AiUpdate {
 /// Shared state between the app and one AI thread.
 struct SharedState {
     /// The board the AI should think about.
-    board: Mutex<Board>,
+    board: Mutex<CCBoard>,
     /// Whether the AI should be doing rollouts.
     should_think: AtomicBool,
     /// Whether the AI should pick a move (set by app when deadline hits).
@@ -64,7 +64,7 @@ impl AiHandle {
         n_threads: usize,
         rollout_depth: usize,
         pruning_tree: bool,
-        initial_board: Board,
+        initial_board: CCBoard,
     ) -> Self {
         let shared = Arc::new(SharedState {
             board: Mutex::new(initial_board),
@@ -87,7 +87,7 @@ impl AiHandle {
     }
 
     /// Update the board the AI is thinking about.
-    pub fn set_board(&self, board: &Board) {
+    pub fn set_board(&self, board: &CCBoard) {
         *self.shared.board.lock().unwrap() = board.clone();
     }
 

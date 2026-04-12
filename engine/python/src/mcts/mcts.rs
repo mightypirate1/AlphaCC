@@ -1,3 +1,4 @@
+use alpha_cc_core::cc::CCBoard;
 use pyo3::prelude::*;
 use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 
@@ -8,7 +9,7 @@ use super::mcts_node::PyMCTSNode;
 
 enum PredictionSources {
     Dummy(alpha_cc_nn::mock::MockPredictor),
-    Real(alpha_cc_nn_service::NNRemote),
+    Real(alpha_cc_nn_service::NNRemote<CCBoard>),
 }
 
 impl PredictionSources {
@@ -22,8 +23,8 @@ impl PredictionSources {
     }
 }
 
-impl PredictionSource for PredictionSources {
-    fn predict(&self, board: &alpha_cc_core::Board, model_id: u32) -> alpha_cc_nn::NNPred {
+impl PredictionSource<CCBoard> for PredictionSources {
+    fn predict(&self, board: &alpha_cc_core::cc::CCBoard, model_id: u32) -> alpha_cc_nn::NNPred {
         match self {
             Self::Dummy(dummy) => dummy.predict(board, model_id),
             Self::Real(nn_remote) => nn_remote.predict(board, model_id),
@@ -31,7 +32,7 @@ impl PredictionSource for PredictionSources {
     }
 }
 
-type MCTS = alpha_cc_mcts::MCTS<PredictionSources>;
+type MCTS = alpha_cc_mcts::MCTS<CCBoard, PredictionSources>;
 
 #[gen_stub_pyclass]
 #[pyclass(name = "RolloutResult", module = "alpha_cc_engine")]

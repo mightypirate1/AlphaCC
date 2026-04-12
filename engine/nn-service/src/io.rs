@@ -1,4 +1,4 @@
-use alpha_cc_core::Board;
+use alpha_cc_core::{Board, Coord};
 use crate::proto::PredictResponse;
 
 /// Encode a board into the wire format for the prediction service.
@@ -9,17 +9,17 @@ use crate::proto::PredictResponse;
 ///   Matches `state_tensor()` in `alpha_cc.state.state_tensors`.
 /// - `moves_bytes`: each legal move as 4 consecutive bytes `[fx, fy, tx, ty]`.
 ///   Matches `action_indexer()` in `alpha_cc.engine.engine_utils`.
-pub fn encode_request(board: &Board) -> (Vec<u8>, Vec<u8>) {
-    let s = board.get_size() as usize;
-    let matrix = board.get_matrix();
-
+pub fn encode_request<B: Board>(board: &B) -> (Vec<u8>, Vec<u8>) {
+    let (s, _) = board.get_sizes();
+    let s = s as usize;
     // One-hot encode into [2, s, s] flattened f32s, then to bytes.
     let mut tensor_data = vec![0.0f32; 2 * s * s];
     #[allow(clippy::needless_range_loop)]
     for x in 0..s {
         for y in 0..s {
             let idx = x * s + y;
-            match matrix[x][y] {
+            let coord = B::Coord::new(x as u8, y as u8, s as u8);
+            match board.get_content(&coord) {
                 1 => tensor_data[idx] = 1.0,
                 2 => tensor_data[s * s + idx] = 1.0,
                 _ => {}
@@ -30,13 +30,15 @@ pub fn encode_request(board: &Board) -> (Vec<u8>, Vec<u8>) {
     let state_bytes = state_bytes.to_vec();
 
     // Encode legal moves: 4 bytes per move.
-    let moves = board.get_moves();
+    let moves = board.legal_moves();
     let mut moves_bytes = Vec::with_capacity(moves.len() * 4);
     for m in &moves {
-        moves_bytes.push(m.from_coord.x);
-        moves_bytes.push(m.from_coord.y);
-        moves_bytes.push(m.to_coord.x);
-        moves_bytes.push(m.to_coord.y);
+        let (from_x, from_y) = m.from_coord.xy();
+        let (to_x, to_y) = m.to_coord.xy();
+        moves_bytes.push(from_x);
+        moves_bytes.push(from_y);
+        moves_bytes.push(to_x);
+        moves_bytes.push(to_y);
     }
 
     (state_bytes, moves_bytes)

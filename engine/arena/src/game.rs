@@ -1,9 +1,7 @@
-use alpha_cc_core::Board;
-use alpha_cc_core::moves::find_all_moves;
-use alpha_cc_core::Move;
+use alpha_cc_core::{Board, cc::CCBoard, cc::HexCoord, Move};
 
 pub struct GameState {
-    history: Vec<Board>,
+    history: Vec<CCBoard>,
     moves: Vec<MoveRecord>,
     board_size: u8,
 }
@@ -11,29 +9,29 @@ pub struct GameState {
 #[allow(dead_code)]
 pub struct MoveRecord {
     pub action_index: usize,
-    pub mv: Move,
+    pub mv: Move<HexCoord>,
 }
 
 impl GameState {
     pub fn new(board_size: u8) -> Self {
         Self {
-            history: vec![Board::create(board_size as usize)],
+            history: vec![CCBoard::create(board_size as usize)],
             moves: Vec::new(),
             board_size,
         }
     }
 
-    pub fn current_board(&self) -> &Board {
+    pub fn current_board(&self) -> &CCBoard {
         self.history.last().unwrap()
     }
 
-    pub fn board_at(&self, index: usize) -> &Board {
+    pub fn board_at(&self, index: usize) -> &CCBoard {
         &self.history[index]
     }
 
     pub fn apply_move(&mut self, action_index: usize) {
         let board = self.current_board();
-        let moves = find_all_moves(board);
+        let moves = board.legal_moves();
         let mv = moves[action_index].clone();
         let new_board = board.apply(&mv);
         self.moves.push(MoveRecord { action_index, mv });
@@ -68,7 +66,7 @@ impl GameState {
 
     pub fn reset(&mut self) {
         self.history.truncate(1);
-        self.history[0] = Board::create(self.board_size as usize);
+        self.history[0] = CCBoard::create(self.board_size as usize);
         self.moves.clear();
     }
 }

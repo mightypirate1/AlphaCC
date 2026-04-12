@@ -2,7 +2,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 
-use alpha_cc_core::HexCoord;
+use alpha_cc_core::cc::HexCoord;
 use crate::theme;
 use super::backend::RenderBackend;
 use super::layers::HexStyle;

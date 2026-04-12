@@ -16,19 +16,20 @@ const WARN_THRESHOLD: usize = 5;
 /// indefinitely on transport errors (e.g. nn-service closing the stream
 /// during reload), reconnecting via DNS re-resolve on each attempt.
 /// Warns if more than 5 retries are needed.
-pub struct NNRemote {
+pub struct NNRemote<B: Board> {
     addr: String,
     rt: tokio::runtime::Runtime,
     client: Mutex<PredictClient>,
+    _marker: std::marker::PhantomData<B>,
 }
 
-impl alpha_cc_nn::PredictionSource for NNRemote {
-    fn predict(&self, board: &Board, model_id: u32) -> NNPred {
+impl<B: Board> alpha_cc_nn::PredictionSource<B> for NNRemote<B> {
+    fn predict(&self, board: &B, model_id: u32) -> NNPred {
         self.predict(board, model_id)
     }
 }
 
-impl NNRemote {
+impl<B: Board> NNRemote<B> {
     pub fn connect(addr: &str) -> Self {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -41,6 +42,7 @@ impl NNRemote {
             addr: addr.to_string(),
             rt,
             client: Mutex::new(client),
+            _marker: std::marker::PhantomData,
         }
     }
 
@@ -49,7 +51,7 @@ impl NNRemote {
     /// Encodes the board, sends it to the nn-service, decodes the response,
     /// and applies softmax. Retries indefinitely on error, reconnecting
     /// each time.
-    pub fn predict(&self, board: &Board, model_id: u32) -> NNPred {
+    pub fn predict(&self, board: &B, model_id: u32) -> NNPred {
         let (state_tensor, moves) = io::encode_request(board);
         let mut attempt = 0usize;
         loop {

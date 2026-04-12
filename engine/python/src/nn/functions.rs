@@ -1,7 +1,7 @@
 use pyo3::prelude::*;
 use pyo3_stub_gen_derive::gen_stub_pyfunction;
 
-use alpha_cc_core::moves::find_all_moves;
+use alpha_cc_core::Board;
 
 use crate::core::PyBoard;
 use super::nn_pred::PyNNPred;
@@ -24,7 +24,7 @@ pub fn preds_from_logits<'py>(
 
     for (i, py_board) in boards.iter().enumerate() {
         let logits_slice = &logits[i * stride..(i + 1) * stride];
-        let moves = find_all_moves(&py_board.0);
+        let moves = py_board.0.legal_moves();
 
         let move_logits: Vec<f32> = moves.iter().map(|m| {
             let fx = m.from_coord.x as usize;
@@ -66,7 +66,7 @@ pub fn build_inference_request<'py>(
         }
     }
 
-    let moves = find_all_moves(&board.0);
+    let moves = board.0.legal_moves();
     let move_coords: MoveCoords = moves.iter().map(|m| {
         (m.from_coord.x, m.from_coord.y, m.to_coord.x, m.to_coord.y)
     }).collect();

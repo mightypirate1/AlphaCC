@@ -1,11 +1,11 @@
 use std::collections::HashSet;
 use std::collections::HashMap;
 use indexmap::IndexSet;
-use crate::{Board, HexCoord, Move};
-use crate::board::MAX_SIZE;
+use crate::Move;
+use crate::cc::{CCBoard, HexCoord, MAX_SIZE};
 
 
-pub fn create_move_mask(moves: Vec<Move>) -> [[[[bool; MAX_SIZE]; MAX_SIZE]; MAX_SIZE]; MAX_SIZE] {
+pub fn create_move_mask(moves: Vec<Move<HexCoord>>) -> [[[[bool; MAX_SIZE]; MAX_SIZE]; MAX_SIZE]; MAX_SIZE] {
     /*
     notice that this mask needs to be cropped to match the board size
      */
@@ -21,7 +21,7 @@ pub fn create_move_mask(moves: Vec<Move>) -> [[[[bool; MAX_SIZE]; MAX_SIZE]; MAX
     mask
 }
 
-pub fn create_move_index_map(moves: Vec<Move>) -> HashMap<usize, (HexCoord, HexCoord)> {
+pub fn create_move_index_map(moves: Vec<Move<HexCoord>>) -> HashMap<usize, (HexCoord, HexCoord)> {
     let mut move_index_map:HashMap<usize, (HexCoord, HexCoord)> = HashMap::new();
     for (i, r#move) in moves.iter().enumerate() {
         move_index_map.insert(i, (r#move.from_coord, r#move.to_coord));
@@ -30,7 +30,7 @@ pub fn create_move_index_map(moves: Vec<Move>) -> HashMap<usize, (HexCoord, HexC
 }
 
 
-pub fn find_all_moves(board: &Board) -> Vec<Move> {
+pub fn find_all_moves(board: &CCBoard) -> Vec<Move<HexCoord>> {
     /*
     there are 2 types of moves (both with 2 variants):
     - jump moves (see `find_all_jump_moves`)
@@ -42,7 +42,7 @@ pub fn find_all_moves(board: &Board) -> Vec<Move> {
     will be swap places with the moved stone.
      */
     let size = board.get_size();
-    let mut moves: Vec<Move> = Vec::new();
+    let mut moves: Vec<Move<HexCoord>> = Vec::new();
     let mut from_coord: HexCoord;
     let mut from_coords: IndexSet<HexCoord> = IndexSet::new();
 
@@ -59,7 +59,6 @@ pub fn find_all_moves(board: &Board) -> Vec<Move> {
                             Move {
                                 from_coord,
                                 to_coord,
-                                path: Vec::new(),
                             }
                         );
                     }
@@ -74,8 +73,8 @@ pub fn find_all_moves(board: &Board) -> Vec<Move> {
 }
 
 
-fn find_all_jump_moves (board: &Board, coord: &HexCoord) -> Vec<Move> {
-    let mut jump_moves: Vec<Move> = Vec::new();
+fn find_all_jump_moves (board: &CCBoard, coord: &HexCoord) -> Vec<Move<HexCoord>> {
+    let mut jump_moves: Vec<Move<HexCoord>> = Vec::new();
     let mut final_positions: HashSet<HexCoord> = HashSet::new();
     final_positions.insert(*coord);
     _recusive_exporation(
@@ -90,11 +89,11 @@ fn find_all_jump_moves (board: &Board, coord: &HexCoord) -> Vec<Move> {
 
 
 fn _recusive_exporation<'a>(
-    board: &Board,
+    board: &CCBoard,
     starting_coord: &HexCoord,
     current_coord: &HexCoord,
     final_positions: &'a mut HashSet<HexCoord>,
-    jump_moves: &'a mut Vec<Move>,
+    jump_moves: &'a mut Vec<Move<HexCoord>>,
 ) {
     /*
     there are 2 types of jumps:
@@ -136,7 +135,6 @@ fn _recusive_exporation<'a>(
                         Move {
                             from_coord: *starting_coord,
                             to_coord: target_coord,
-                            path: Vec::new(),
                         }
                     );
                 }

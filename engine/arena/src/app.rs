@@ -12,8 +12,8 @@ use ratatui::style::Style;
 use ratatui::widgets::{Block, Borders};
 use ratatui::Terminal;
 
-use alpha_cc_core::moves::find_all_moves;
-use alpha_cc_core::HexCoord;
+use alpha_cc_core::Board;
+use alpha_cc_core::cc::HexCoord;
 use crate::agent::{AiHandle, AiUpdate};
 use crate::game::GameState;
 use crate::hex::backend::RenderBackend;
@@ -559,7 +559,7 @@ impl App {
     fn select_piece(&mut self, display_coord: HexCoord) {
         let board = self.game.current_board();
         let info = board.get_info();
-        let moves = find_all_moves(board);
+        let moves = board.legal_moves();
 
         let legal: Vec<(usize, HexCoord)> = moves.iter().enumerate().filter_map(|(i, mv)| {
             let from_display = if info.current_player == 1 { mv.from_coord } else { mv.from_coord.flip() };
@@ -659,7 +659,7 @@ impl App {
         if self.viewing_live() && self.toggles.policy_mode.any() && !pi.is_empty() {
             let board = self.game.current_board();
             let info = board.get_info();
-            let moves = find_all_moves(board);
+            let moves = board.legal_moves();
             let weights = self.scale_pi(pi);
             view.policy = moves.iter().enumerate()
                 .filter(|(i, _)| *i < weights.len())
@@ -675,7 +675,7 @@ impl App {
             if self.viewing_live() {
                 let board = self.game.current_board();
                 let info = board.get_info();
-                let moves = find_all_moves(board);
+                let moves = board.legal_moves();
                 if move_idx < moves.len() {
                     let mv = &moves[move_idx];
                     let from = if info.current_player == 1 { mv.from_coord } else { mv.from_coord.flip() };

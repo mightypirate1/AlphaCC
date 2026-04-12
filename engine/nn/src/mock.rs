@@ -1,5 +1,4 @@
 use alpha_cc_core::Board;
-use alpha_cc_core::moves::find_all_moves;
 use crate::nn_pred::NNPred;
 use crate::prediction_source::PredictionSource;
 
@@ -34,9 +33,9 @@ impl MockPredictor {
     }
 }
 
-impl PredictionSource for MockPredictor {
-    fn predict(&self, board: &Board, _model_id: u32) -> NNPred {
-        let n = find_all_moves(board).len();
+impl<B: Board> PredictionSource<B> for MockPredictor {
+    fn predict(&self, board: &B, _model_id: u32) -> NNPred {
+        let n = board.legal_moves().len();
         let pi = if n == 0 {
             vec![]
         } else if self.first_move_bias > 0.0 {

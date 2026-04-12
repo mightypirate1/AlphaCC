@@ -1,13 +1,10 @@
 pub mod dtypes;
 pub mod board;
 pub mod board_info;
-pub mod hexcoord;
+pub mod cc;
 pub mod game_move;
-pub mod moves;
 
 // Re-exports for convenience
-pub use board::{Board, BoardMatrix, MAX_SIZE};
+pub use board::{Board, Coord};
 pub use board_info::{BoardInfo, WDL};
-pub use hexcoord::HexCoord;
 pub use game_move::Move;
-pub use moves::{create_move_mask, create_move_index_map};

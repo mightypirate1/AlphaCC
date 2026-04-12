@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use alpha_cc_core::HexCoord;
+use alpha_cc_core::cc::HexCoord;
 
 /// Hex grid geometry in floating-point "world" coordinates.
 /// Backends map these to their own coordinate systems (terminal cells, pixels, etc.).

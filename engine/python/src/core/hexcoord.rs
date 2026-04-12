@@ -4,10 +4,10 @@ use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 #[gen_stub_pyclass]
 #[pyclass(name = "HexCoord", module = "alpha_cc_engine", from_py_object)]
 #[derive(Clone)]
-pub struct PyHexCoord(pub alpha_cc_core::HexCoord);
+pub struct PyHexCoord(pub alpha_cc_core::cc::HexCoord);
 
-impl From<alpha_cc_core::HexCoord> for PyHexCoord {
-    fn from(h: alpha_cc_core::HexCoord) -> Self { PyHexCoord(h) }
+impl From<alpha_cc_core::cc::HexCoord> for PyHexCoord {
+    fn from(h: alpha_cc_core::cc::HexCoord) -> Self { PyHexCoord(h) }
 }
 
 #[gen_stub_pymethods]

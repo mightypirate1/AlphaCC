@@ -1,7 +1,7 @@
 use pyo3::prelude::*;
 use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 
-use alpha_cc_core::moves::find_all_moves;
+use alpha_cc_core::Board;
 
 use crate::core::{PyBoard, PyMove};
 
@@ -44,6 +44,6 @@ impl PyMCTSNode {
 
     /// Get moves for a board position. Not a getter — requires the board as argument.
     fn get_moves(&self, board: &PyBoard) -> Vec<PyMove> {
-        find_all_moves(&board.0).into_iter().map(PyMove::from).collect()
+        board.0.legal_moves().into_iter().map(PyMove::from).collect()
     }
 }
