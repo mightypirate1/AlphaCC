@@ -22,6 +22,10 @@ pub trait BoardEncoding: Board {
     /// Total flat size of the policy output tensor (e.g. `s^4` for from-to games).
     fn policy_size(board_size: usize) -> usize;
 
+    /// Per-item shape of the policy output tensor (e.g. `[s, s, s, s]` for from-to,
+    /// `[s, s]` for placement games). The NN policy head reshapes to this.
+    fn policy_shape(board_size: usize) -> Vec<usize>;
+
     /// Map encoded move bytes to a flat index into the policy output tensor.
     fn move_to_policy_index(move_bytes: &[u8], board_size: usize) -> usize;
 }

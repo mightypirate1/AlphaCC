@@ -18,13 +18,7 @@ pub struct GameConfig {
 impl GameConfig {
     pub fn from_game<G: BoardEncoding>(board_size: usize) -> Self {
         let policy_size = G::policy_size(board_size);
-        // Derive per-item policy shape from flat size.
-        // For from-to games (s^4): [s, s, s, s]. For placement games (s^2): [s, s].
-        let policy_shape = match policy_size {
-            n if n == board_size.pow(4) => vec![board_size; 4],
-            n if n == board_size.pow(2) => vec![board_size; 2],
-            _ => vec![policy_size],
-        };
+        let policy_shape = G::policy_shape(board_size);
         Self {
             name: std::any::type_name::<G>(),
             state_channels: G::STATE_CHANNELS,

@@ -38,6 +38,10 @@ impl BoardEncoding for CCBoard {
         board_size.pow(4)
     }
 
+    fn policy_shape(board_size: usize) -> Vec<usize> {
+        vec![board_size; 4]
+    }
+
     fn move_to_policy_index(move_bytes: &[u8], board_size: usize) -> usize {
         let s = board_size;
         let fx = move_bytes[0] as usize;
