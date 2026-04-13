@@ -324,8 +324,15 @@ impl<B: Board, T: PredictionSource<B>> MCTS<B, T> {
                 return [wdl.win, wdl.draw, wdl.loss];
             }
 
+            let n_max = (0..data.num_actions()).map(|a| data.get_n(a)).max().unwrap_or(0);
+            let c_scale = self.mcts_params.c_scale;
+            let c_visit = self.mcts_params.c_visit;
             let best_action = (0..data.num_actions())
-                .max_by_key(|&a| data.get_n(a))
+                .max_by(|&a, &b| {
+                    let score_a = data.pi_logits[a] + sigma(data.get_q(a), n_max, c_visit, c_scale);
+                    let score_b = data.pi_logits[b] + sigma(data.get_q(b), n_max, c_visit, c_scale);
+                    score_a.partial_cmp(&score_b).unwrap()
+                })
                 .unwrap_or(0);
 
             let moves = current.legal_moves();
