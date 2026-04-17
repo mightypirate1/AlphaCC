@@ -184,13 +184,13 @@ impl<B: Board, T: PredictionSource<B>> MCTS<B, T> {
 
         let root = tree.get_data(board).unwrap();
         let num_actions = root.num_actions();
-        let logits = root.pi_logits.clone();
+        let pi_logits = root.pi_logits.clone();
         drop(root);
 
         // Sample Gumbel noise and compute initial scores.
         let gumbels: Vec<f32> = (0..num_actions).map(|_| noise::gumbel()).collect();
         let gumbel_scores: Vec<f32> = (0..num_actions)
-            .map(|a| gumbels[a] + logits[a])
+            .map(|a| gumbels[a] + pi_logits[a])
             .collect();
 
         // Initial candidate set: all actions or top base_count.
@@ -259,20 +259,32 @@ impl<B: Board, T: PredictionSource<B>> MCTS<B, T> {
         let c_visit = self.mcts_params.c_visit;
         let c_scale = self.mcts_params.c_scale;
 
-        let sigma_q_values: Vec<f32> = (0..num_actions)
-            .map(|a| sigma(root.completed_q(a), n_max, c_visit, c_scale))
+        let try_rescale = true;
+        let rescaled_qs = if try_rescale {
+            let compl_qs = root.completed_qs();
+            let q_max = compl_qs.iter().copied().reduce(f32::max).unwrap();
+            let q_min = compl_qs.iter().copied().reduce(f32::min).unwrap();
+            compl_qs.iter().map(|q| (q - q_min) / (q_max - q_min).max(0.1)).collect()
+        } else {
+            root.completed_qs()
+        };
+
+
+        let sigma_qs: Vec<f32> = rescaled_qs
+            .iter()
+            .map(|q| sigma(*q, n_max, c_visit, c_scale))
             .collect();
         let improved_logits: Vec<f32> = (0..num_actions)
-            .map(|a| logits[a] + sigma_q_values[a])
+            .map(|a| pi_logits[a] + sigma_qs[a])
             .collect();
         let pi = softmax(&improved_logits);
 
-        let prior_pi = softmax(&logits);
+        let prior_pi = softmax(&pi_logits);
         let search_stats = SearchStats {
             prior_entropy: entropy(&prior_pi),
             target_entropy: entropy(&pi),
-            logit_std: std_dev(&logits),
-            sigma_q_std: std_dev(&sigma_q_values),
+            logit_std: std_dev(&pi_logits),
+            sigma_q_std: std_dev(&sigma_qs),
         };
 
         // Value: mean of backed-up Q across all visited actions, weighted by visit count.
@@ -324,13 +336,15 @@ impl<B: Board, T: PredictionSource<B>> MCTS<B, T> {
                 return [wdl.win, wdl.draw, wdl.loss];
             }
 
-            let n_max = (0..data.num_actions()).map(|a| data.get_n(a)).max().unwrap_or(0);
-            let c_scale = self.mcts_params.c_scale;
-            let c_visit = self.mcts_params.c_visit;
+            // let n_max = (0..data.num_actions()).map(|a| data.get_n(a)).max().unwrap_or(0);
+            // let c_scale = self.mcts_params.c_scale;
+            // let c_visit = self.mcts_params.c_visit;
             let best_action = (0..data.num_actions())
                 .max_by(|&a, &b| {
-                    let score_a = data.pi_logits[a] + sigma(data.get_q(a), n_max, c_visit, c_scale);
-                    let score_b = data.pi_logits[b] + sigma(data.get_q(b), n_max, c_visit, c_scale);
+                    let score_a = data.completed_q(a);
+                    let score_b = data.completed_q(b);
+                    // let score_a = data.pi_logits[a] + sigma(data.completed_q(a), n_max, c_visit, c_scale);
+                    // let score_b = data.pi_logits[b] + sigma(data.completed_q(b), n_max, c_visit, c_scale);
                     score_a.partial_cmp(&score_b).unwrap()
                 })
                 .unwrap_or(0);

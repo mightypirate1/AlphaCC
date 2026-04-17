@@ -47,7 +47,7 @@ def compute_entropy_loss(
     pi_mask_flat = pi_mask.reshape(batch_size, -1)
     pi = policy_softmax(pi_tensor_unsoftmaxed, pi_mask).reshape(batch_size, -1)
     pi_masked = torch.where(pi_mask_flat, pi, 0)
-    sample_entropy_unweighted = (pi_masked * torch.log(pi_masked.clip(1e-6))).sum(dim=1)
+    sample_entropy_unweighted = -(pi_masked * torch.log(pi_masked.clip(1e-6))).sum(dim=1)
     return (weight * sample_entropy_unweighted).sum() / weight.sum()
 
 
@@ -77,7 +77,7 @@ def make_train_step(
         wdl_loss = compute_wdl_loss(wdl_logits, target_wdl, weight, is_internal)
         policy_loss = compute_policy_loss(pi, pi_mask, target_pi, weight, policy_log_softmax)
         entropy_loss = compute_entropy_loss(pi, pi_mask, weight, policy_softmax)
-        loss = policy_weight * policy_loss + value_weight * wdl_loss + entropy_weight * entropy_loss
+        loss = policy_weight * policy_loss + value_weight * wdl_loss - entropy_weight * entropy_loss
         loss.backward()
         optimizer.step()
         return wdl_loss, policy_loss, entropy_loss, pi, wdl_logits

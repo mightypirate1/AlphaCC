@@ -116,6 +116,12 @@ impl MCTSNode {
         }
     }
 
+    /// Q values, using V(node) as the estimate for unvisited actions.
+    #[inline]
+    pub fn completed_qs(&self) -> Vec<f32> {
+        (0..self.num_actions()).map(|a| self.completed_q(a)).collect()
+    }
+
     #[inline]
     pub fn get_v(&self) -> f32 {
         self.v.dequantize()

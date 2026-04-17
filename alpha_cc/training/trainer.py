@@ -405,7 +405,7 @@ class Trainer:
         test_dataloader = DataLoader(
             test_data,
             batch_size=self._batch_size,
-            drop_last=True,
+            drop_last=False,
             pin_memory=self._device.type == "cuda",
             num_workers=self._num_dataloader_workers,
             prefetch_factor=3 if self._num_dataloader_workers > 0 else None,
