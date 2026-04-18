@@ -19,7 +19,7 @@ class DefaultNet(torch.nn.Module):
         config: GameConfig,
         n_blocks: int = 6,
         hidden_channels: int = 128,
-        dropout: float = 0.3,
+        dropout: float = 0.3, # klwildhunt: 0.3 -> 0.0,
     ) -> None:
         super().__init__()
         ch = hidden_channels

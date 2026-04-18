@@ -106,20 +106,47 @@ impl MCTSNode {
         self.w[action].load(Relaxed) as f32 / (n as f32 * W_SCALE)
     }
 
-    /// Q value for action, using V(node) as the estimate for unvisited actions.
+    /// Paper's v_mix: interpolates value-net scalar with prior-weighted
+    /// average of visited Q values. Used as the fallback for unvisited
+    /// actions in completed_q.
     #[inline]
-    pub fn completed_q(&self, action: usize) -> f32 {
-        if self.get_n(action) == 0 {
-            self.get_v()
-        } else {
-            self.get_q(action)
+    pub fn v_mix(&self) -> f32 {
+        let total_n = self.total_visits() as f32;
+        if total_n == 0.0 {
+            return self.get_v();
         }
+
+        let pi = alpha_cc_nn::softmax(&self.pi_logits);
+
+        let mut visited_pi_sum = 0.0;
+        let mut visited_pi_q_sum = 0.0;
+        for a in 0..self.num_actions() {
+            if self.get_n(a) > 0 {
+                visited_pi_sum += pi[a];
+                visited_pi_q_sum += pi[a] * self.get_q(a);
+            }
+        }
+
+        if visited_pi_sum < 1e-8 {
+            return self.get_v();
+        }
+
+        let weighted_q = visited_pi_q_sum / visited_pi_sum;
+        (self.get_v() + total_n * weighted_q) / (1.0 + total_n)
     }
 
-    /// Q values, using V(node) as the estimate for unvisited actions.
     #[inline]
     pub fn completed_qs(&self) -> Vec<f32> {
         (0..self.num_actions()).map(|a| self.completed_q(a)).collect()
+    }
+
+    #[inline]
+    pub fn completed_q(&self, action: usize) -> f32 {
+        if self.get_n(action) == 0 {
+            self.v_mix()
+        } else {
+            self.get_q(action)
+        }
     }
 
     #[inline]

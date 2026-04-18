@@ -32,8 +32,7 @@ def compute_policy_loss(
     log_pi = policy_log_softmax(pi_tensor_unsoftmaxed, pi_mask).reshape(batch_size, -1)
     policy_loss_unmasked = -target_pi_flat * log_pi
     policy_loss_unnormalized = torch.where(pi_mask_flat, policy_loss_unmasked, 0)
-    n_actions = pi_mask_flat.sum(dim=1, keepdim=True)
-    policy_loss_unweighted = (policy_loss_unnormalized / n_actions).sum(dim=1)
+    policy_loss_unweighted = policy_loss_unnormalized.sum(dim=1)
     return (weight * policy_loss_unweighted).sum() / weight.sum()
 
 

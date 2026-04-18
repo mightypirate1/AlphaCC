@@ -92,6 +92,16 @@ impl PyRolloutResult {
     fn sigma_q_std(&self) -> f32 {
         self.0.search_stats.sigma_q_std
     }
+
+    #[getter]
+    fn kl_prior_posterior(&self) -> f32 {
+        self.0.search_stats.kl_prior_posterior
+    }
+
+    #[getter]
+    fn kl_posterior_prior(&self) -> f32 {
+        self.0.search_stats.kl_posterior_prior
+    }
 }
 
 #[gen_stub_pyclass]

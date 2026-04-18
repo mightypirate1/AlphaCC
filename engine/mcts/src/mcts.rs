@@ -5,6 +5,7 @@ use alpha_cc_nn::{softmax, PredictionSource};
 use crate::mcts_node::MCTSNode;
 use crate::outcome::Outcome;
 use crate::noise;
+use crate::stats::SearchStats;
 use crate::tree::Tree;
 
 pub struct RolloutResult {
@@ -13,29 +14,6 @@ pub struct RolloutResult {
     pub mcts_wdl: [f32; 3],
     pub greedy_backup_wdl: [f32; 3],
     pub search_stats: SearchStats,
-}
-
-#[derive(Clone, Default)]
-pub struct SearchStats {
-    pub prior_entropy: f32,
-    pub target_entropy: f32,
-    pub logit_std: f32,
-    pub sigma_q_std: f32,
-}
-
-fn entropy(probs: &[f32]) -> f32 {
-    -probs.iter()
-        .filter(|&&p| p > 0.0)
-        .map(|&p| p * p.ln())
-        .sum::<f32>()
-}
-
-fn std_dev(values: &[f32]) -> f32 {
-    if values.is_empty() { return 0.0; }
-    let n = values.len() as f32;
-    let mean = values.iter().sum::<f32>() / n;
-    let variance = values.iter().map(|&x| (x - mean) * (x - mean)).sum::<f32>() / n;
-    variance.sqrt()
 }
 
 pub struct MCTS<B: Board, T: PredictionSource<B>> {
@@ -63,7 +41,9 @@ pub struct GumbelParams {
 
 /// σ(q) = (c_visit + N_max) * c_scale * q
 #[inline]
-fn sigma(q: f32, n_max: u32, c_visit: f32, c_scale: f32) -> f32 {
+fn sigma(q: f32, n_a: u32, n_max: u32, c_visit: f32, c_scale: f32) -> f32 {
+    // let ratio = if n_max == 0 { 0.0 } else { n_a as f32 / n_max as f32 };
+    // c_scale * (c_visit + ratio) * q
     (c_visit + n_max as f32) * c_scale * q
 }
 
@@ -241,8 +221,8 @@ impl<B: Board, T: PredictionSource<B>> MCTS<B, T> {
                 let c_scale = self.mcts_params.c_scale;
 
                 candidates.sort_by(|&a, &b| {
-                    let sa = gumbels[a] + sigma(root.completed_q(a), n_max, c_visit, c_scale);
-                    let sb = gumbels[b] + sigma(root.completed_q(b), n_max, c_visit, c_scale);
+                    let sa = gumbels[a] + sigma(root.completed_q(a), root.get_n(a), n_max, c_visit, c_scale);
+                    let sb = gumbels[b] + sigma(root.completed_q(b), root.get_n(b), n_max, c_visit, c_scale);
                     sb.partial_cmp(&sa).unwrap()
                 });
                 drop(root);
@@ -259,7 +239,7 @@ impl<B: Board, T: PredictionSource<B>> MCTS<B, T> {
         let c_visit = self.mcts_params.c_visit;
         let c_scale = self.mcts_params.c_scale;
 
-        let try_rescale = true;
+        let try_rescale = false;
         let rescaled_qs = if try_rescale {
             let compl_qs = root.completed_qs();
             let q_max = compl_qs.iter().copied().reduce(f32::max).unwrap();
@@ -272,7 +252,8 @@ impl<B: Board, T: PredictionSource<B>> MCTS<B, T> {
 
         let sigma_qs: Vec<f32> = rescaled_qs
             .iter()
-            .map(|q| sigma(*q, n_max, c_visit, c_scale))
+            .enumerate()
+            .map(|(a, q)| sigma(*q, root.get_n(a), n_max, c_visit, c_scale))
             .collect();
         let improved_logits: Vec<f32> = (0..num_actions)
             .map(|a| pi_logits[a] + sigma_qs[a])
@@ -280,12 +261,7 @@ impl<B: Board, T: PredictionSource<B>> MCTS<B, T> {
         let pi = softmax(&improved_logits);
 
         let prior_pi = softmax(&pi_logits);
-        let search_stats = SearchStats {
-            prior_entropy: entropy(&prior_pi),
-            target_entropy: entropy(&pi),
-            logit_std: std_dev(&pi_logits),
-            sigma_q_std: std_dev(&sigma_qs),
-        };
+        let search_stats = SearchStats::compute(&prior_pi, &pi, &pi_logits, &sigma_qs);
 
         // Value: mean of backed-up Q across all visited actions, weighted by visit count.
         let total_n: u32 = (0..num_actions).map(|a| root.get_n(a)).sum();
@@ -335,16 +311,14 @@ impl<B: Board, T: PredictionSource<B>> MCTS<B, T> {
                 let wdl = if depth % 2 == 0 { wdl } else { wdl.flip() };
                 return [wdl.win, wdl.draw, wdl.loss];
             }
+            let n_max = (0..data.num_actions()).map(|a| data.get_n(a)).max().unwrap_or(0);
+            let c_visit = self.mcts_params.c_visit;
+            let c_scale = self.mcts_params.c_scale;
 
-            // let n_max = (0..data.num_actions()).map(|a| data.get_n(a)).max().unwrap_or(0);
-            // let c_scale = self.mcts_params.c_scale;
-            // let c_visit = self.mcts_params.c_visit;
             let best_action = (0..data.num_actions())
                 .max_by(|&a, &b| {
-                    let score_a = data.completed_q(a);
-                    let score_b = data.completed_q(b);
-                    // let score_a = data.pi_logits[a] + sigma(data.completed_q(a), n_max, c_visit, c_scale);
-                    // let score_b = data.pi_logits[b] + sigma(data.completed_q(b), n_max, c_visit, c_scale);
+                    let score_a = data.pi_logits[a] + sigma(data.completed_q(a), data.get_n(a), n_max, c_visit, c_scale);
+                    let score_b = data.pi_logits[b] + sigma(data.completed_q(b), data.get_n(b), n_max, c_visit, c_scale);
                     score_a.partial_cmp(&score_b).unwrap()
                 })
                 .unwrap_or(0);
@@ -360,6 +334,7 @@ impl<B: Board, T: PredictionSource<B>> MCTS<B, T> {
     /// argmax_a [ π'(a) - N(a) / (1 + Σ N(b)) ]
     /// where π' = softmax(logits + σ(completedQ))
     fn find_best_action(&self, data: &MCTSNode) -> usize {
+        // TODO: restore this to PUCT
         let n_max = (0..data.num_actions()).map(|a| data.get_n(a)).max().unwrap_or(0);
         let sum_n = data.total_visits() as f32;
         let denom = 1.0 + sum_n;
@@ -367,7 +342,7 @@ impl<B: Board, T: PredictionSource<B>> MCTS<B, T> {
         let c_scale = self.mcts_params.c_scale;
 
         let improved_logits: Vec<f32> = (0..data.num_actions())
-            .map(|a| data.pi_logits[a] + sigma(data.completed_q(a), n_max, c_visit, c_scale))
+            .map(|a| data.pi_logits[a] + sigma(data.completed_q(a), data.get_n(a), n_max, c_visit, c_scale))
             .collect();
         let pi_improved = softmax(&improved_logits);
 
