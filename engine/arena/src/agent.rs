@@ -4,8 +4,7 @@ use std::thread;
 use std::time::Duration;
 
 use alpha_cc_nn::BoardEncoding;
-use alpha_cc_mcts::{GumbelParams, MCTS};
-use alpha_cc_mcts::descent::SigmaParams;
+use alpha_cc_mcts::{GumbelParams, HalvingScheduler, Scheduler, SigmaParams};
 
 /// Raw NN output for a position.
 #[derive(Clone, Default)]
@@ -126,7 +125,7 @@ fn ai_thread<B: BoardEncoding>(
     let services: Vec<_> = (0..n)
         .map(|_| alpha_cc_nn_service::NNRemote::<B>::connect(nn_addr))
         .collect();
-    let mcts = MCTS::new_improved_halving(services, model_id, gamma, sigma, gumbel, pruning_tree, false);
+    let mcts = HalvingScheduler::build_improved_halving(services, model_id, gamma, sigma, gumbel, pruning_tree, false);
     let rollouts_per_batch = n_threads.max(1);
     let mut last_board_hash: u64 = 0;
     let mut total_rollouts: usize = 0;
@@ -145,15 +144,15 @@ fn ai_thread<B: BoardEncoding>(
         let board_hash = board.compute_hash();
 
         if board_hash != last_board_hash {
-            mcts.notify_move_applied(&board);
+            mcts.mcts().notify_move_applied(&board);
             last_board_hash = board_hash;
             total_rollouts = 0;
         }
 
-        let result = mcts.run_rollout_threads(&board, rollouts_per_batch, rollout_depth);
+        let result = mcts.run(&board, rollouts_per_batch, rollout_depth);
         total_rollouts += rollouts_per_batch;
 
-        let nn = match mcts.get_node_snapshot(&board) {
+        let nn = match mcts.mcts().get_node_snapshot(&board) {
             Some(node) => NNData {
                 pi: alpha_cc_nn::softmax(&node.pi_logits),
                 value: node.v.dequantize(),

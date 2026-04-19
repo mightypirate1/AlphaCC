@@ -2,6 +2,11 @@
 #[allow(clippy::module_inception)]
 pub mod mcts;
 pub mod mcts_node;
+pub mod params;
+pub mod prediction_sources;
+pub mod rollout_result;
 
-pub use mcts::{PyImprovedHalvingParams, PyMCTS, PyPuctFreeParams, PyRolloutResult};
+pub use mcts::PyMCTS;
+pub use params::{PyImprovedHalvingParams, PyPuctFreeParams};
+pub use rollout_result::PyRolloutResult;
 pub use mcts_node::PyMCTSNode;

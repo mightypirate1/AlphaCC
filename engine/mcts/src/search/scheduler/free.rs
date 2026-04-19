@@ -1,9 +1,10 @@
 use alpha_cc_core::Board;
 use alpha_cc_nn::{softmax, PredictionSource};
 
-use crate::mcts::RolloutResult;
+use crate::mcts::{MCTSParams, RolloutResult, MCTS};
+use crate::search::descent::puct::{PuctDescent, PuctParams};
 use crate::search::descent::Descent;
-use crate::search::scheduler::{RootScheduler, SchedulerCtx};
+use crate::search::scheduler::Scheduler;
 use crate::stats::SearchStats;
 
 #[derive(Clone)]
@@ -12,44 +13,61 @@ pub struct FreeConfig {
     pub temperature: f32,
 }
 
-pub struct FreeScheduler {
+pub struct FreeScheduler<B, T, D>
+where B: Board, T: PredictionSource<B>, D: Descent
+{
+    mcts: MCTS<B, T, D>,
     config: FreeConfig,
 }
 
-impl FreeScheduler {
-    pub fn new(config: FreeConfig) -> Self { Self { config } }
+impl<B, T, D> FreeScheduler<B, T, D>
+where B: Board, T: PredictionSource<B>, D: Descent
+{
+    pub fn new(mcts: MCTS<B, T, D>, config: FreeConfig) -> Self {
+        Self { mcts, config }
+    }
 }
 
-impl<B, P, D> RootScheduler<B, P, D> for FreeScheduler
-where B: Board, P: PredictionSource<B>, D: Descent
+/// Preset: PUCT descent + free parallel rollouts.
+impl<B, T> FreeScheduler<B, T, PuctDescent>
+where B: Board, T: PredictionSource<B>
 {
-    type Config = FreeConfig;
+    pub fn build_puct_free(
+        services: Vec<T>,
+        model_id: u32,
+        gamma: f32,
+        puct: PuctParams,
+        free: FreeConfig,
+        pruning_tree: bool,
+        debug_prints: bool,
+    ) -> Self {
+        let descent = PuctDescent::new(puct);
+        let mcts = MCTS::new(
+            services, model_id, MCTSParams { gamma }, descent, pruning_tree, debug_prints,
+        );
+        Self::new(mcts, free)
+    }
+}
 
-    fn run(
-        &self,
-        ctx: SchedulerCtx<'_, B, P, D>,
-        board: &B,
-        n_rollouts: usize,
-        rollout_depth: usize,
-    ) -> RolloutResult {
-        ctx.engine.ensure_root(board);
+impl<B, T, D> Scheduler<B, T, D> for FreeScheduler<B, T, D>
+where B: Board, T: PredictionSource<B>, D: Descent
+{
+    fn mcts(&self) -> &MCTS<B, T, D> { &self.mcts }
 
-        // Snapshot prior logits for final stats + build root state once.
+    fn run(&self, board: &B, n_rollouts: usize, rollout_depth: usize) -> RolloutResult {
+        self.mcts.ensure_root(board);
+
         let pi_logits = {
-            let root = ctx.tree.get_data(board).unwrap();
-            let pl = root.pi_logits.clone();
-            drop(root);
-            pl
+            let root = self.mcts.tree().get_data(board).unwrap();
+            root.pi_logits.clone()
         };
 
         let root_state: Option<D::RootState> = {
-            let root = ctx.tree.get_data(board).unwrap();
-            let s = ctx.descent.fresh_root_state(&root);
-            drop(root);
-            s
+            let root = self.mcts.tree().get_data(board).unwrap();
+            self.mcts.descent().fresh_root_state(&root)
         };
 
-        let n_threads = ctx.services.len().min(n_rollouts.max(1));
+        let n_threads = self.mcts.services().len().min(n_rollouts.max(1));
         let rollouts_per_thread = n_rollouts / n_threads;
         let remainder = n_rollouts % n_threads;
 
@@ -57,13 +75,13 @@ where B: Board, P: PredictionSource<B>, D: Descent
             let handles: Vec<_> = (0..n_threads).map(|thread_id| {
                 let board = board.clone();
                 let count = rollouts_per_thread + if thread_id < remainder { 1 } else { 0 };
-                let engine = ctx.engine;
+                let mcts = &self.mcts;
                 let root_state_ref = root_state.as_ref();
                 s.spawn(move || {
                     let mut local_sum = 0.0f64;
                     for _ in 0..count {
-                        engine.begin_rollout(thread_id);
-                        let (v, _outcome) = engine.run_single(
+                        mcts.begin_rollout(thread_id);
+                        let (v, _outcome) = mcts.rollout(
                             &board, rollout_depth, None, root_state_ref, thread_id,
                         );
                         local_sum += (-v) as f64;
@@ -74,15 +92,13 @@ where B: Board, P: PredictionSource<B>, D: Descent
             handles.into_iter().map(|h| h.join().unwrap()).sum()
         });
 
-        ctx.engine.finalize_rollouts(board);
+        self.mcts.finalize_rollouts(board);
 
         let mean_value = if n_rollouts > 0 { (value_sum / n_rollouts as f64) as f32 } else { 0.0 };
 
-        // Read root for final pi + wdl + stats.
-        let root = ctx.tree.get_data(board).unwrap();
+        let root = self.mcts.tree().get_data(board).unwrap();
         let num_actions = root.num_actions();
 
-        // pi = normalized N(a)^(1/T)
         let pi = {
             let mut weights: Vec<f32> = (0..num_actions).map(|a| root.get_n(a) as f32).collect();
             let t = self.config.temperature;
@@ -104,7 +120,6 @@ where B: Board, P: PredictionSource<B>, D: Descent
         };
 
         let prior_pi = softmax(&pi_logits);
-        // No σ-shift for free scheduler; zero-vector keeps stats shape consistent.
         let sigma_qs = vec![0.0f32; num_actions];
         let search_stats = SearchStats::compute(&prior_pi, &pi, &pi_logits, &sigma_qs);
 
@@ -112,11 +127,13 @@ where B: Board, P: PredictionSource<B>, D: Descent
         let mcts_wdl = [wdl.win, wdl.draw, wdl.loss];
         drop(root);
 
+        let greedy_backup_wdl = self.mcts.greedy_backup_wdl(board, rollout_depth);
+
         RolloutResult {
             pi,
             value: mean_value,
             mcts_wdl,
-            greedy_backup_wdl: [0.0, 1.0, 0.0],
+            greedy_backup_wdl,
             search_stats,
         }
     }

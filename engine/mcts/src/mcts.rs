@@ -4,11 +4,7 @@ use alpha_cc_core::Board;
 use alpha_cc_nn::PredictionSource;
 use crate::mcts_node::MCTSNode;
 use crate::outcome::Outcome;
-use crate::search::descent::{Descent, ImprovedPolicyDescent, PuctDescent, PuctParams, SigmaParams};
-use crate::search::scheduler::{
-    FreeConfig, FreeScheduler, GumbelParams, HalvingConfig, HalvingScheduler,
-    RolloutEngine, RootScheduler, SchedulerCtx,
-};
+use crate::search::descent::Descent;
 use crate::stats::SearchStats;
 use crate::tree::Tree;
 
@@ -20,15 +16,18 @@ pub struct RolloutResult {
     pub search_stats: SearchStats,
 }
 
-pub struct MCTS<B, T, D, S>
-where B: Board, T: PredictionSource<B>, D: Descent, S: RootScheduler<B, T, D>
+/// Core search engine: owns the transposition tree, prediction services, and a
+/// descent strategy. The top-level search flow (how to organise rollouts from the
+/// root) lives in schedulers (see `crate::search::scheduler`) which own an `MCTS`
+/// and drive it.
+pub struct MCTS<B, T, D>
+where B: Board, T: PredictionSource<B>, D: Descent
 {
     tree: Arc<Tree<B>>,
     services: Vec<T>,
     model_id: u32,
     mcts_params: MCTSParams,
-    descent: Arc<D>,
-    scheduler: S,
+    descent: D,
 }
 
 #[derive(Clone)]
@@ -36,15 +35,14 @@ pub struct MCTSParams {
     pub gamma: f32,
 }
 
-impl<B, T, D, S> MCTS<B, T, D, S>
-where B: Board, T: PredictionSource<B>, D: Descent, S: RootScheduler<B, T, D>
+impl<B, T, D> MCTS<B, T, D>
+where B: Board, T: PredictionSource<B>, D: Descent
 {
     pub fn new(
         services: Vec<T>,
         model_id: u32,
         mcts_params: MCTSParams,
-        descent: Arc<D>,
-        scheduler: S,
+        descent: D,
         pruning_tree: bool,
         debug_prints: bool,
     ) -> Self {
@@ -55,16 +53,40 @@ where B: Board, T: PredictionSource<B>, D: Descent, S: RootScheduler<B, T, D>
             model_id,
             mcts_params,
             descent,
-            scheduler,
         }
+    }
+
+    // ── accessors used by schedulers ──
+
+    pub fn tree(&self) -> &Tree<B> { &self.tree }
+    pub fn services(&self) -> &[T] { &self.services }
+    pub fn model_id(&self) -> u32 { self.model_id }
+    pub fn descent(&self) -> &D { &self.descent }
+    pub fn gamma(&self) -> f32 { self.mcts_params.gamma }
+
+    // ── rollout plumbing ──
+
+    /// Ensure the root node is present in the tree (inserts a fresh NN leaf if not).
+    pub fn ensure_root(&self, board: &B) {
+        if self.tree.get_data(board).is_none() {
+            let node = self.new_leaf_for(board, &self.services[0], self.model_id);
+            self.tree.insert(board, node);
+        }
+    }
+
+    pub fn begin_rollout(&self, thread_id: usize) {
+        self.tree.begin_rollout(thread_id);
+    }
+
+    pub fn finalize_rollouts(&self, board: &B) {
+        self.tree.finalize_rollouts(board);
     }
 
     /// Perform a single rollout from `board` down the tree.
     /// Returns (value, outcome) from the caller's (parent's) perspective.
     /// `root_state` is Some only at the outermost call; inner recursions pass None.
-    fn rollout(
+    pub fn rollout(
         &self,
-        model_id: u32,
         board: &B,
         remaining_depth: usize,
         forced_action: Option<usize>,
@@ -90,7 +112,7 @@ where B: Board, T: PredictionSource<B>, D: Descent, S: RootScheduler<B, T, D>
             data.apply_virtual_loss(a);
             drop(data);
 
-            let (v, outcome) = self.rollout(model_id, &s_prime, remaining_depth - 1, None, None, thread_id);
+            let (v, outcome) = self.rollout(&s_prime, remaining_depth - 1, None, None, thread_id);
 
             let data = self.tree.get_data(board)
                 .expect("node data disappeared mid-rollout");
@@ -102,7 +124,7 @@ where B: Board, T: PredictionSource<B>, D: Descent, S: RootScheduler<B, T, D>
             return (-(self.mcts_params.gamma * v), outcome.map(|o| o.flip()));
         }
 
-        let node = self.new_leaf_for(board, &self.services[thread_id], model_id);
+        let node = self.new_leaf_for(board, &self.services[thread_id], self.model_id);
         let v = node.v.dequantize();
         self.tree.insert(board, node);
         (-v, None)
@@ -117,6 +139,8 @@ where B: Board, T: PredictionSource<B>, D: Descent, S: RootScheduler<B, T, D>
         MCTSNode::new(pi_logits, v, [wdl[0], wdl[1], wdl[2]], num_actions)
     }
 
+    // ── tree-level operations exposed externally ──
+
     pub fn notify_move_applied(&self, board: &B) {
         if let Some(action) = self.tree.maybe_prune(board) {
             if self.tree.debug_prints() {
@@ -126,45 +150,23 @@ where B: Board, T: PredictionSource<B>, D: Descent, S: RootScheduler<B, T, D>
         }
     }
 
-    /// Get a snapshot of the MCTS node for a board position (if it exists in the tree).
     pub fn get_node_snapshot(&self, board: &B) -> Option<MCTSNode> {
         self.tree.get_data(board).map(|data| data.snapshot())
     }
 
-    /// Clear all tree nodes and tracking state.
     pub fn clear_tree(&self) {
         self.tree.clear();
     }
 
-    /// Get snapshots of all nodes in the tree.
     pub fn get_all_nodes(&self) -> std::collections::HashMap<B, MCTSNode> {
         self.tree.iter_data()
             .map(|entry| (entry.key().clone(), entry.value().snapshot()))
             .collect()
     }
 
-    pub fn run_rollout_threads(
-        &self,
-        board: &B,
-        n_rollouts: usize,
-        rollout_depth: usize,
-    ) -> RolloutResult {
-        let ctx = SchedulerCtx {
-            tree: &self.tree,
-            services: &self.services,
-            model_id: self.model_id,
-            gamma: self.mcts_params.gamma,
-            descent: &*self.descent,
-            engine: self,
-        };
-        let mut result = self.scheduler.run(ctx, board, n_rollouts, rollout_depth);
-        result.greedy_backup_wdl = self.greedy_backup_wdl(board, rollout_depth);
-        result
-    }
-
-    /// Walk the tree greedily from `board`, always picking the descent's best_child.
-    /// Returns the WDL of the deepest reachable node, from the root player's perspective.
-    fn greedy_backup_wdl(&self, board: &B, max_depth: usize) -> [f32; 3] {
+    /// Walk the tree greedily from `board`, picking `descent.best_child` at each
+    /// node. Returns the WDL of the deepest reachable node, from root-player's POV.
+    pub fn greedy_backup_wdl(&self, board: &B, max_depth: usize) -> [f32; 3] {
         let mut current = board.clone();
         let mut depth = 0;
 
@@ -193,73 +195,5 @@ where B: Board, T: PredictionSource<B>, D: Descent, S: RootScheduler<B, T, D>
             drop(data);
             depth += 1;
         }
-    }
-}
-
-/// Preset: improved-policy descent + sequential-halving scheduling (branch's default).
-impl<B, T> MCTS<B, T, ImprovedPolicyDescent, HalvingScheduler>
-where B: Board, T: PredictionSource<B>
-{
-    pub fn new_improved_halving(
-        services: Vec<T>,
-        model_id: u32,
-        gamma: f32,
-        sigma: SigmaParams,
-        gumbel: GumbelParams,
-        pruning_tree: bool,
-        debug_prints: bool,
-    ) -> Self {
-        let descent = Arc::new(ImprovedPolicyDescent::new(sigma.clone()));
-        let scheduler = HalvingScheduler::new(HalvingConfig { gumbel, sigma });
-        Self::new(services, model_id, MCTSParams { gamma }, descent, scheduler, pruning_tree, debug_prints)
-    }
-}
-
-/// Preset: PUCT descent + free parallel rollouts (master's default).
-impl<B, T> MCTS<B, T, PuctDescent, FreeScheduler>
-where B: Board, T: PredictionSource<B>
-{
-    pub fn new_puct_free(
-        services: Vec<T>,
-        model_id: u32,
-        gamma: f32,
-        puct: PuctParams,
-        free: FreeConfig,
-        pruning_tree: bool,
-        debug_prints: bool,
-    ) -> Self {
-        let descent = Arc::new(PuctDescent::new(puct));
-        let scheduler = FreeScheduler::new(free);
-        Self::new(services, model_id, MCTSParams { gamma }, descent, scheduler, pruning_tree, debug_prints)
-    }
-}
-
-impl<B, T, D, S> RolloutEngine<B, D> for MCTS<B, T, D, S>
-where B: Board, T: PredictionSource<B>, D: Descent, S: RootScheduler<B, T, D>
-{
-    fn run_single(
-        &self,
-        board: &B,
-        rollout_depth: usize,
-        forced_action: Option<usize>,
-        root_state: Option<&D::RootState>,
-        thread_id: usize,
-    ) -> (f32, Option<Outcome>) {
-        self.rollout(self.model_id, board, rollout_depth, forced_action, root_state, thread_id)
-    }
-
-    fn ensure_root(&self, board: &B) {
-        if self.tree.get_data(board).is_none() {
-            let node = self.new_leaf_for(board, &self.services[0], self.model_id);
-            self.tree.insert(board, node);
-        }
-    }
-
-    fn finalize_rollouts(&self, board: &B) {
-        self.tree.finalize_rollouts(board);
-    }
-
-    fn begin_rollout(&self, thread_id: usize) {
-        self.tree.begin_rollout(thread_id);
     }
 }

@@ -174,8 +174,8 @@ impl<B: BoardEncoding + GameVisual + 'static, R: GameRenderer<Coord = B::Coord>>
 
     fn mcts_gamma(&self) -> f32 { self.config.gamma }
 
-    fn sigma_params(&self) -> alpha_cc_mcts::descent::SigmaParams {
-        alpha_cc_mcts::descent::SigmaParams {
+    fn sigma_params(&self) -> alpha_cc_mcts::SigmaParams {
+        alpha_cc_mcts::SigmaParams {
             c_visit: self.config.c_visit,
             c_scale: self.config.c_scale,
         }

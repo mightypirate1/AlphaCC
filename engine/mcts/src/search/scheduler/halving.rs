@@ -1,11 +1,11 @@
 use alpha_cc_core::Board;
 use alpha_cc_nn::{softmax, PredictionSource};
 
-use crate::mcts::RolloutResult;
+use crate::mcts::{MCTSParams, RolloutResult, MCTS};
 use crate::noise;
+use crate::search::descent::improved::{sigma, ImprovedPolicyDescent, SigmaParams};
 use crate::search::descent::Descent;
-use crate::search::descent::improved::{sigma, SigmaParams};
-use crate::search::scheduler::{RootScheduler, SchedulerCtx};
+use crate::search::scheduler::Scheduler;
 use crate::stats::SearchStats;
 
 #[derive(Clone)]
@@ -22,33 +22,55 @@ pub struct HalvingConfig {
     pub sigma: SigmaParams,
 }
 
-pub struct HalvingScheduler {
+pub struct HalvingScheduler<B, T, D>
+where B: Board, T: PredictionSource<B>, D: Descent
+{
+    mcts: MCTS<B, T, D>,
     config: HalvingConfig,
 }
 
-impl HalvingScheduler {
-    pub fn new(config: HalvingConfig) -> Self { Self { config } }
+impl<B, T, D> HalvingScheduler<B, T, D>
+where B: Board, T: PredictionSource<B>, D: Descent
+{
+    pub fn new(mcts: MCTS<B, T, D>, config: HalvingConfig) -> Self {
+        Self { mcts, config }
+    }
 }
 
-impl<B, P, D> RootScheduler<B, P, D> for HalvingScheduler
-where B: Board, P: PredictionSource<B>, D: Descent
+/// Preset: improved-policy descent + sequential-halving scheduling.
+impl<B, T> HalvingScheduler<B, T, ImprovedPolicyDescent>
+where B: Board, T: PredictionSource<B>
 {
-    type Config = HalvingConfig;
+    pub fn build_improved_halving(
+        services: Vec<T>,
+        model_id: u32,
+        gamma: f32,
+        sigma: SigmaParams,
+        gumbel: GumbelParams,
+        pruning_tree: bool,
+        debug_prints: bool,
+    ) -> Self {
+        let descent = ImprovedPolicyDescent::new(sigma.clone());
+        let mcts = MCTS::new(
+            services, model_id, MCTSParams { gamma }, descent, pruning_tree, debug_prints,
+        );
+        Self::new(mcts, HalvingConfig { gumbel, sigma })
+    }
+}
 
-    fn run(
-        &self,
-        ctx: SchedulerCtx<'_, B, P, D>,
-        board: &B,
-        n_rollouts: usize,
-        rollout_depth: usize,
-    ) -> RolloutResult {
+impl<B, T, D> Scheduler<B, T, D> for HalvingScheduler<B, T, D>
+where B: Board, T: PredictionSource<B>, D: Descent
+{
+    fn mcts(&self) -> &MCTS<B, T, D> { &self.mcts }
+
+    fn run(&self, board: &B, n_rollouts: usize, rollout_depth: usize) -> RolloutResult {
         let gumbel = &self.config.gumbel;
         let c_visit = self.config.sigma.c_visit;
         let c_scale = self.config.sigma.c_scale;
 
-        ctx.engine.ensure_root(board);
+        self.mcts.ensure_root(board);
 
-        let root = ctx.tree.get_data(board).unwrap();
+        let root = self.mcts.tree().get_data(board).unwrap();
         let num_actions = root.num_actions();
         let pi_logits = root.pi_logits.clone();
         drop(root);
@@ -59,7 +81,6 @@ where B: Board, P: PredictionSource<B>, D: Descent
             .map(|a| gumbels[a] + pi_logits[a])
             .collect();
 
-        // Initial candidate set: all actions or top base_count.
         let mut candidates: Vec<usize> = (0..num_actions).collect();
         candidates.sort_by(|&a, &b| gumbel_scores[b].partial_cmp(&gumbel_scores[a]).unwrap());
         if !gumbel.all_at_least_once {
@@ -68,12 +89,11 @@ where B: Board, P: PredictionSource<B>, D: Descent
 
         let mut sim_budget = n_rollouts;
 
-        // Sequential halving loop.
         while sim_budget > 0 && !candidates.is_empty() {
             let sims_this_round = candidates.len().min(sim_budget);
             let actions_this_round: Vec<usize> = candidates[..sims_this_round].to_vec();
 
-            let n_threads = ctx.services.len().min(sims_this_round);
+            let n_threads = self.mcts.services().len().min(sims_this_round);
             let rollouts_per_thread = sims_this_round / n_threads;
             let remainder = sims_this_round % n_threads;
 
@@ -83,11 +103,11 @@ where B: Board, P: PredictionSource<B>, D: Descent
                     let start = thread_id * rollouts_per_thread + thread_id.min(remainder);
                     let count = rollouts_per_thread + if thread_id < remainder { 1 } else { 0 };
                     let actions = &actions_this_round[start..start + count];
-                    let engine = ctx.engine;
+                    let mcts = &self.mcts;
                     s.spawn(move || {
                         for &action in actions {
-                            engine.begin_rollout(thread_id);
-                            engine.run_single(&board, rollout_depth, Some(action), None, thread_id);
+                            mcts.begin_rollout(thread_id);
+                            mcts.rollout(&board, rollout_depth, Some(action), None, thread_id);
                         }
                     })
                 }).collect();
@@ -96,12 +116,11 @@ where B: Board, P: PredictionSource<B>, D: Descent
                 }
             });
 
-            ctx.engine.finalize_rollouts(board);
+            self.mcts.finalize_rollouts(board);
             sim_budget -= sims_this_round;
 
-            // Re-score and narrow candidates.
             if sim_budget > 0 {
-                let root = ctx.tree.get_data(board).unwrap();
+                let root = self.mcts.tree().get_data(board).unwrap();
                 let n_max = (0..num_actions).map(|a| root.get_n(a)).max().unwrap_or(0);
 
                 candidates.sort_by(|&a, &b| {
@@ -118,7 +137,7 @@ where B: Board, P: PredictionSource<B>, D: Descent
         }
 
         // Compute improved policy target over ALL actions.
-        let root = ctx.tree.get_data(board).unwrap();
+        let root = self.mcts.tree().get_data(board).unwrap();
         let n_max = (0..num_actions).map(|a| root.get_n(a)).max().unwrap_or(0);
 
         let sigma_qs: Vec<f32> = (0..num_actions)
@@ -132,7 +151,6 @@ where B: Board, P: PredictionSource<B>, D: Descent
         let prior_pi = softmax(&pi_logits);
         let search_stats = SearchStats::compute(&prior_pi, &pi, &pi_logits, &sigma_qs);
 
-        // Value: visit-weighted Q across all actions; fallback to NN v if no visits.
         let total_n: u32 = (0..num_actions).map(|a| root.get_n(a)).sum();
         let value = if total_n > 0 {
             (0..num_actions)
@@ -146,16 +164,13 @@ where B: Board, P: PredictionSource<B>, D: Descent
         let mcts_wdl = [wdl.win, wdl.draw, wdl.loss];
         drop(root);
 
-        // greedy_backup_wdl is computed by MCTS, not the scheduler — the scheduler
-        // owns the "what rollouts to run" decision; the engine owns tree-walk helpers.
-        let greedy_backup_wdl = [0.0, 1.0, 0.0]; // placeholder; MCTS overwrites
-        let _ = greedy_backup_wdl;
+        let greedy_backup_wdl = self.mcts.greedy_backup_wdl(board, rollout_depth);
 
         RolloutResult {
             pi,
             value,
             mcts_wdl,
-            greedy_backup_wdl: [0.0, 1.0, 0.0],
+            greedy_backup_wdl,
             search_stats,
         }
     }
