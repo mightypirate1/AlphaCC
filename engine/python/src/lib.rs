@@ -21,6 +21,8 @@ fn alpha_cc(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyHexCoord>()?;
     m.add_class::<PyMove>()?;
     m.add_class::<PyMCTS>()?;
+    m.add_class::<PyImprovedHalvingParams>()?;
+    m.add_class::<PyPuctFreeParams>()?;
     m.add_class::<PyMCTSNode>()?;
     m.add_class::<PyRolloutResult>()?;
     m.add_class::<PyNNPred>()?;

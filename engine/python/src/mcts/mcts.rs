@@ -1,7 +1,12 @@
+use std::collections::HashMap;
+
 use alpha_cc_core::cc::CCBoard;
 use pyo3::prelude::*;
 use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 
+use alpha_cc_mcts::descent::{Descent, DirichletParams, PuctParams, SigmaParams};
+use alpha_cc_mcts::scheduler::{FreeConfig, RootScheduler};
+use alpha_cc_mcts::{RolloutResult as MctsRolloutResult, MCTS};
 use alpha_cc_nn::PredictionSource;
 use crate::core::PyBoard;
 use crate::nn::PyFetchStats;
@@ -32,7 +37,31 @@ impl PredictionSource<CCBoard> for PredictionSources {
     }
 }
 
-type MCTS = alpha_cc_mcts::MCTS<CCBoard, PredictionSources>;
+/// Type-erasing backend trait — lets PyMCTS hold any (Descent, Scheduler) combination
+/// behind a single `Box<dyn PyMctsBackend>`, so pyo3 doesn't need to know which is in use.
+trait PyMctsBackend: Send + Sync {
+    fn run_rollouts(&self, board: &CCBoard, n_rollouts: usize, rollout_depth: usize) -> MctsRolloutResult;
+    fn notify_move_applied(&self, board: &CCBoard);
+    fn clear_tree(&self);
+    fn get_node_snapshot(&self, board: &CCBoard) -> Option<alpha_cc_mcts::MCTSNode>;
+    fn get_all_nodes(&self) -> HashMap<CCBoard, alpha_cc_mcts::MCTSNode>;
+}
+
+impl<D, S> PyMctsBackend for MCTS<CCBoard, PredictionSources, D, S>
+where D: Descent + 'static, S: RootScheduler<CCBoard, PredictionSources, D> + 'static
+{
+    fn run_rollouts(&self, board: &CCBoard, n_rollouts: usize, rollout_depth: usize) -> MctsRolloutResult {
+        self.run_rollout_threads(board, n_rollouts, rollout_depth)
+    }
+    fn notify_move_applied(&self, board: &CCBoard) { MCTS::notify_move_applied(self, board); }
+    fn clear_tree(&self) { MCTS::clear_tree(self); }
+    fn get_node_snapshot(&self, board: &CCBoard) -> Option<alpha_cc_mcts::MCTSNode> {
+        MCTS::get_node_snapshot(self, board)
+    }
+    fn get_all_nodes(&self) -> HashMap<CCBoard, alpha_cc_mcts::MCTSNode> {
+        MCTS::get_all_nodes(self)
+    }
+}
 
 #[gen_stub_pyclass]
 #[pyclass(name = "RolloutResult", module = "alpha_cc_engine")]
@@ -105,67 +134,122 @@ impl PyRolloutResult {
 }
 
 #[gen_stub_pyclass]
+#[pyclass(name = "ImprovedHalvingParams", module = "alpha_cc_engine", from_py_object)]
+#[derive(Clone)]
+pub struct PyImprovedHalvingParams {
+    #[pyo3(get, set)] pub c_visit: f32,
+    #[pyo3(get, set)] pub c_scale: f32,
+    #[pyo3(get, set)] pub all_at_least_once: bool,
+    #[pyo3(get, set)] pub base_count: usize,
+    #[pyo3(get, set)] pub floor_count: usize,
+    #[pyo3(get, set)] pub keep_frac: f32,
+}
+
+#[gen_stub_pymethods]
+#[pymethods]
+impl PyImprovedHalvingParams {
+    #[new]
+    #[pyo3(signature = (c_visit=50.0, c_scale=1.0, all_at_least_once=false, base_count=16, floor_count=5, keep_frac=0.5))]
+    fn new(c_visit: f32, c_scale: f32, all_at_least_once: bool, base_count: usize, floor_count: usize, keep_frac: f32) -> Self {
+        Self { c_visit, c_scale, all_at_least_once, base_count, floor_count, keep_frac }
+    }
+}
+
+#[gen_stub_pyclass]
+#[pyclass(name = "PuctFreeParams", module = "alpha_cc_engine", from_py_object)]
+#[derive(Clone)]
+pub struct PyPuctFreeParams {
+    #[pyo3(get, set)] pub c_puct_init: f32,
+    #[pyo3(get, set)] pub c_puct_base: f32,
+    #[pyo3(get, set)] pub dirichlet_weight: f32,
+    #[pyo3(get, set)] pub dirichlet_alpha: f32,
+    #[pyo3(get, set)] pub temperature: f32,
+}
+
+#[gen_stub_pymethods]
+#[pymethods]
+impl PyPuctFreeParams {
+    #[new]
+    #[pyo3(signature = (c_puct_init=2.0, c_puct_base=10000.0, dirichlet_weight=0.15, dirichlet_alpha=0.15, temperature=1.0))]
+    fn new(c_puct_init: f32, c_puct_base: f32, dirichlet_weight: f32, dirichlet_alpha: f32, temperature: f32) -> Self {
+        Self { c_puct_init, c_puct_base, dirichlet_weight, dirichlet_alpha, temperature }
+    }
+}
+
+#[gen_stub_pyclass]
 #[pyclass(name = "MCTS", module = "alpha_cc_engine")]
-pub struct PyMCTS(MCTS);
+pub struct PyMCTS(Box<dyn PyMctsBackend>);
+
+fn build_services(addr: &str, n: usize, dummy: bool) -> Vec<PredictionSources> {
+    let n = n.max(1);
+    if dummy {
+        (0..n).map(|_| PredictionSources::dummy()).collect()
+    } else {
+        (0..n).map(|_| PredictionSources::real(addr)).collect()
+    }
+}
 
 #[gen_stub_pymethods]
 #[pymethods]
 impl PyMCTS {
     #[allow(clippy::too_many_arguments)]
     #[new]
-    #[pyo3(signature = (nn_service_addr, channel, gamma, c_visit=50.0, c_scale=1.0, all_at_least_once=false, base_count=16, floor_count=5, keep_frac=0.5, n_threads=1, pruning_tree=false, debug_prints=false, dummy_preds=false))]
+    #[pyo3(signature = (nn_service_addr, channel, gamma, improved_halving=None, puct_free=None, n_threads=1, pruning_tree=false, debug_prints=false, dummy_preds=false))]
     fn new(
         nn_service_addr: String,
         channel: u32,
         gamma: f32,
-        c_visit: f32,
-        c_scale: f32,
-        all_at_least_once: bool,
-        base_count: usize,
-        floor_count: usize,
-        keep_frac: f32,
+        improved_halving: Option<PyImprovedHalvingParams>,
+        puct_free: Option<PyPuctFreeParams>,
         n_threads: usize,
         pruning_tree: bool,
         debug_prints: bool,
         dummy_preds: bool,
-    ) -> Self {
-        let n = n_threads.max(1);
-        let services = if dummy_preds {
-            (0..n).map(|_| PredictionSources::dummy()).collect()
-        } else {
-            (0..n).map(|_| PredictionSources::real(&nn_service_addr)).collect()
-        };
-        PyMCTS(MCTS::new(
-            services,
-            channel,
-            alpha_cc_mcts::MCTSParams {
-                gamma,
-                c_visit,
-                c_scale,
-                gumbel: alpha_cc_mcts::GumbelParams {
-                    all_at_least_once,
-                    base_count,
-                    floor_count,
-                    keep_frac,
-                },
-            },
-            pruning_tree,
-            debug_prints,
-        ))
+    ) -> PyResult<Self> {
+        let services = build_services(&nn_service_addr, n_threads, dummy_preds);
+        match (improved_halving, puct_free) {
+            (Some(p), None) => {
+                let sigma = SigmaParams { c_visit: p.c_visit, c_scale: p.c_scale };
+                let gumbel = alpha_cc_mcts::GumbelParams {
+                    all_at_least_once: p.all_at_least_once,
+                    base_count: p.base_count,
+                    floor_count: p.floor_count,
+                    keep_frac: p.keep_frac,
+                };
+                Ok(PyMCTS(Box::new(MCTS::new_improved_halving(
+                    services, channel, gamma, sigma, gumbel, pruning_tree, debug_prints,
+                ))))
+            }
+            (None, Some(p)) => {
+                let dirichlet = if p.dirichlet_weight > 0.0 {
+                    Some(DirichletParams { weight: p.dirichlet_weight, alpha: p.dirichlet_alpha })
+                } else { None };
+                let puct = PuctParams {
+                    c_puct_init: p.c_puct_init,
+                    c_puct_base: p.c_puct_base,
+                    dirichlet,
+                };
+                let free = FreeConfig { temperature: p.temperature };
+                Ok(PyMCTS(Box::new(MCTS::new_puct_free(
+                    services, channel, gamma, puct, free, pruning_tree, debug_prints,
+                ))))
+            }
+            (Some(_), Some(_)) => Err(pyo3::exceptions::PyValueError::new_err(
+                "MCTS: specify exactly one of `improved_halving` or `puct_free`, not both",
+            )),
+            (None, None) => Err(pyo3::exceptions::PyValueError::new_err(
+                "MCTS: specify exactly one of `improved_halving` or `puct_free`",
+            )),
+        }
     }
 
     fn run(&self, board: &PyBoard, rollout_depth: usize) -> f32 {
-        self.0.run_rollout_threads(&board.0, 1, rollout_depth).value
+        self.0.run_rollouts(&board.0, 1, rollout_depth).value
     }
 
     #[pyo3(signature = (board, n_rollouts, rollout_depth))]
-    fn run_rollouts(
-        &self,
-        board: &PyBoard,
-        n_rollouts: usize,
-        rollout_depth: usize,
-    ) -> PyRolloutResult {
-        PyRolloutResult(self.0.run_rollout_threads(&board.0, n_rollouts, rollout_depth))
+    fn run_rollouts(&self, board: &PyBoard, n_rollouts: usize, rollout_depth: usize) -> PyRolloutResult {
+        PyRolloutResult(self.0.run_rollouts(&board.0, n_rollouts, rollout_depth))
     }
 
     fn get_node(&self, board: &PyBoard) -> Option<PyMCTSNode> {

@@ -135,6 +135,13 @@ impl MCTSNode {
         (self.get_v() + total_n * weighted_q) / (1.0 + total_n)
     }
 
+    /// Softmaxed prior probabilities (derived from stored logits).
+    /// Allocates a fresh vector each call.
+    #[inline]
+    pub fn pi_softmax(&self) -> Vec<f32> {
+        alpha_cc_nn::softmax(&self.pi_logits)
+    }
+
     #[inline]
     pub fn completed_qs(&self) -> Vec<f32> {
         (0..self.num_actions()).map(|a| self.completed_q(a)).collect()

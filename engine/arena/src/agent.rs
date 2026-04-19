@@ -4,7 +4,8 @@ use std::thread;
 use std::time::Duration;
 
 use alpha_cc_nn::BoardEncoding;
-use alpha_cc_mcts::{MCTS, MCTSParams};
+use alpha_cc_mcts::{GumbelParams, MCTS};
+use alpha_cc_mcts::descent::SigmaParams;
 
 /// Raw NN output for a position.
 #[derive(Clone, Default)]
@@ -51,10 +52,13 @@ pub struct AiHandle<B: BoardEncoding> {
 }
 
 impl<B: BoardEncoding + 'static> AiHandle<B> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         nn_addr: String,
         model_id: u32,
-        params: MCTSParams,
+        gamma: f32,
+        sigma: SigmaParams,
+        gumbel: GumbelParams,
         n_threads: usize,
         rollout_depth: usize,
         pruning_tree: bool,
@@ -72,7 +76,7 @@ impl<B: BoardEncoding + 'static> AiHandle<B> {
 
         let handle = thread::spawn(move || {
             ai_thread(
-                &nn_addr, model_id, params, n_threads, rollout_depth, pruning_tree,
+                &nn_addr, model_id, gamma, sigma, gumbel, n_threads, rollout_depth, pruning_tree,
                 shared_clone, update_tx,
             );
         });
@@ -109,7 +113,9 @@ impl<B: BoardEncoding + 'static> AiHandle<B> {
 fn ai_thread<B: BoardEncoding>(
     nn_addr: &str,
     model_id: u32,
-    params: MCTSParams,
+    gamma: f32,
+    sigma: SigmaParams,
+    gumbel: GumbelParams,
     n_threads: usize,
     rollout_depth: usize,
     pruning_tree: bool,
@@ -120,7 +126,7 @@ fn ai_thread<B: BoardEncoding>(
     let services: Vec<_> = (0..n)
         .map(|_| alpha_cc_nn_service::NNRemote::<B>::connect(nn_addr))
         .collect();
-    let mcts = MCTS::new(services, model_id, params, pruning_tree, false);
+    let mcts = MCTS::new_improved_halving(services, model_id, gamma, sigma, gumbel, pruning_tree, false);
     let rollouts_per_batch = n_threads.max(1);
     let mut last_board_hash: u64 = 0;
     let mut total_rollouts: usize = 0;

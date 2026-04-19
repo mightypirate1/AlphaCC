@@ -3,7 +3,7 @@ import numpy as np
 from alpha_cc.agents.agent import Agent
 from alpha_cc.agents.mcts.mcts_node_py import MCTSNodePy
 from alpha_cc.agents.mcts.worker_stats import WorkerStats
-from alpha_cc.engine import MCTS, Board, RolloutResult
+from alpha_cc.engine import MCTS, Board, ImprovedHalvingParams, PuctFreeParams, RolloutResult
 
 
 class MCTSAgent(Agent):
@@ -14,12 +14,8 @@ class MCTSAgent(Agent):
         n_rollouts: int = 100,
         rollout_depth: int = 500,
         rollout_gamma: float = 1.0,
-        c_visit: float = 50.0,
-        c_scale: float = 1.0,
-        all_at_least_once: bool = False,
-        base_count: int = 16,
-        floor_count: int = 5,
-        keep_frac: float = 0.5,
+        improved_halving: ImprovedHalvingParams | None = None,
+        puct_free: PuctFreeParams | None = None,
         argmax_delay: int | None = None,
         n_threads: int = 1,
         pruning_tree: bool = False,
@@ -30,16 +26,14 @@ class MCTSAgent(Agent):
         self._rollout_depth = rollout_depth
         self._argmax_delay = argmax_delay
         self._steps_left_to_argmax = argmax_delay or np.inf
+        if improved_halving is None and puct_free is None:
+            puct_free = PuctFreeParams()
         self._mcts = MCTS(
             nn_service_addr,
             pred_channel,
             rollout_gamma,
-            c_visit=c_visit,
-            c_scale=c_scale,
-            all_at_least_once=all_at_least_once,
-            base_count=base_count,
-            floor_count=floor_count,
-            keep_frac=keep_frac,
+            improved_halving=improved_halving,
+            puct_free=puct_free,
             n_threads=n_threads,
             pruning_tree=pruning_tree,
             debug_prints=debug_prints,

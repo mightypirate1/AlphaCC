@@ -172,17 +172,21 @@ impl<B: BoardEncoding + GameVisual + 'static, R: GameRenderer<Coord = B::Coord>>
         if player == 1 { &self.config.p1 } else { &self.config.p2 }
     }
 
-    fn mcts_params(&self) -> alpha_cc_mcts::MCTSParams {
-        alpha_cc_mcts::MCTSParams {
-            gamma: self.config.gamma,
+    fn mcts_gamma(&self) -> f32 { self.config.gamma }
+
+    fn sigma_params(&self) -> alpha_cc_mcts::descent::SigmaParams {
+        alpha_cc_mcts::descent::SigmaParams {
             c_visit: self.config.c_visit,
             c_scale: self.config.c_scale,
-            gumbel: alpha_cc_mcts::GumbelParams {
-                all_at_least_once: false,
-                base_count: 16,
-                floor_count: 5,
-                keep_frac: 0.5,
-            },
+        }
+    }
+
+    fn gumbel_params(&self) -> alpha_cc_mcts::GumbelParams {
+        alpha_cc_mcts::GumbelParams {
+            all_at_least_once: false,
+            base_count: 16,
+            floor_count: 5,
+            keep_frac: 0.5,
         }
     }
 
@@ -208,7 +212,9 @@ impl<B: BoardEncoding + GameVisual + 'static, R: GameRenderer<Coord = B::Coord>>
         let ai = AiHandle::new(
             self.config.nn_addr.clone(),
             channel,
-            self.mcts_params(),
+            self.mcts_gamma(),
+            self.sigma_params(),
+            self.gumbel_params(),
             self.config.n_threads,
             self.config.rollout_depth,
             self.config.pruning_tree,

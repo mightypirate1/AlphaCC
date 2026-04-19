@@ -1,24 +1,19 @@
 use alpha_cc_core::cc::CCBoard;
 use alpha_cc_core::Board;
-use alpha_cc_mcts::{MCTS, MCTSParams, GumbelParams};
+use alpha_cc_mcts::{MCTS, GumbelParams};
+use alpha_cc_mcts::descent::{ImprovedPolicyDescent, SigmaParams};
+use alpha_cc_mcts::scheduler::HalvingScheduler;
 use alpha_cc_nn::mock::MockPredictor;
 
-fn default_params() -> MCTSParams {
-    MCTSParams {
-        gamma: 1.0,
-        c_visit: 50.0,
-        c_scale: 1.0,
-        gumbel: GumbelParams {
-            all_at_least_once: false,
-            base_count: 16,
-            floor_count: 5,
-            keep_frac: 0.5,
-        },
-    }
-}
-
-fn make_mcts(predictor: MockPredictor, pruning: bool) -> MCTS<CCBoard, MockPredictor> {
-    MCTS::new(vec![predictor], 0, default_params(), pruning, false)
+fn make_mcts(predictor: MockPredictor, pruning: bool) -> MCTS<CCBoard, MockPredictor, ImprovedPolicyDescent, HalvingScheduler> {
+    let sigma = SigmaParams { c_visit: 50.0, c_scale: 1.0 };
+    let gumbel = GumbelParams {
+        all_at_least_once: false,
+        base_count: 16,
+        floor_count: 5,
+        keep_frac: 0.5,
+    };
+    MCTS::new_improved_halving(vec![predictor], 0, 1.0, sigma, gumbel, pruning, false)
 }
 
 // ──────────────────────────────────────────────────

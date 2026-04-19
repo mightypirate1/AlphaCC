@@ -3,5 +3,5 @@
 pub mod mcts;
 pub mod mcts_node;
 
-pub use mcts::{PyMCTS, PyRolloutResult};
+pub use mcts::{PyImprovedHalvingParams, PyMCTS, PyPuctFreeParams, PyRolloutResult};
 pub use mcts_node::PyMCTSNode;
