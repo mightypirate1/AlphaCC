@@ -134,6 +134,22 @@ where B: Board, T: PredictionSource<B>, D: Descent
         let nn_pred = service.predict(board, model_id);
         let v = nn_pred.expected_value();
         let pi_logits = nn_pred.pi_logits();
+
+        // let mut pi_logits = nn_pred.pi_logits();
+        // // HACK: hardcoded leaf-noise to match master's `--dirichlet-leaf-noise-weight=0.15`.
+        // // Master worked in pi space; we store logits, so softmax → blend → re-log.
+        // // TODO: properly port this as a Descent::on_leaf hook when we decide on semantics.
+        // const LEAF_NOISE_WEIGHT: f32 = 0.15;
+        // const LEAF_NOISE_ALPHA: f32 = 0.15;
+        // if pi_logits.len() > 1 {
+        //     let mut pi = alpha_cc_nn::softmax(&pi_logits);
+        //     let noise = crate::noise::sample_dirichlet(&pi, LEAF_NOISE_ALPHA);
+        //     crate::noise::blend_with_noise(&mut pi, &noise, LEAF_NOISE_WEIGHT);
+        //     for (logit, &p) in pi_logits.iter_mut().zip(pi.iter()) {
+        //         *logit = p.max(1e-12).ln();
+        //     }
+        // }
+
         let num_actions = pi_logits.len();
         let wdl = nn_pred.wdl();
         MCTSNode::new(pi_logits, v, [wdl[0], wdl[1], wdl[2]], num_actions)

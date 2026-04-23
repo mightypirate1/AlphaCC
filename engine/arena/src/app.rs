@@ -14,7 +14,7 @@ use ratatui::Terminal;
 
 use alpha_cc_core::board::{CellContent, Coord};
 use alpha_cc_nn::BoardEncoding;
-use crate::agent::{AiHandle, AiUpdate};
+use crate::agent::{AiHandle, AiUpdate, MctsVariant};
 use crate::game::GameState;
 use crate::input::{self, AppEvent};
 use crate::modal::{TemperatureModal, TemperatureModalWidget};
@@ -32,7 +32,7 @@ use crate::visual::{BoardView, GameVisual};
 #[derive(Clone, PartialEq)]
 pub enum PlayerConfig {
     Human,
-    Ai { channel: u32 },
+    Ai { channel: u32, mcts: MctsVariant },
 }
 
 impl PlayerConfig {
@@ -75,6 +75,13 @@ pub struct AppConfig {
     pub n_threads: usize,
     pub rollout_depth: usize,
     pub gamma: f32,
+    // puct-free params
+    pub c_puct_init: f32,
+    pub c_puct_base: f32,
+    pub temperature: f32,
+    pub dirichlet_weight: f32,
+    pub dirichlet_alpha: f32,
+    // improved-halving params
     pub c_visit: f32,
     pub c_scale: f32,
     pub pruning_tree: bool,
@@ -174,6 +181,26 @@ impl<B: BoardEncoding + GameVisual + 'static, R: GameRenderer<Coord = B::Coord>>
 
     fn mcts_gamma(&self) -> f32 { self.config.gamma }
 
+    fn puct_params(&self) -> alpha_cc_mcts::PuctParams {
+        let dirichlet = if self.config.dirichlet_weight > 0.0 {
+            Some(alpha_cc_mcts::DirichletParams {
+                weight: self.config.dirichlet_weight,
+                alpha: self.config.dirichlet_alpha,
+            })
+        } else {
+            None
+        };
+        alpha_cc_mcts::PuctParams {
+            c_puct_init: self.config.c_puct_init,
+            c_puct_base: self.config.c_puct_base,
+            dirichlet,
+        }
+    }
+
+    fn free_config(&self) -> alpha_cc_mcts::FreeConfig {
+        alpha_cc_mcts::FreeConfig { temperature: self.config.temperature }
+    }
+
     fn sigma_params(&self) -> alpha_cc_mcts::SigmaParams {
         alpha_cc_mcts::SigmaParams {
             c_visit: self.config.c_visit,
@@ -205,14 +232,17 @@ impl<B: BoardEncoding + GameVisual + 'static, R: GameRenderer<Coord = B::Coord>>
     fn ensure_ai(&mut self, player: i8) {
         let slot = if player == 1 { &self.ai_p1 } else { &self.ai_p2 };
         if slot.is_some() { return; }
-        let channel = match self.player_config(player) {
-            PlayerConfig::Ai { channel } => *channel,
+        let (channel, variant) = match self.player_config(player) {
+            PlayerConfig::Ai { channel, mcts } => (*channel, mcts.clone()),
             PlayerConfig::Human => return,
         };
         let ai = AiHandle::new(
             self.config.nn_addr.clone(),
             channel,
             self.mcts_gamma(),
+            variant,
+            self.puct_params(),
+            self.free_config(),
             self.sigma_params(),
             self.gumbel_params(),
             self.config.n_threads,

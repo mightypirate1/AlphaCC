@@ -124,8 +124,8 @@ where B: Board, T: PredictionSource<B>, D: Descent
                 let n_max = (0..num_actions).map(|a| root.get_n(a)).max().unwrap_or(0);
 
                 candidates.sort_by(|&a, &b| {
-                    let sa = gumbels[a] + sigma(root.completed_q(a), root.get_n(a), n_max, c_visit, c_scale);
-                    let sb = gumbels[b] + sigma(root.completed_q(b), root.get_n(b), n_max, c_visit, c_scale);
+                    let sa = gumbels[a] + pi_logits[a] + sigma(root.completed_q(a), root.get_n(a), n_max, c_visit, c_scale);
+                    let sb = gumbels[b] + pi_logits[b] + sigma(root.completed_q(b), root.get_n(b), n_max, c_visit, c_scale);
                     sb.partial_cmp(&sa).unwrap()
                 });
                 drop(root);
