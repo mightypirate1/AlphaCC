@@ -46,6 +46,7 @@ class ExportThread(threading.Thread):
         config: GameConfig,
         onnx_compiled_batch_size: int | None = None,
         summary_writer: SummaryWriter | None = None,
+        save_freq: int = 10,
     ) -> None:
         super().__init__(daemon=True, name="export-thread")
         self._model = model
@@ -54,6 +55,7 @@ class ExportThread(threading.Thread):
         self._config = config
         self._onnx_compiled_batch_size = onnx_compiled_batch_size
         self._summary_writer = summary_writer
+        self._save_freq = save_freq
 
         self._lock = threading.Lock()
         self._idle = threading.Condition(self._lock)
@@ -95,7 +97,7 @@ class ExportThread(threading.Thread):
                     set_latest=True,
                 )
                 self._db.model_set_current(0, curr_index)
-                model_io.save_weights(self._run_id, curr_index, state_dict, onnx_payload)
+                model_io.save_weights(self._run_id, curr_index, state_dict, onnx_payload, save_numbered=curr_index % self._save_freq == 0)
                 logger.info(f"export-thread: published weights {curr_index}")
                 if self._summary_writer is not None:
                     self._summary_writer.add_scalar("trainer/export-index", curr_index, global_step=curr_index)
