@@ -11,10 +11,11 @@ pub struct SigmaParams {
 
 /// σ(q) = (c_visit + N_max) * c_scale * q
 #[inline]
-pub fn sigma(q: f32, _n_a: u32, n_max: u32, c_visit: f32, c_scale: f32) -> f32 {
+pub fn sigma(q_a: f32, n_a: u32, n_max: u32, _c_visit: f32, c_scale: f32) -> f32 {
     // let ratio = if n_max == 0 { 0.0 } else { _n_a as f32 / n_max as f32 };
     // c_scale * (c_visit + ratio) * q
-    (c_visit + n_max as f32) * c_scale * q
+    // (c_visit + n_max as f32) * c_scale * q
+    c_scale * (n_a as f32 / n_max as f32).sqrt() * q_a
 }
 
 pub struct ImprovedPolicyDescent {
