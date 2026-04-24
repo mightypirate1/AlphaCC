@@ -242,17 +242,19 @@ def _display_elo_ranked(console: Console, fit: EloFit) -> None:
     )
 
     table = Table(title="Elo Ratings (Bradley-Terry MLE, mean-anchored)")
-    table.add_column("Rank", justify="right")
     table.add_column("Channel", style="bold")
+    table.add_column("Rank", justify="right")
     table.add_column("Elo", justify="right")
     table.add_column("± SE", justify="right")
     table.add_column("", justify="left", no_wrap=True)
 
-    ranked = fit.ranked()
-    max_abs = max((abs(r) for _, r, _ in ranked), default=1.0) or 1.0
+    rank_of = {ch: r for r, (ch, _, _) in enumerate(fit.ranked(), 1)}
+    max_abs = max((abs(fit.ratings[ch]) for ch in fit.channels), default=1.0) or 1.0
     bar_width = 20
 
-    for rank, (ch, elo, se) in enumerate(ranked, 1):
+    for ch in fit.channels:
+        elo = fit.ratings[ch]
+        se = fit.stderr[ch]
         blocks = int(round(abs(elo) / max_abs * bar_width))
         if elo >= 0:
             bar = " " * bar_width + "█" * blocks + " " * (bar_width - blocks)
@@ -260,7 +262,7 @@ def _display_elo_ranked(console: Console, fit: EloFit) -> None:
         else:
             bar = " " * (bar_width - blocks) + "█" * blocks + " " * bar_width
             bar_cell = f"[red]{bar}[/red]"
-        table.add_row(str(rank), f"ch{ch}", f"{elo:+.0f}", f"{se:.0f}", bar_cell)
+        table.add_row(f"ch{ch}", str(rank_of[ch]), f"{elo:+.0f}", f"{se:.0f}", bar_cell)
 
     console.print(table)
 
