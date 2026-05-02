@@ -228,6 +228,7 @@ class Trainer:
             global_step=self._global_step,
         )
         winners = np.array([data.winner for data in training_datas])
+        timeouts = np.array([data.hit_max_duration for data in training_datas], dtype=bool)
         n_games = max(len(winners), 1)
         self._summary_writer.add_histogram("train-rollouts/winners", winners, global_step=self._global_step)
         self._summary_writer.add_scalar(
@@ -238,6 +239,9 @@ class Trainer:
         )
         self._summary_writer.add_scalar(
             "train-rollouts/frac-draws", (winners == 0).sum() / n_games, global_step=self._global_step
+        )
+        self._summary_writer.add_scalar(
+            "train-rollouts/frac-timeouts", timeouts.sum() / n_games, global_step=self._global_step
         )
 
         #######

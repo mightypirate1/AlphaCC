@@ -46,7 +46,8 @@ class TrainingData:
     internal_nodes: dict[GameState, MCTSNodePy]
     worker_stats: WorkerStats = field(default_factory=WorkerStats.empty)
     search_stats: SearchStatsAccumulator = field(default_factory=SearchStatsAccumulator)
-    winner: int = 0  # 0 = draw/early, 1 = P1, 2 = P2
+    winner: int = 0  # 0 = drawn position, 1 = P1, 2 = P2 (per worst-piece rule on timeout)
+    hit_max_duration: bool = False  # True if the game ended by move-limit, not goal-fill
 
     def __bool__(self) -> bool:
         return bool(self.trajectory)

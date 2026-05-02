@@ -205,7 +205,7 @@ def main(
         # wait until we have enough new samples
         training_datas = await_samples(db, n_train_samples)
         for td in training_datas:
-            if td.winner != 0:
+            if td.winner != 0 and not td.hit_max_duration:
                 db.nn_warmup_increment()
         replay_buffer.add_datas(
             training_datas,

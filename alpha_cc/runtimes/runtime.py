@@ -24,9 +24,9 @@ class RunTime:
         while not board.info.game_over:
             if max_len is not None and board.info.duration >= max_len:
                 if self._config.verbose:
-                    print(f"Draw! Max game length ({max_len}) reached.")  # noqa
+                    print(f"Timeout at {max_len}: winner={board.info.winner} (worst-piece rule)")  # noqa
                 self._agents_on_game_end()
-                return 0
+                return board.info.winner
             agent = self._agent_dict[board.info.current_player]
             agent_index = agent.choose_move(board, training=training)
             move = board.get_moves()[agent_index]

@@ -84,6 +84,7 @@ class TrainingRunTime:
             worker_stats=agent.get_worker_stats(),
             search_stats=search_stats,
             winner=board.info.winner,
+            hit_max_duration=not board.info.game_over,
         )
         agent.on_game_end()
         return training_data
