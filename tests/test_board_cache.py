@@ -68,8 +68,10 @@ def test_cache_valid_through_full_game(size: int) -> None:
             board.info.winner == fresh_w
         ), f"winner mismatch at step {step}: cached={board.info.winner}, fresh={fresh_w}"
 
-        # verify game_over consistent with winner
-        assert board.info.game_over == (board.info.winner > 0)
+        # game_over (goal-fill rule) implies a non-zero winner; the converse is
+        # not true: the worst-piece rule decides a winner mid-game too.
+        if board.info.game_over:
+            assert board.info.winner > 0
 
         # advance
         moves = board.get_moves()

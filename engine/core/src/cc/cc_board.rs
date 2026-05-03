@@ -167,20 +167,17 @@ impl CCBoard {
         hasher.finish()
     }
 
-    pub fn compute_wdl_and_winner(&self) -> (WDL, i8) {
+    pub fn compute_wdl_and_winner(&self) -> (WDL, i8, bool) {
         /*
-        Compute WDL (win/draw/loss) and winner for a board state.
+        Compute (WDL, winner, game_over) for a board state.
 
-        For terminal states:
-            Winner determined, WDL is one-hot from current player's perspective.
+        Terminal (goal-fill rule): the player who has all goal cells filled
+        with at least one own piece in the opponent's home wins. game_over=true.
 
-        For non-terminal states:
-            P(win) and P(loss) scale with how many pieces each player has landed
-            in the goal. P(draw) scales with the unresolved portion.
+        Detects stalling by ruling games as a loss for the stalling player.
          */
         let s = self.size;
         let hs = self.home_size;
-        let cap = self.home_capacity as f32;
 
         let mut n_p1_stones_in_p2_home: i32 = 0;
         let mut goal_is_full: bool = true;
@@ -200,7 +197,7 @@ impl CCBoard {
         }
         // p1 wins (current player)
         if goal_is_full && n_p1_stones_in_p2_home > 0 {
-            return (WDL::win(), self.current_player);
+            return (WDL::win(), self.current_player, true);
         }
 
         let mut n_p2_stones_in_p1_home: i32 = 0;
@@ -221,28 +218,48 @@ impl CCBoard {
         }
         // p2 wins (opponent)
         if goal_is_full && n_p2_stones_in_p1_home > 0 {
-            return (WDL::loss(), 3 - self.current_player);
+            return (WDL::loss(), 3 - self.current_player, true);
         }
 
-        // Non-terminal: heuristic WDL from current player's perspective.
-        // Draw is high when the game is early (low avg) and close (low gap).
-        // Win/loss split the decisive portion proportionally to progress.
-        let my_progress = n_p1_stones_in_p2_home as f32 / cap;
-        let their_progress = n_p2_stones_in_p1_home as f32 / cap;
-        let avg = (my_progress + their_progress) / 2.0;
-        let gap = (my_progress - their_progress).abs();
-        let draw = (1.0 - avg) * (1.0 - gap);
-        let decisive = my_progress + their_progress;
-        let wdl = if decisive > 0.0 {
-            WDL {
-                win: (1.0 - draw) * my_progress / decisive,
-                draw,
-                loss: (1.0 - draw) * their_progress / decisive,
+        // If game is not conclusively over: apply "best straggler" rule.
+        // Each player's worst piece is the one with the lowest progress toward
+        // their target. Whoever's worst piece has advanced further wins; equal
+        // worst-progress is a draw.
+        //
+        // This is one of many possible ways of addressing what seems to be a
+        // flaw in the original rules for comptetitive play: walling is a legit
+        // and unbeatable stalling strategy, and the agent will eventually
+        // learn that. Play at that point the game becomes nonsense. In a
+        // living room situation, that is a flipped table and a ruined vibe.
+        // Thus we avoid that by adding a rule that makes walling a losing
+        // strategy.
+        let mut my_worst: i32 = i32::MAX;
+        let mut their_worst: i32 = i32::MAX;
+        let bound = 2 * (s as i32 - 1);
+        for x in 0..s {
+            for y in 0..s {
+                let coord = HexCoord::new(x, y, self.size);
+                match self.get_content(&coord) {
+                    1 => {
+                        let prog = x as i32 + y as i32;
+                        if prog < my_worst { my_worst = prog; }
+                    }
+                    2 => {
+                        let prog = bound - (x as i32 + y as i32);
+                        if prog < their_worst { their_worst = prog; }
+                    }
+                    _ => {}
+                }
             }
+        }
+
+        if my_worst > their_worst {
+            (WDL::win(), self.current_player, false)
+        } else if my_worst < their_worst {
+            (WDL::loss(), 3 - self.current_player, false)
         } else {
-            WDL { win: 0.0, draw: 1.0, loss: 0.0 }
-        };
-        (wdl, 0)
+            (WDL::draw(), 0, false)
+        }
     }
 
     #[allow(clippy::needless_range_loop)]
@@ -383,14 +400,14 @@ impl CCBoard {
     }
 
     pub fn get_info(&self) -> BoardInfo {
-        let (wdl, winner) = self.compute_wdl_and_winner();
+        let (wdl, winner, game_over) = self.compute_wdl_and_winner();
         BoardInfo {
             current_player: self.current_player,
             winner,
             wdl,
             size: self.size,
             duration: self.duration,
-            game_over: winner > 0,
+            game_over,
         }
     }
 }

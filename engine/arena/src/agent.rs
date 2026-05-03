@@ -3,8 +3,20 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use alpha_cc_nn::{BoardEncoding, NNQuantizedPi};
-use alpha_cc_mcts::{MCTS, MCTSParams};
+use alpha_cc_nn::BoardEncoding;
+use alpha_cc_mcts::{
+    FreeConfig, FreeScheduler, GumbelParams, HalvingScheduler, ImprovedPolicyDescent,
+    MCTSNode, PuctDescent, PuctParams, RolloutResult, Scheduler, SigmaParams,
+};
+
+/// Which MCTS algorithm an AI player uses.
+#[derive(Clone, PartialEq)]
+pub enum MctsVariant {
+    /// PUCT descent with free parallel rollouts.
+    PuctFree,
+    /// Gumbel top-k with sequential halving.
+    ImprovedHalving,
+}
 
 /// Raw NN output for a position.
 #[derive(Clone, Default)]
@@ -51,10 +63,16 @@ pub struct AiHandle<B: BoardEncoding> {
 }
 
 impl<B: BoardEncoding + 'static> AiHandle<B> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         nn_addr: String,
         model_id: u32,
-        params: MCTSParams,
+        gamma: f32,
+        variant: MctsVariant,
+        puct: PuctParams,
+        free: FreeConfig,
+        sigma: SigmaParams,
+        gumbel: GumbelParams,
         n_threads: usize,
         rollout_depth: usize,
         pruning_tree: bool,
@@ -72,7 +90,8 @@ impl<B: BoardEncoding + 'static> AiHandle<B> {
 
         let handle = thread::spawn(move || {
             ai_thread(
-                &nn_addr, model_id, params, n_threads, rollout_depth, pruning_tree,
+                &nn_addr, model_id, gamma, variant, puct, free, sigma, gumbel,
+                n_threads, rollout_depth, pruning_tree,
                 shared_clone, update_tx,
             );
         });
@@ -103,13 +122,70 @@ impl<B: BoardEncoding + 'static> AiHandle<B> {
     }
 }
 
+// ── Type-erased scheduler runner ──
+
+enum MctsRunner<B: BoardEncoding> {
+    PuctFree(FreeScheduler<B, alpha_cc_nn_service::NNRemote<B>, PuctDescent>),
+    ImprovedHalving(HalvingScheduler<B, alpha_cc_nn_service::NNRemote<B>, ImprovedPolicyDescent>),
+}
+
+impl<B: BoardEncoding> MctsRunner<B> {
+    #[allow(clippy::too_many_arguments)]
+    fn build(
+        services: Vec<alpha_cc_nn_service::NNRemote<B>>,
+        model_id: u32,
+        gamma: f32,
+        variant: MctsVariant,
+        puct: PuctParams,
+        free: FreeConfig,
+        sigma: SigmaParams,
+        gumbel: GumbelParams,
+        pruning_tree: bool,
+    ) -> Self {
+        match variant {
+            MctsVariant::PuctFree => MctsRunner::PuctFree(
+                FreeScheduler::build_puct_free(services, model_id, gamma, puct, free, pruning_tree, false),
+            ),
+            MctsVariant::ImprovedHalving => MctsRunner::ImprovedHalving(
+                HalvingScheduler::build_improved_halving(services, model_id, gamma, sigma, gumbel, pruning_tree, false),
+            ),
+        }
+    }
+
+    fn notify_move_applied(&self, board: &B) {
+        match self {
+            MctsRunner::PuctFree(s) => s.mcts().notify_move_applied(board),
+            MctsRunner::ImprovedHalving(s) => s.mcts().notify_move_applied(board),
+        }
+    }
+
+    fn run(&self, board: &B, n: usize, depth: usize) -> RolloutResult {
+        match self {
+            MctsRunner::PuctFree(s) => s.run(board, n, depth),
+            MctsRunner::ImprovedHalving(s) => s.run(board, n, depth),
+        }
+    }
+
+    fn get_node_snapshot(&self, board: &B) -> Option<MCTSNode> {
+        match self {
+            MctsRunner::PuctFree(s) => s.mcts().get_node_snapshot(board),
+            MctsRunner::ImprovedHalving(s) => s.mcts().get_node_snapshot(board),
+        }
+    }
+}
+
 // ── AI thread ──
 
 #[allow(clippy::too_many_arguments)]
 fn ai_thread<B: BoardEncoding>(
     nn_addr: &str,
     model_id: u32,
-    params: MCTSParams,
+    gamma: f32,
+    variant: MctsVariant,
+    puct: PuctParams,
+    free: FreeConfig,
+    sigma: SigmaParams,
+    gumbel: GumbelParams,
     n_threads: usize,
     rollout_depth: usize,
     pruning_tree: bool,
@@ -120,7 +196,7 @@ fn ai_thread<B: BoardEncoding>(
     let services: Vec<_> = (0..n)
         .map(|_| alpha_cc_nn_service::NNRemote::<B>::connect(nn_addr))
         .collect();
-    let mcts = MCTS::new(services, model_id, params, pruning_tree, false);
+    let mcts = MctsRunner::build(services, model_id, gamma, variant, puct, free, sigma, gumbel, pruning_tree);
     let rollouts_per_batch = n_threads.max(1);
     let mut last_board_hash: u64 = 0;
     let mut total_rollouts: usize = 0;
@@ -144,12 +220,12 @@ fn ai_thread<B: BoardEncoding>(
             total_rollouts = 0;
         }
 
-        let result = mcts.run_rollout_threads(&board, rollouts_per_batch, rollout_depth, 1.0);
+        let result = mcts.run(&board, rollouts_per_batch, rollout_depth);
         total_rollouts += rollouts_per_batch;
 
         let nn = match mcts.get_node_snapshot(&board) {
             Some(node) => NNData {
-                pi: NNQuantizedPi::dequantize_vec(&node.pi),
+                pi: alpha_cc_nn::softmax(&node.pi_logits),
                 value: node.v.dequantize(),
             },
             None => NNData::default(),

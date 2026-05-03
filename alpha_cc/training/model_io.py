@@ -58,16 +58,15 @@ def load_weights(run_id: str, index: int) -> dict[str, Any]:
     return torch.load(path, weights_only=True)
 
 
-def save_weights(run_id: str, curr_index: int, weights: dict[str, Any], onnx_payload: bytes) -> None:
-    path = save_path(run_id, curr_index)
+def save_weights(run_id: str, curr_index: int, weights: dict[str, Any], onnx_payload: bytes, *, save_numbered: bool = True) -> None:
     latest_path = save_path_latest(run_id)
-    onnx_path = save_path(run_id, curr_index, ext="onnx")
     onnx_latest_path = save_path_latest(run_id, ext="onnx")
-    Path(path).parent.mkdir(exist_ok=True, parents=True)
+    Path(latest_path).parent.mkdir(exist_ok=True, parents=True)
     torch.save(weights, latest_path)
-    torch.save(weights, path)
     Path(onnx_latest_path).write_bytes(onnx_payload)
-    Path(onnx_path).write_bytes(onnx_payload)
+    if save_numbered:
+        torch.save(weights, save_path(run_id, curr_index))
+        Path(save_path(run_id, curr_index, ext="onnx")).write_bytes(onnx_payload)
 
 
 def load_saved_checkpoint(run_id: str) -> TrainingCheckpoint | None:

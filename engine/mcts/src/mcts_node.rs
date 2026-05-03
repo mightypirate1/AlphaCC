@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicI32, AtomicU32, Ordering::Relaxed};
 
 use alpha_cc_core::WDL;
-use alpha_cc_nn::{NNQuantizedPi, NNQuantizedValue, NNQuantizedWDL};
+use alpha_cc_nn::{NNQuantizedValue};
 
 use crate::outcome::Outcome;
 
@@ -13,9 +13,9 @@ const W_SCALE: f32 = 65536.0;
 /// Moves are not stored — regenerate via `find_all_moves(board)` when needed.
 pub struct MCTSNode {
 
-    pub pi: Vec<NNQuantizedPi>,
+    pub pi_logits: Vec<f32>,
     pub v: NNQuantizedValue,
-    pub nn_wdl: NNQuantizedWDL,
+    pub nn_wdl: [f32; 3],
     pub n: Vec<AtomicU32>,
     pub w: Vec<AtomicI32>,
     /// Empirical WDL outcome counters (ticked by rollouts that reach terminals).
@@ -33,9 +33,9 @@ impl Clone for MCTSNode {
 }
 
 impl MCTSNode {
-    pub fn new(pi: Vec<f32>, v: f32, nn_wdl: NNQuantizedWDL, num_actions: usize) -> Self {
+    pub fn new(pi_logits: Vec<f32>, v: f32, nn_wdl: [f32; 3], num_actions: usize) -> Self {
         Self {
-            pi: NNQuantizedPi::quantize_vec(&pi),
+            pi_logits,
             v: NNQuantizedValue::quantize(v),
             nn_wdl,
             n: (0..num_actions).map(|_| AtomicU32::new(0)).collect(),
@@ -50,7 +50,7 @@ impl MCTSNode {
     /// Create an owned snapshot (cloning atomic values).
     pub fn snapshot(&self) -> Self {
         MCTSNode {
-            pi: self.pi.clone(),
+            pi_logits: self.pi_logits.clone(),
             v: self.v,
             nn_wdl: self.nn_wdl,
             n: self.n.iter().map(|a| AtomicU32::new(a.load(Relaxed))).collect(),
@@ -64,9 +64,9 @@ impl MCTSNode {
 
     /// Estimated heap bytes for this node (for memory diagnostics).
     pub fn estimated_bytes(&self) -> usize {
-        let n_actions = self.pi.len();
+        let n_actions = self.pi_logits.len();
         std::mem::size_of::<Self>()
-            + n_actions * std::mem::size_of::<NNQuantizedPi>()
+            + n_actions * std::mem::size_of::<f32>()
             + n_actions * std::mem::size_of::<AtomicU32>()
             + n_actions * std::mem::size_of::<AtomicI32>()
     }
@@ -82,7 +82,7 @@ impl MCTSNode {
 
     /// Bayesian-blended WDL: NN prior (pseudo-count 1) mixed with empirical counts.
     pub fn blended_wdl(&self) -> WDL {
-        let nn = self.nn_wdl.dequantize();
+        let nn = self.nn_wdl;
         let nw = self.n_win.load(Relaxed) as f32;
         let nd = self.n_draw.load(Relaxed) as f32;
         let nl = self.n_loss.load(Relaxed) as f32;
@@ -96,7 +96,7 @@ impl MCTSNode {
 
     #[inline]
     pub fn num_actions(&self) -> usize {
-        self.pi.len()
+        self.pi_logits.len()
     }
 
     #[inline]
@@ -106,9 +106,54 @@ impl MCTSNode {
         self.w[action].load(Relaxed) as f32 / (n as f32 * W_SCALE)
     }
 
+    /// Paper's v_mix: interpolates value-net scalar with prior-weighted
+    /// average of visited Q values. Used as the fallback for unvisited
+    /// actions in completed_q.
     #[inline]
-    pub fn get_pi(&self, action: usize) -> f32 {
-        self.pi[action].dequantize()
+    pub fn v_mix(&self) -> f32 {
+        let total_n = self.total_visits() as f32;
+        if total_n == 0.0 {
+            return self.get_v();
+        }
+
+        let pi = alpha_cc_nn::softmax(&self.pi_logits);
+
+        let mut visited_pi_sum = 0.0;
+        let mut visited_pi_q_sum = 0.0;
+        for a in 0..self.num_actions() {
+            if self.get_n(a) > 0 {
+                visited_pi_sum += pi[a];
+                visited_pi_q_sum += pi[a] * self.get_q(a);
+            }
+        }
+
+        if visited_pi_sum < 1e-8 {
+            return self.get_v();
+        }
+
+        let weighted_q = visited_pi_q_sum / visited_pi_sum;
+        (self.get_v() + total_n * weighted_q) / (1.0 + total_n)
+    }
+
+    /// Softmaxed prior probabilities (derived from stored logits).
+    /// Allocates a fresh vector each call.
+    #[inline]
+    pub fn pi_softmax(&self) -> Vec<f32> {
+        alpha_cc_nn::softmax(&self.pi_logits)
+    }
+
+    #[inline]
+    pub fn completed_qs(&self) -> Vec<f32> {
+        (0..self.num_actions()).map(|a| self.completed_q(a)).collect()
+    }
+
+    #[inline]
+    pub fn completed_q(&self, action: usize) -> f32 {
+        if self.get_n(action) == 0 {
+            self.v_mix()
+        } else {
+            self.get_q(action)
+        }
     }
 
     #[inline]

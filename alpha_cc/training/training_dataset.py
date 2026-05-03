@@ -168,6 +168,7 @@ class TrainingDataset(Dataset):
         writer.add_scalar("per/frac-terminal-sampled", is_terminal.mean(), global_step=step)
         writer.add_histogram("per/priority", priority, global_step=step)
         writer.add_histogram("per/kl-div-buffer", kl, global_step=step)
+        writer.add_scalar("per/kl-div-buffer-mean", kl.mean(), global_step=step)
         writer.add_histogram("per/td-error-buffer", td, global_step=step)
 
     def update_priorities(self, indices: np.ndarray, kl_divs: np.ndarray, td_errors: np.ndarray) -> None:

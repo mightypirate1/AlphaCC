@@ -228,6 +228,7 @@ class Trainer:
             global_step=self._global_step,
         )
         winners = np.array([data.winner for data in training_datas])
+        timeouts = np.array([data.hit_max_duration for data in training_datas], dtype=bool)
         n_games = max(len(winners), 1)
         self._summary_writer.add_histogram("train-rollouts/winners", winners, global_step=self._global_step)
         self._summary_writer.add_scalar(
@@ -238,6 +239,9 @@ class Trainer:
         )
         self._summary_writer.add_scalar(
             "train-rollouts/frac-draws", (winners == 0).sum() / n_games, global_step=self._global_step
+        )
+        self._summary_writer.add_scalar(
+            "train-rollouts/frac-timeouts", timeouts.sum() / n_games, global_step=self._global_step
         )
 
         #######
@@ -262,6 +266,11 @@ class Trainer:
         if worker_stats_list:
             self._report_worker_stats(worker_stats_list)
 
+        #######
+        ### mcts search stats
+        #####
+        self._report_search_stats(training_datas)
+
     def _report_worker_stats(self, stats_list: list[WorkerStats]) -> None:
         if self._summary_writer is None:
             return
@@ -270,10 +279,23 @@ class Trainer:
 
         if total_fetches > 0:
             self._summary_writer.add_scalar(
-                "worker/mean-fetch-latency-ms",
+                "mcts/mean-fetch-latency-ms",
                 (total_fetch_time_us / total_fetches) / 1000.0,
                 global_step=self._global_step,
             )
+
+    def _report_search_stats(self, training_datas: list[TrainingData]) -> None:
+        if self._summary_writer is None:
+            return
+        merged: dict[str, list[np.ndarray]] = {}
+        for td in training_datas:
+            for key, arr in td.search_stats.as_arrays().items():
+                if arr.size > 0:
+                    merged.setdefault(key, []).append(arr)
+        for key, arrays in merged.items():
+            data = np.concatenate(arrays)
+            self._summary_writer.add_scalar(f"mcts/{key}-mean", data.mean(), global_step=self._global_step)
+            self._summary_writer.add_histogram(f"mcts/{key}", data, global_step=self._global_step)
 
     def _update_nn(self, dataset: TrainingDataset) -> tuple[np.ndarray, np.ndarray]:
         self._reset_gradient_stats()
@@ -387,7 +409,7 @@ class Trainer:
         test_dataloader = DataLoader(
             test_data,
             batch_size=self._batch_size,
-            drop_last=True,
+            drop_last=False,
             pin_memory=self._device.type == "cuda",
             num_workers=self._num_dataloader_workers,
             prefetch_factor=3 if self._num_dataloader_workers > 0 else None,

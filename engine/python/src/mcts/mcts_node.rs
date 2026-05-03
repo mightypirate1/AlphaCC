@@ -26,9 +26,14 @@ impl PyMCTSNode {
         (0..self.0.num_actions()).map(|a| self.0.get_q(a)).collect()
     }
 
+    #[getter(pi_logits)]
+    fn get_pi_logits_py(&self) -> Vec<f32> {
+        self.0.pi_logits.clone()
+    }
+
     #[getter(pi)]
     fn get_pi_py(&self) -> Vec<f32> {
-        alpha_cc_nn::NNQuantizedPi::dequantize_vec(&self.0.pi)
+        alpha_cc_nn::softmax(&self.0.pi_logits)
     }
 
     #[getter(v)]

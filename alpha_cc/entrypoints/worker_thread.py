@@ -15,7 +15,7 @@ from alpha_cc.agents.value_assignment import (
 )
 from alpha_cc.config import Environment
 from alpha_cc.db import GamesDB, TrainingDB
-from alpha_cc.engine import Board, GameConfig
+from alpha_cc.engine import Board, GameConfig, ImprovedHalvingParams, PuctFreeParams
 from alpha_cc.logs import init_rootlogger
 from alpha_cc.runtimes.tournament_runtime import TournamentRuntime
 from alpha_cc.runtimes.training_runtime import TrainingRunTime
@@ -30,8 +30,25 @@ logger = logging.getLogger(__file__)
 @click.option("--rollout-depth", type=str, default="100")
 @click.option("--max-game-length", type=str)
 @click.option("--rollout-gamma", type=float, default=1.0)
-@click.option("--dirichlet-noise-weight", type=float, default=0.0)
-@click.option("--dirichlet-leaf-noise-weight", type=str, default="0.0")
+@click.option(
+    "--mcts-variant",
+    type=click.Choice(["puct_free", "improved_halving"]),
+    default="puct_free",
+    help="Which MCTS flavour: PUCT descent + free parallel rollouts, or improved-policy descent + sequential halving.",
+)
+# improved_halving options
+@click.option("--c-visit", type=float, default=50.0, help="σ transform: (c_visit + N_max) * c_scale * Q")
+@click.option("--c-scale", type=float, default=1.0, help="σ transform scaling factor")
+@click.option("--all-at-least-once", is_flag=True, default=False, help="Run one rollout per action before halving")
+@click.option("--base-count", type=int, default=16, help="Initial candidate count for sequential halving")
+@click.option("--floor-count", type=int, default=5, help="Minimum candidates kept during halving")
+@click.option("--keep-frac", type=float, default=0.5, help="Fraction of candidates kept each halving round")
+# puct_free options (defaults match master's compose.yaml)
+@click.option("--c-puct-init", type=float, default=2.0, help="Initial PUCT exploration constant")
+@click.option("--c-puct-base", type=float, default=10000.0, help="PUCT exploration log-scaling base")
+@click.option("--dirichlet-weight", type=float, default=0.15, help="Root dirichlet noise blend weight (0 = disabled)")
+@click.option("--dirichlet-alpha", type=float, default=0.15, help="Root dirichlet concentration")
+@click.option("--puct-temperature", type=float, default=1.0, help="Temperature for visit-count pi in FreeScheduler")
 @click.option("--argmax-delay", type=str, default=None)
 @click.option("--action-temperature", type=str, default="1.0")
 @click.option("--heuristic", is_flag=True, default=False)
@@ -56,8 +73,18 @@ def main(
     rollout_depth: str,
     max_game_length: str | None,
     rollout_gamma: float,
-    dirichlet_noise_weight: float,
-    dirichlet_leaf_noise_weight: str,
+    mcts_variant: str,
+    c_visit: float,
+    c_scale: float,
+    all_at_least_once: bool,
+    base_count: int,
+    floor_count: int,
+    keep_frac: float,
+    c_puct_init: float,
+    c_puct_base: float,
+    dirichlet_weight: float,
+    dirichlet_alpha: float,
+    puct_temperature: float,
     argmax_delay: str | None,
     action_temperature: str,
     heuristic: bool,
@@ -75,15 +102,42 @@ def main(
     debug_prints: bool,
     verbose: bool,
 ) -> None:
+    def build_mcts_params() -> tuple[ImprovedHalvingParams | None, PuctFreeParams | None]:
+        if mcts_variant == "improved_halving":
+            return (
+                ImprovedHalvingParams(
+                    c_visit=c_visit,
+                    c_scale=c_scale,
+                    all_at_least_once=all_at_least_once,
+                    base_count=base_count,
+                    floor_count=floor_count,
+                    keep_frac=keep_frac,
+                ),
+                None,
+            )
+        if mcts_variant == "puct_free":
+            return (
+                None,
+                PuctFreeParams(
+                    c_puct_init=c_puct_init,
+                    c_puct_base=c_puct_base,
+                    dirichlet_weight=dirichlet_weight,
+                    dirichlet_alpha=dirichlet_alpha,
+                    temperature=puct_temperature,
+                ),
+            )
+        raise ValueError(f"unknown mcts_variant={mcts_variant!r}")
+
     def create_model(channel: int, trainer_time: int, dummy_preds: bool) -> MCTSAgent:
+        improved_halving, puct_free = build_mcts_params()
         return MCTSAgent(
             nn_service_addr=Environment.nn_service_addr,
             pred_channel=channel,
             n_rollouts=n_rollouts_schedule.as_int(trainer_time),
             rollout_depth=rollout_depth_schedule.as_int(trainer_time),
             rollout_gamma=rollout_gamma,
-            dirichlet_weight=dirichlet_noise_weight,
-            dirichlet_leaf_weight=dirichlet_leaf_noise_weight_schedule.as_float(trainer_time),
+            improved_halving=improved_halving,
+            puct_free=puct_free,
             n_threads=n_threads,
             pruning_tree=pruning_tree,
             debug_prints=debug_prints,
@@ -97,7 +151,6 @@ def main(
     action_temperature_schedule = ParamSchedule.from_str(action_temperature)
     internal_nodes_fraction_schedule = ParamSchedule.from_str(internal_nodes_fraction)
     internal_nodes_min_visits_schedule = ParamSchedule.from_str(internal_nodes_min_visits)
-    dirichlet_leaf_noise_weight_schedule = ParamSchedule.from_str(dirichlet_leaf_noise_weight)
 
     init_rootlogger(verbose=verbose)
     create_and_register_signal_handler()

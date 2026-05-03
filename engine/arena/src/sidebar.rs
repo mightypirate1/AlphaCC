@@ -55,10 +55,16 @@ impl<B: Board> Widget for MoveListWidget<'_, B> {
 
 pub struct EvalBarWidget {
     pub value: f32,
-    #[allow(dead_code)]
     pub rollouts: usize,
     pub visible: bool,
     pub braille: bool,
+}
+
+fn fmt_rollouts(n: usize) -> String {
+    if n == 0 { return String::new(); }
+    if n < 1_000 { format!("{n}") }
+    else if n < 1_000_000 { format!("{}k", n / 1_000) }
+    else { format!("{}M", n / 1_000_000) }
 }
 
 impl Widget for EvalBarWidget {
@@ -67,7 +73,9 @@ impl Widget for EvalBarWidget {
             return;
         }
 
+        let rollout_label = fmt_rollouts(self.rollouts);
         let block = Block::default()
+            .title_bottom(rollout_label)
             .borders(Borders::ALL)
             .border_set(theme::BORDER)
             .border_style(Style::default().fg(theme::UI));

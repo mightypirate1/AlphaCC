@@ -3,7 +3,6 @@ use std::sync::Mutex;
 use rand::RngExt;
 
 use alpha_cc_nn::BoardEncoding;
-use alpha_cc_nn::inference_utils::softmax;
 use alpha_cc_nn::NNPred;
 use crate::client::PredictClient;
 use crate::io;
@@ -68,9 +67,7 @@ impl<B: BoardEncoding> NNRemote<B> {
                         log::info!("[NNRemote] recovered after {attempt} retries (model_id={model_id})");
                     }
                     let (pi_logits, wdl_logits) = io::decode_response(&resp);
-                    let pi = softmax(&pi_logits);
-                    let wdl_sm = softmax(&wdl_logits);
-                    return NNPred::new(pi, [wdl_sm[0], wdl_sm[1], wdl_sm[2]]);
+                    return NNPred::new(&pi_logits, wdl_logits);
                 }
                 Err(e) => {
                     attempt += 1;

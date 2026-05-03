@@ -20,6 +20,7 @@ from alpha_cc.nn.nets.default_net import DefaultNet
 from alpha_cc.proto import predict_pb2, predict_pb2_grpc
 from alpha_cc.runtimes.runtime import RunTime
 from alpha_cc.runtimes.runtime_config import RunTimeConfig
+from alpha_cc.utils.elo import EloFit, fit_elo
 
 # ---------------------------------------------------------------------------
 # gRPC helpers
@@ -231,6 +232,63 @@ def _display_pairwise(console: Console, results: TournamentResults) -> None:
         "Draw Rate (row as White vs col as Black)",
         lambda wins, losses, draws: (draws, wins + losses + draws),
     )
+
+
+def _display_elo_ranked(console: Console, fit: EloFit) -> None:
+    console.print(
+        f"[bold]White advantage:[/bold] "
+        f"{fit.white_advantage:+.0f} ± {fit.white_advantage_stderr:.0f} Elo  "
+        f"[dim]({fit.n_games} games)[/dim]"
+    )
+
+    table = Table(title="Elo Ratings (Bradley-Terry MLE, mean-anchored)")
+    table.add_column("Channel", style="bold")
+    table.add_column("Rank", justify="right")
+    table.add_column("Elo", justify="right")
+    table.add_column("± SE", justify="right")
+    table.add_column("", justify="left", no_wrap=True)
+
+    rank_of = {ch: r for r, (ch, _, _) in enumerate(fit.ranked(), 1)}
+    max_abs = max((abs(fit.ratings[ch]) for ch in fit.channels), default=1.0) or 1.0
+    bar_width = 20
+
+    for ch in fit.channels:
+        elo = fit.ratings[ch]
+        se = fit.stderr[ch]
+        blocks = int(round(abs(elo) / max_abs * bar_width))
+        if elo >= 0:
+            bar = " " * bar_width + "█" * blocks + " " * (bar_width - blocks)
+            bar_cell = f"[green]{bar}[/green]"
+        else:
+            bar = " " * (bar_width - blocks) + "█" * blocks + " " * bar_width
+            bar_cell = f"[red]{bar}[/red]"
+        table.add_row(f"ch{ch}", str(rank_of[ch]), f"{elo:+.0f}", f"{se:.0f}", bar_cell)
+
+    console.print(table)
+
+
+def _display_elo_diff_matrix(console: Console, fit: EloFit) -> None:
+    table = Table(title="Pairwise Elo Difference (row − col, ± 1σ — bold = |Δ| > 2σ)")
+    table.add_column("", style="bold")
+    for ch in fit.channels:
+        table.add_column(f"ch{ch}", justify="center")
+
+    for row_ch in fit.channels:
+        cells: list[str] = []
+        for col_ch in fit.channels:
+            if row_ch == col_ch:
+                cells.append("---")
+                continue
+            d, se = fit.diff(row_ch, col_ch)
+            text = f"{d:+.0f} ± {se:.0f}"
+            if se > 0 and abs(d) > 2 * se:
+                color = "green" if d > 0 else "red"
+                cells.append(f"[bold {color}]{text}[/bold {color}]")
+            else:
+                cells.append(f"[dim]{text}[/dim]")
+        table.add_row(f"ch{row_ch}", *cells)
+
+    console.print(table)
 
 
 def _display_aggregate(console: Console, results: TournamentResults) -> None:
@@ -452,4 +510,10 @@ def run(
     _display_pairwise(console, results)
     console.print()
     _display_aggregate(console, results)
+    console.print()
+    game_tuples = [(r.white_channel, r.black_channel, r.winner) for r in results.results]
+    fit = fit_elo(results.channels, game_tuples)
+    _display_elo_ranked(console, fit)
+    console.print()
+    _display_elo_diff_matrix(console, fit)
     console.print()

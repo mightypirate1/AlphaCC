@@ -61,6 +61,7 @@ checkpoint_lock = threading.Lock()
 @click.option("--onnx-compiled-batch-size-secondary", type=int, default=None)
 @click.option("--stats-gpu", is_flag=True, default=False)
 @click.option("--num-terminal-before-nn", type=int, default=0)
+@click.option("--save-freq", type=int, default=10)
 def main(
     run_id: str,
     game: str,
@@ -90,6 +91,7 @@ def main(
     onnx_compiled_batch_size_secondary: int | None,
     num_terminal_before_nn: int,
     stats_gpu: bool,
+    save_freq: int,
 ) -> None:
     init_rootlogger(verbose=verbose)
     torch._dynamo.config.suppress_errors = True
@@ -190,6 +192,7 @@ def main(
         config=config,
         onnx_compiled_batch_size=onnx_compiled_batch_size,
         summary_writer=summary_writer,
+        save_freq=save_freq,
     )
     export_thread.start()
 
@@ -202,7 +205,7 @@ def main(
         # wait until we have enough new samples
         training_datas = await_samples(db, n_train_samples)
         for td in training_datas:
-            if td.winner != 0:
+            if td.winner != 0 and not td.hit_max_duration:
                 db.nn_warmup_increment()
         replay_buffer.add_datas(
             training_datas,

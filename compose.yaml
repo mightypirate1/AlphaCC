@@ -31,21 +31,22 @@ services:
       start_period: 10s
     command: [
       "alphacc-trainer",
-      "--run-id=april-v8-size9-forza-wdl@7d0e2e0:3/192/greedy",
-      "--size=9",
-      # "--num-terminal-before-nn=10",
+      "--run-id=april-v8-size9-forza3-gumb-dev3:pi_lr=0.1:cscale=60-gamma=1@a7b20e9",
+      "--game=cc:9",
       "--tournament-freq=100",
       "--tournament-num-rounds=10",
       "--n-train-samples=1000",
-      "--replay-buffer-size=200000",
-      "--train-size=15000",
+      # "--replay-buffer-size=200000",
+      "--replay-buffer-size=50000",
+      # "--train-size=15000",
+      "--train-size=10000",
       "--epochs-per-update=1",
       "--per-gamma=0.5",
       "--per-visits-threshold=100",
-      "--per-rank-mode=min",
+      "--per-rank-mode=td",
       "--onnx-compiled-batch-size=192",
       "--onnx-compiled-batch-size-secondary=16",
-      "--policy-weight=1.0",
+      "--policy-weight=0.1",
       "--value-weight=1.0",
       "--entropy-weight=0.01",
       "--l2-reg=3e-4",
@@ -71,7 +72,7 @@ services:
     restart: on-failure
     command: [
       "alphacc-worker",
-      "--size=9",
+      "--game=cc:9",
       "--n-threads=10",
       "--n-rollouts=init=-300,step=1,min=150,max=5000",
       "--rollout-depth=init=-500,step=1,min=20,max=1500",
@@ -79,16 +80,28 @@ services:
       "--max-game-length=init=350,random_add=100",
       # "--internal-nodes-fraction=0.5",  ## <-- don't forget!
       "--internal-nodes-min-visits=init=100,step=0.1,max=1000",
-      "--rollout-gamma=0.99",
-      "--dirichlet-noise-weight=0.15",
-      "--dirichlet-leaf-noise-weight=init=0.15,step=-0.0001,min=0",
-      "--pruning-tree",
-      "--wdl-gamma=0.99",
+      "--rollout-gamma=1.0",  # <- reference: 0.99
+
+      # "--mcts-variant=puct_free",
+      # "--dirichlet-weight=0.15",
+      # "--dirichlet-alpha=0.15",
+
+      # # gumbel rewrite params
+      "--mcts-variant=improved_halving",
+      "--all-at-least-once",
+      "--c-visit=50.0",
+      "--c-scale=60.0",  # 1.0 <- reference
+      "--base-count=32",  # 16 <- reference
+      "--floor-count=5",
+      "--keep-frac=0.5",
+
+      "--wdl-gamma=1.0",  # <- reference: 0.99
       "--wdl-lambda=0.98",
       "--wdl-weight-game=0.0",
       "--wdl-weight-mcts=0.0",
       "--wdl-weight-greedy=1.0",
       "--wdl-smoothing=0.0",
+      # "--pruning-tree",
     ]
 
   nn-service:
@@ -126,7 +139,7 @@ services:
       start_period: 10s
     command: [
       "/app/nn-service", "server",
-      "--game-size=9",
+      "--game=cc:9",
       "--batch-size=192",
       "--fixed-batch-size",
       "--reload-freq=3",
@@ -135,7 +148,7 @@ services:
       "--secondary-batch-size=16",
       "--secondary-max-wait=50",
       "--redis-host=keydb",
-      "--trt",
+      # "--trt",
       "--trt-cache-path=/tmp/trt-cache",
     ]
 

@@ -32,6 +32,13 @@ VENV_SITE=$(../.venv/bin/python3 -c "import site; print(site.getsitepackages()[0
 export LD_LIBRARY_PATH=$(find "$VENV_SITE/nvidia" -name "lib" -type d | tr '\n' ':')${VENV_SITE}/onnxruntime/capi:$LD_LIBRARY_PATH
 ```
 
+> **⚠️ After rebuilding the venv:** `pip install onnxruntime-gpu` does NOT create the unversioned `libonnxruntime.so` symlink that `ort`'s `dlopen` needs. Without it the binary silently falls back to a wrong system library (e.g. Firefox's ORT 1.22) and hangs on CUDA session init. Run this once after every venv rebuild (from `engine/`):
+>
+> ```bash
+> VENV_SITE=$(../.venv/bin/python3 -c "import site; print(site.getsitepackages()[0])")
+> ln -sf libonnxruntime.so.1.24.4 "$VENV_SITE/onnxruntime/capi/libonnxruntime.so"
+> ```
+
 ### Serving static weight files (no Redis)
 
 ```bash
