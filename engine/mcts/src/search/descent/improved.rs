@@ -9,17 +9,11 @@ pub struct SigmaParams {
     pub c_scale: f32,
 }
 
-/// σ(q) = (c_visit + N_max) * c_scale * q
 #[inline]
-pub fn sigma(q_a: f32, n_a: u32, _n_max: u32, _c_visit: f32, c_scale: f32) -> f32 {
-    // let ratio = if n_max == 0 { 0.0 } else { _n_a as f32 / n_max as f32 };
-    // c_scale * (c_visit + ratio) * q
-    // (c_visit + n_max as f32) * c_scale * q
-
-    // dev-2
-    // c_scale * (n_a as f32 / n_max as f32).sqrt() * q_a
-
-    // dev-3
+pub fn sigma(q_a: f32, c_scale: f32) -> f32 {
+    // original paper had:
+    // `σ(q) = (c_visit + N_max) * c_scale * q`
+    // but it was not stable when on a rollout schedule
     c_scale * q_a
 }
 
@@ -41,12 +35,11 @@ impl Descent for ImprovedPolicyDescent {
     /// argmax_a [ π'(a) - N(a) / (1 + Σ N(b)) ] where π' = softmax(logits + σ(completedQ))
     fn select(&self, node: &MCTSNode, _root: Option<&Self::RootState>) -> usize {
         let n_actions = node.num_actions();
-        let n_max = (0..n_actions).map(|a| node.get_n(a)).max().unwrap_or(0);
         let denom = 1.0 + node.total_visits() as f32;
 
         let improved_logits: Vec<f32> = (0..n_actions)
             .map(|a| node.pi_logits[a]
-                + sigma(node.completed_q(a), node.get_n(a), n_max, self.params.c_visit, self.params.c_scale))
+                + sigma(node.completed_q(a), self.params.c_scale))
             .collect();
         let pi_improved = softmax(&improved_logits);
 
@@ -65,13 +58,12 @@ impl Descent for ImprovedPolicyDescent {
     /// Greedy tie-breaker: argmax_a [ logits(a) + σ(completedQ(a)) ]
     fn best_child(&self, node: &MCTSNode) -> usize {
         let n_actions = node.num_actions();
-        let n_max = (0..n_actions).map(|a| node.get_n(a)).max().unwrap_or(0);
         (0..n_actions)
             .max_by(|&a, &b| {
                 let sa = node.pi_logits[a]
-                    + sigma(node.completed_q(a), node.get_n(a), n_max, self.params.c_visit, self.params.c_scale);
+                    + sigma(node.completed_q(a), self.params.c_scale);
                 let sb = node.pi_logits[b]
-                    + sigma(node.completed_q(b), node.get_n(b), n_max, self.params.c_visit, self.params.c_scale);
+                    + sigma(node.completed_q(b), self.params.c_scale);
                 sa.partial_cmp(&sb).unwrap()
             })
             .unwrap_or(0)

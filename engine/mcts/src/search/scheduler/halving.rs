@@ -65,7 +65,6 @@ where B: Board, T: PredictionSource<B>, D: Descent
 
     fn run(&self, board: &B, n_rollouts: usize, rollout_depth: usize) -> RolloutResult {
         let gumbel = &self.config.gumbel;
-        let c_visit = self.config.sigma.c_visit;
         let c_scale = self.config.sigma.c_scale;
 
         self.mcts.ensure_root(board);
@@ -121,11 +120,10 @@ where B: Board, T: PredictionSource<B>, D: Descent
 
             if sim_budget > 0 {
                 let root = self.mcts.tree().get_data(board).unwrap();
-                let n_max = (0..num_actions).map(|a| root.get_n(a)).max().unwrap_or(0);
 
                 candidates.sort_by(|&a, &b| {
-                    let sa = gumbels[a] + pi_logits[a] + sigma(root.completed_q(a), root.get_n(a), n_max, c_visit, c_scale);
-                    let sb = gumbels[b] + pi_logits[b] + sigma(root.completed_q(b), root.get_n(b), n_max, c_visit, c_scale);
+                    let sa = gumbels[a] + pi_logits[a] + sigma(root.completed_q(a), c_scale);
+                    let sb = gumbels[b] + pi_logits[b] + sigma(root.completed_q(b), c_scale);
                     sb.partial_cmp(&sa).unwrap()
                 });
                 drop(root);
@@ -138,10 +136,9 @@ where B: Board, T: PredictionSource<B>, D: Descent
 
         // Compute improved policy target over ALL actions.
         let root = self.mcts.tree().get_data(board).unwrap();
-        let n_max = (0..num_actions).map(|a| root.get_n(a)).max().unwrap_or(0);
 
         let sigma_qs: Vec<f32> = (0..num_actions)
-            .map(|a| sigma(root.completed_q(a), root.get_n(a), n_max, c_visit, c_scale))
+            .map(|a| sigma(root.completed_q(a), c_scale))
             .collect();
         let improved_logits: Vec<f32> = (0..num_actions)
             .map(|a| pi_logits[a] + sigma_qs[a])
